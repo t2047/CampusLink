@@ -91,6 +91,8 @@ jobs:
           MYSQL_URL: jdbc:mysql://localhost:3306/campusLink_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
           MYSQL_USER: root
           MYSQL_PASSWORD: testpass
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_EXPIRATON_MS: "86400000"
         run: mvn verify
 
       - name: Upload Test Report
