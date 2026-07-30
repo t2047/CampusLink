@@ -117,6 +117,8 @@ jobs:
           distribution: 'temurin'
 
       - name: Run OWASP Dependency Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: mvn org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7 || true
         continue-on-error: true
 
