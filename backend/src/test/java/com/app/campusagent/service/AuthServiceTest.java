@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Optional;
 
@@ -254,23 +255,26 @@ class AuthServiceTest {
         private User studentUser;
 
         @BeforeEach
-        void setUp() {
+        void setUp() throws Exception {
             superAdmin = new User("super@campus.com", ENCODED_PASSWORD);
             superAdmin.setRole(Role.SUPER_ADMIN);
+            setId(superAdmin, 1L);
 
             adminUser = new User("admin@campus.com", ENCODED_PASSWORD);
             adminUser.setRole(Role.ADMIN);
+            setId(adminUser, 2L);
 
             studentUser = new User("student@campus.com", ENCODED_PASSWORD);
             studentUser.setRole(Role.STUDENT);
+            setId(studentUser, 3L);
         }
 
         @Test
         @DisplayName("✅ SUPER_ADMIN can change another user's role")
         void shouldAllowSuperAdminToChangeRole() {
-            when(userRepository.findById(2L)).thenReturn(Optional.of(studentUser));
+            when(userRepository.findById(3L)).thenReturn(Optional.of(studentUser));
 
-            UserInfoResponse result = authService.updateUserRole(2L, "ADMIN", superAdmin);
+            UserInfoResponse result = authService.updateUserRole(3L, "ADMIN", superAdmin);
 
             assertThat(result.role()).isEqualTo("ADMIN");
             verify(userRepository).save(argThat(u -> u.getRole() == Role.ADMIN));
@@ -279,12 +283,12 @@ class AuthServiceTest {
         @Test
         @DisplayName("❌ ADMIN cannot change another user's role")
         void shouldDenyAdminFromChangingRole() {
-            when(userRepository.findById(2L)).thenReturn(Optional.of(studentUser));
-
-            assertThatThrownBy(() -> authService.updateUserRole(2L, "ADMIN", adminUser))
+            // updateUserRole checks requester role FIRST → throws before findById is ever called
+            assertThatThrownBy(() -> authService.updateUserRole(3L, "ADMIN", adminUser))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("Only SUPER_ADMIN");
 
+            verify(userRepository, never()).findById(any());
             verify(userRepository, never()).save(any());
         }
 
@@ -311,5 +315,17 @@ class AuthServiceTest {
             assertThat(users).extracting(UserInfoResponse::role)
                     .containsExactly("SUPER_ADMIN", "ADMIN", "STUDENT");
         }
+    }
+
+    // ─────────────────── Helper ───────────────────
+
+    /**
+     * Uses reflection to set the id field on a User object that was created
+     * with new (not persisted), since @GeneratedValue only fires on persistence.
+     */
+    private static void setId(User user, Long id) throws Exception {
+        Field idField = User.class.getDeclaredField("id");
+        idField.setAccessible(true);
+        idField.set(user, id);
     }
 }

@@ -6,7 +6,7 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>4.1.0</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <relativePath/>
     </parent>
     <groupId>com.app</groupId>
     <artifactId>CampusAgent</artifactId>
@@ -26,9 +26,15 @@
         <tag/>
         <url/>
     </scm>
+
     <properties>
         <java.version>21</java.version>
+        <!-- SAST defaults (overridden by profiles) -->
+        <spotbugs.effort>Max</spotbugs.effort>
+        <spotbugs.threshold>Medium</spotbugs.threshold>
+        <skipDependencyCheck>false</skipDependencyCheck>
     </properties>
+
     <dependencies>
         <!-- Spring Security -->
         <dependency>
@@ -119,14 +125,14 @@
 
     <build>
         <plugins>
-            <!-- SpotBugs SAST -->
+            <!-- SpotBugs SAST (effort & threshold controlled via properties) -->
             <plugin>
                 <groupId>com.github.spotbugs</groupId>
                 <artifactId>spotbugs-maven-plugin</artifactId>
                 <version>4.8.6.1</version>
                 <configuration>
-                    <effort>Max</effort>
-                    <threshold>Medium</threshold>
+                    <effort>${spotbugs.effort}</effort>
+                    <threshold>${spotbugs.threshold}</threshold>
                     <xmlOutput>true</xmlOutput>
                 </configuration>
                 <executions>
@@ -135,14 +141,18 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- OWASP Dependency Check -->
+            <!-- OWASP Dependency Check (skippable via skipDependencyCheck) -->
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
                 <version>10.0.4</version>
                 <configuration>
+                    <skip>${skipDependencyCheck}</skip>
                     <failBuildOnCVSS>7</failBuildOnCVSS>
-                    <formats><format>HTML</format><format>JSON</format></formats>
+                    <formats>
+                        <format>HTML</format>
+                        <format>JSON</format>
+                    </formats>
                 </configuration>
             </plugin>
             <!-- Spring Boot -->
@@ -196,5 +206,27 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- ────────────── Scan Profiles ────────────── -->
+    <profiles>
+        <!-- PR / Push: fast incremental scan -->
+        <profile>
+            <id>fast-sast</id>
+            <properties>
+                <spotbugs.effort>Default</spotbugs.effort>
+                <spotbugs.threshold>High</spotbugs.threshold>
+                <skipDependencyCheck>true</skipDependencyCheck>
+            </properties>
+        </profile>
+        <!-- Daily cron: full deep scan (these are the defaults, profile is explicit) -->
+        <profile>
+            <id>full-sast</id>
+            <properties>
+                <spotbugs.effort>Max</spotbugs.effort>
+                <spotbugs.threshold>Medium</spotbugs.threshold>
+                <skipDependencyCheck>false</skipDependencyCheck>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>
