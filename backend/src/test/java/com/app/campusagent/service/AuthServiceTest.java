@@ -1,10 +1,9 @@
 package com.app.campusagent.service;
 
 import com.app.campusagent.config.JwtTokenProvider;
+import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
-import com.app.campusagent.dto.AuthResponse;
-import com.app.campusagent.dto.LoginRequest;
-import com.app.campusagent.dto.RegisterRequest;
+import com.app.campusagent.dto.*;
 import com.app.campusagent.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,8 +13,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
@@ -53,15 +54,33 @@ class AuthServiceTest {
 
             when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
             when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn(ENCODED_PASSWORD);
-            when(jwtTokenProvider.generateToken(EMAIL)).thenReturn(JWT_TOKEN);
+            when(jwtTokenProvider.generateToken(EMAIL, Role.STUDENT.name())).thenReturn(JWT_TOKEN);
 
             AuthResponse response = authService.register(request);
 
             assertThat(response.email()).isEqualTo(EMAIL);
             assertThat(response.token()).isEqualTo(JWT_TOKEN);
+            assertThat(response.role()).isEqualTo(Role.STUDENT.name());
 
             verify(userRepository).save(any(User.class));
             verify(passwordEncoder).encode(RAW_PASSWORD);
+        }
+
+        @Test
+        @DisplayName("✅ Default role must be STUDENT")
+        void shouldDefaultRoleToStudent() {
+            RegisterRequest request = new RegisterRequest();
+            request.setEmail(EMAIL);
+            request.setPassword(RAW_PASSWORD);
+
+            when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
+            when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn(ENCODED_PASSWORD);
+            when(jwtTokenProvider.generateToken(EMAIL, Role.STUDENT.name())).thenReturn(JWT_TOKEN);
+
+            AuthResponse response = authService.register(request);
+
+            assertThat(response.role()).isEqualTo("STUDENT");
+            verify(jwtTokenProvider).generateToken(EMAIL, "STUDENT");
         }
 
         @Test
@@ -90,7 +109,7 @@ class AuthServiceTest {
 
             when(userRepository.existsByEmail(EMAIL)).thenReturn(false);
             when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn(ENCODED_PASSWORD);
-            when(jwtTokenProvider.generateToken(EMAIL)).thenReturn(JWT_TOKEN);
+            when(jwtTokenProvider.generateToken(EMAIL, Role.STUDENT.name())).thenReturn(JWT_TOKEN);
 
             authService.register(request);
 
@@ -124,12 +143,13 @@ class AuthServiceTest {
 
             when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(existingUser));
             when(passwordEncoder.matches(RAW_PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
-            when(jwtTokenProvider.generateToken(EMAIL)).thenReturn(JWT_TOKEN);
+            when(jwtTokenProvider.generateToken(EMAIL, Role.STUDENT.name())).thenReturn(JWT_TOKEN);
 
             AuthResponse response = authService.login(request);
 
             assertThat(response.email()).isEqualTo(EMAIL);
             assertThat(response.token()).isEqualTo(JWT_TOKEN);
+            assertThat(response.role()).isEqualTo(Role.STUDENT.name());
         }
 
         @Test
@@ -146,7 +166,7 @@ class AuthServiceTest {
                     .hasMessageContaining("Invalid email or password");
 
             verify(passwordEncoder, never()).matches(any(), any());
-            verify(jwtTokenProvider, never()).generateToken(any());
+            verify(jwtTokenProvider, never()).generateToken(any(), any());
         }
 
         @Test
@@ -163,13 +183,12 @@ class AuthServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("Invalid email or password");
 
-            verify(jwtTokenProvider, never()).generateToken(any());
+            verify(jwtTokenProvider, never()).generateToken(any(), any());
         }
 
         @Test
         @DisplayName("🔒 Should not leak which credential is wrong (OWASP)")
         void shouldNotLeakWhichCredentialIsWrong() {
-            // Wrong email
             LoginRequest wrongEmail = new LoginRequest();
             wrongEmail.setEmail("wrong@u.nus.edu");
             wrongEmail.setPassword(RAW_PASSWORD);
@@ -177,7 +196,6 @@ class AuthServiceTest {
 
             Throwable e1 = catchThrowable(() -> authService.login(wrongEmail));
 
-            // Wrong password
             LoginRequest wrongPwd = new LoginRequest();
             wrongPwd.setEmail(EMAIL);
             wrongPwd.setPassword("wrong");
@@ -206,7 +224,7 @@ class AuthServiceTest {
 
             when(userRepository.existsByEmail("a@u.nus.edu")).thenReturn(false);
             when(passwordEncoder.encode("pass")).thenReturn(ENCODED_PASSWORD);
-            when(jwtTokenProvider.generateToken("a@u.nus.edu")).thenReturn("token-a");
+            when(jwtTokenProvider.generateToken("a@u.nus.edu", Role.STUDENT.name())).thenReturn("token-a");
 
             AuthResponse resA = authService.register(reqA);
 
@@ -216,12 +234,82 @@ class AuthServiceTest {
 
             when(userRepository.existsByEmail("b@u.nus.edu")).thenReturn(false);
             when(passwordEncoder.encode("pass")).thenReturn(ENCODED_PASSWORD);
-            when(jwtTokenProvider.generateToken("b@u.nus.edu")).thenReturn("token-b");
+            when(jwtTokenProvider.generateToken("b@u.nus.edu", Role.STUDENT.name())).thenReturn("token-b");
 
             AuthResponse resB = authService.register(reqB);
 
             assertThat(resA.token()).isNotEqualTo(resB.token());
             assertThat(resA.email()).isNotEqualTo(resB.email());
+        }
+    }
+
+    // ─────────────────── ADMIN ───────────────────
+
+    @Nested
+    @DisplayName("Admin Operations")
+    class AdminTests {
+
+        private User superAdmin;
+        private User adminUser;
+        private User studentUser;
+
+        @BeforeEach
+        void setUp() {
+            superAdmin = new User("super@campus.com", ENCODED_PASSWORD);
+            superAdmin.setRole(Role.SUPER_ADMIN);
+
+            adminUser = new User("admin@campus.com", ENCODED_PASSWORD);
+            adminUser.setRole(Role.ADMIN);
+
+            studentUser = new User("student@campus.com", ENCODED_PASSWORD);
+            studentUser.setRole(Role.STUDENT);
+        }
+
+        @Test
+        @DisplayName("✅ SUPER_ADMIN can change another user's role")
+        void shouldAllowSuperAdminToChangeRole() {
+            when(userRepository.findById(2L)).thenReturn(Optional.of(studentUser));
+
+            UserInfoResponse result = authService.updateUserRole(2L, "ADMIN", superAdmin);
+
+            assertThat(result.role()).isEqualTo("ADMIN");
+            verify(userRepository).save(argThat(u -> u.getRole() == Role.ADMIN));
+        }
+
+        @Test
+        @DisplayName("❌ ADMIN cannot change another user's role")
+        void shouldDenyAdminFromChangingRole() {
+            when(userRepository.findById(2L)).thenReturn(Optional.of(studentUser));
+
+            assertThatThrownBy(() -> authService.updateUserRole(2L, "ADMIN", adminUser))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Only SUPER_ADMIN");
+
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("❌ Cannot change own role")
+        void shouldNotAllowChangingOwnRole() {
+            when(userRepository.findById(1L)).thenReturn(Optional.of(superAdmin));
+
+            assertThatThrownBy(() -> authService.updateUserRole(1L, "STUDENT", superAdmin))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Cannot change your own role");
+
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("✅ getAllUsers returns all users")
+        void shouldReturnAllUsers() {
+            when(userRepository.findAll()).thenReturn(List.of(superAdmin, adminUser, studentUser));
+
+            List<UserInfoResponse> users = authService.getAllUsers();
+
+            assertThat(users).hasSize(3);
+            assertThat(users).extracting(UserInfoResponse::role)
+                    .containsExactly("SUPER_ADMIN", "ADMIN", "STUDENT");
         }
     }
 }

@@ -23,6 +23,11 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    @Setter
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Role role = Role.STUDENT;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -37,5 +42,4 @@ public class User {
         this.email = email;
         this.password = password;
     }
-
 }
