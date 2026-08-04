@@ -41,6 +41,7 @@ class AuthControllerTest {
     private static final String VALID_EMAIL = "test@u.nus.edu";
     private static final String VALID_PASSWORD = "securePass123";
     private static final String JWT_TOKEN = "eyJhbGciOiJIUzI1NiJ9.mockToken";
+    private static final String ROLE_STUDENT = "STUDENT";
 
     @BeforeEach
     void setUp() {
@@ -61,14 +62,31 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL));
+            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT));
 
             mockMvc.perform(post("/api/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.token").value(JWT_TOKEN))
-                    .andExpect(jsonPath("$.email").value(VALID_EMAIL));
+                    .andExpect(jsonPath("$.email").value(VALID_EMAIL))
+                    .andExpect(jsonPath("$.role").value(ROLE_STUDENT));
+        }
+
+        @Test
+        @DisplayName("✅ Role defaults to STUDENT on registration")
+        void shouldReturnStudentRoleOnRegister() throws Exception {
+            RegisterRequest request = new RegisterRequest();
+            request.setEmail(VALID_EMAIL);
+            request.setPassword(VALID_PASSWORD);
+
+            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, "STUDENT"));
+
+            mockMvc.perform(post("/api/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.role").value("STUDENT"));
         }
 
         @Test
@@ -131,14 +149,15 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL));
+            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT));
 
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.token").value(JWT_TOKEN))
-                    .andExpect(jsonPath("$.email").value(VALID_EMAIL));
+                    .andExpect(jsonPath("$.email").value(VALID_EMAIL))
+                    .andExpect(jsonPath("$.role").value(ROLE_STUDENT));
         }
 
         @Test
@@ -179,12 +198,13 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL));
+            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT));
 
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.role").value(ROLE_STUDENT));
         }
     }
 }

@@ -22,12 +22,13 @@ public final class JwtTokenProvider {
         this.expirationMs = expirationMs;
     }
 
-    public String generateToken(String subject) {
+    public String generateToken(String subject, String role) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
                 .subject(subject)
+                .claim("role", role)
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(key)
@@ -35,20 +36,27 @@ public final class JwtTokenProvider {
     }
 
     public String getSubjectFromToken(String token) {
-        return Jwts.parser()
-                .verifyWith(key)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getSubject();
+        return parseClaims(token).getSubject();
+    }
+
+    public String getRoleFromToken(String token) {
+        return parseClaims(token).get("role", String.class);
     }
 
     public boolean validateToken(String token) {
         try {
-            Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
+            parseClaims(token);
             return true;
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 }

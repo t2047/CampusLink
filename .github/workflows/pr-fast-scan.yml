@@ -1,0 +1,119 @@
+# ─── PR / Push: 增量快速扫描 ─────────────────────────────────
+# 只跑 CodeQL + SpotBugs(Default/High)，跳过 OWASP 和 DAST
+# 耗时目标: 5-8 分钟
+
+name: PR - Fast SAST + Build + Test
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+  # 允许手动触发快速 SAST 扫描
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  actions: read
+  contents: read
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+
+  # ── SAST (快速模式) ──
+  sast-fast:
+    name: SAST - CodeQL & SpotBugs (Fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: java
+          source-root: backend
+
+      - name: Build with Maven
+        run: mvn compile
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+
+      # SpotBugs fast mode: Default effort, High threshold only
+      # || true prevents build failure; PR authors review the uploaded report
+      - name: Run SpotBugs (fast)
+        run: mvn spotbugs:check -Pfast-sast || true
+
+      - name: Upload SpotBugs Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-report-fast
+          path: backend/target/spotbugsXml.xml
+          retention-days: 7
+
+  # ── Build & Unit Test ──
+  build-test:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+    needs: sast-fast
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpass
+          MYSQL_DATABASE: campusLink_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: Build & Run Tests
+        env:
+          MYSQL_URL: jdbc:mysql://localhost:3306/campusLink_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+          MYSQL_USER: root
+          MYSQL_PASSWORD: testpass
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_EXPIRATON_MS: "86400000"
+        # mvn test: 只 compile + test，不触发 verify 阶段的 SpotBugs/OWASP
+        run: mvn test -Pfast-sast
+
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: backend/target/surefire-reports/
+          retention-days: 7

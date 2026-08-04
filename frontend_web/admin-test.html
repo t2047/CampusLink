@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusLink - 管理员测试面板</title>
+    <style>
+        :root {
+            --bg: #f4f6f9;
+            --card-bg: #ffffff;
+            --text: #1a1a2e;
+            --muted: #6b7280;
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --danger: #dc2626;
+            --success: #16a34a;
+            --warning: #f59e0b;
+            --border: #e5e7eb;
+            --radius: 12px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+
+        .container { width: 100%; max-width: 900px; }
+
+        h1 {
+            text-align: center;
+            font-size: 1.8rem;
+            margin-bottom: .25rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: var(--muted);
+            margin-bottom: 2rem;
+            font-size: .9rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        }
+        .card h2 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+        }
+        .card h2 .badge {
+            font-size: .75rem;
+            padding: .2rem .6rem;
+            border-radius: 999px;
+            font-weight: 600;
+        }
+        .card h2 .hint {
+            font-weight: 400;
+            color: var(--muted);
+            font-size: .8rem;
+        }
+        .badge-student  { background: #dbeafe; color: #1d4ed8; }
+        .badge-admin    { background: #fef3c7; color: #b45309; }
+        .badge-super    { background: #fce7f3; color: #be185d; }
+
+        .form-row {
+            display: flex;
+            gap: .75rem;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .form-row input, .form-row select {
+            flex: 1;
+            min-width: 120px;
+            padding: .55rem .75rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: .9rem;
+            outline: none;
+            transition: border-color .15s;
+        }
+        .form-row input:focus, .form-row select:focus {
+            border-color: var(--primary);
+        }
+
+        .btn {
+            padding: .55rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            font-size: .9rem;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .15s, opacity .15s;
+        }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+        .btn-danger  { background: var(--danger); color: #fff; }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .9rem;
+        }
+        th, td {
+            text-align: left;
+            padding: .65rem .75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; }
+
+        .msg {
+            margin-top: .75rem;
+            padding: .65rem 1rem;
+            border-radius: 8px;
+            font-size: .85rem;
+            display: none;
+        }
+        .msg.show { display: block; }
+        .msg-info    { background: #e0f2fe; color: #0369a1; }
+        .msg-success { background: #dcfce7; color: #15803d; }
+        .msg-error   { background: #fee2e2; color: #b91c1c; }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: .3rem 1.5rem;
+            font-size: .9rem;
+        }
+        .info-grid dt { color: var(--muted); }
+
+        .divider {
+            border: none;
+            border-top: 1px dashed var(--border);
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🔧 CampusLink 管理员测试面板</h1>
+    <p class="subtitle">三角色体系：STUDENT · ADMIN · SUPER_ADMIN</p>
+
+    <!-- ========== Login ========== -->
+    <div class="card" id="login-card">
+        <h2>🔑 登录</h2>
+        <div class="form-row">
+            <input type="email" id="login-email" placeholder="邮箱" value="admin@campus.com">
+            <input type="password" id="login-password" placeholder="密码" value="Admin123!">
+            <button class="btn btn-primary" id="btn-login" onclick="doLogin()">登录</button>
+        </div>
+        <div id="login-msg" class="msg"></div>
+    </div>
+
+    <!-- ========== Current User ========== -->
+    <div class="card" id="user-card" style="display:none;">
+        <h2>👤 当前用户</h2>
+        <dl class="info-grid" id="user-info"></dl>
+        <button class="btn btn-outline" style="margin-top:.75rem;" onclick="doLogout()">🚪 登出</button>
+    </div>
+
+    <!-- ========== Users Table ========== -->
+    <div class="card" id="users-card" style="display:none;">
+        <h2>📋 用户列表</h2>
+        <button class="btn btn-outline" id="btn-refresh" onclick="loadUsers()">🔄 刷新</button>
+        <table style="margin-top:1rem;">
+            <thead>
+                <tr><th>ID</th><th>邮箱</th><th>角色</th></tr>
+            </thead>
+            <tbody id="users-tbody"></tbody>
+        </table>
+        <div id="users-msg" class="msg"></div>
+    </div>
+
+    <!-- ========== SUPER_ADMIN: Create User with Role ========== -->
+    <div class="card" id="create-user-card" style="display:none;">
+        <h2>➕ 创建用户（指定角色） <span class="hint">（仅 SUPER_ADMIN）</span></h2>
+        <div class="form-row">
+            <input type="email" id="create-email" placeholder="邮箱">
+            <input type="password" id="create-password" placeholder="密码（≥6位）">
+            <select id="create-role">
+                <option value="STUDENT">STUDENT</option>
+                <option value="ADMIN">ADMIN</option>
+            </select>
+            <button class="btn btn-primary" id="btn-create-user" onclick="createUser()">创建</button>
+        </div>
+        <div id="create-msg" class="msg"></div>
+    </div>
+
+    <!-- ========== SUPER_ADMIN: Change Role ========== -->
+    <div class="card" id="role-card" style="display:none;">
+        <h2>✏️ 修改角色 <span class="hint">（仅 SUPER_ADMIN）</span></h2>
+        <div class="form-row">
+            <input type="number" id="target-user-id" placeholder="用户 ID">
+            <select id="target-role">
+                <option value="STUDENT">STUDENT</option>
+                <option value="ADMIN">ADMIN</option>
+                <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+            </select>
+            <button class="btn btn-primary" id="btn-change-role" onclick="changeRole()">修改角色</button>
+        </div>
+        <div id="role-msg" class="msg"></div>
+    </div>
+
+    <!-- ========== Public Register (always STUDENT) ========== -->
+    <div class="card">
+        <h2>📝 公开注册 <span class="hint">（默认角色：STUDENT）</span></h2>
+        <div class="form-row">
+            <input type="email" id="reg-email" placeholder="新用户邮箱">
+            <input type="password" id="reg-password" placeholder="密码（≥6位）">
+            <button class="btn btn-outline" id="btn-register" onclick="doRegister()">注册</button>
+        </div>
+        <div id="reg-msg" class="msg"></div>
+    </div>
+</div>
+
+<script>
+// ==================== State ====================
+let token = '';
+let currentUser = null;
+
+const API = 'http://localhost:8080';
+
+// ==================== Helpers ====================
+function authHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    };
+}
+
+function showMsg(id, type, text) {
+    const el = document.getElementById(id);
+    el.className = `msg msg-${type} show`;
+    el.textContent = text;
+    setTimeout(() => el.classList.remove('show'), 5000);
+}
+
+function roleBadge(role) {
+    const map = { STUDENT: 'badge-student', ADMIN: 'badge-admin', SUPER_ADMIN: 'badge-super' };
+    return `<span class="badge ${map[role] || ''}">${role}</span>`;
+}
+
+function setLoggedIn(user) {
+    currentUser = user;
+    token = user.token;
+    document.getElementById('login-card').style.display = 'none';
+    document.getElementById('user-card').style.display = '';
+    document.getElementById('users-card').style.display = '';
+    document.getElementById('user-info').innerHTML = `
+        <dt>邮箱</dt><dd>${escapeHtml(user.email)}</dd>
+        <dt>角色</dt><dd>${roleBadge(user.role)}</dd>
+    `;
+    if (user.role === 'SUPER_ADMIN') {
+        document.getElementById('role-card').style.display = '';
+        document.getElementById('create-user-card').style.display = '';
+    } else {
+        document.getElementById('role-card').style.display = 'none';
+        document.getElementById('create-user-card').style.display = 'none';
+    }
+    loadUsers();
+}
+
+function doLogout() {
+    token = '';
+    currentUser = null;
+    document.getElementById('login-card').style.display = '';
+    document.getElementById('user-card').style.display = 'none';
+    document.getElementById('users-card').style.display = 'none';
+    document.getElementById('role-card').style.display = 'none';
+    document.getElementById('create-user-card').style.display = 'none';
+    document.getElementById('users-tbody').innerHTML = '';
+    document.getElementById('user-info').innerHTML = '';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ==================== Login ====================
+async function doLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const btn = document.getElementById('btn-login');
+
+    btn.disabled = true;
+    try {
+        const res = await fetch(`${API}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        showMsg('login-msg', 'success', `✅ 登录成功：${data.email}（${data.role}）`);
+        setLoggedIn(data);
+    } catch (e) {
+        showMsg('login-msg', 'error', `❌ ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== Public Register (always STUDENT) ====================
+async function doRegister() {
+    const email = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const btn = document.getElementById('btn-register');
+
+    if (password.length < 6) {
+        showMsg('reg-msg', 'error', '密码至少6位');
+        return;
+    }
+
+    btn.disabled = true;
+    try {
+        const res = await fetch(`${API}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        showMsg('reg-msg', 'success', `✅ 注册成功：${data.email}（${data.role}）`);
+        document.getElementById('reg-email').value = '';
+        document.getElementById('reg-password').value = '';
+        if (token) loadUsers();
+    } catch (e) {
+        showMsg('reg-msg', 'error', `❌ ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== SUPER_ADMIN: Create User with Role ====================
+async function createUser() {
+    const email = document.getElementById('create-email').value.trim();
+    const password = document.getElementById('create-password').value;
+    const role = document.getElementById('create-role').value;
+    const btn = document.getElementById('btn-create-user');
+
+    if (password.length < 6) {
+        showMsg('create-msg', 'error', '密码至少6位');
+        return;
+    }
+
+    btn.disabled = true;
+    try {
+        const res = await fetch(`${API}/api/admin/users`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ email, password, role })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        showMsg('create-msg', 'success', `✅ 已创建：${data.email}（${data.role}）`);
+        document.getElementById('create-email').value = '';
+        document.getElementById('create-password').value = '';
+        loadUsers();
+    } catch (e) {
+        showMsg('create-msg', 'error', `❌ ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== Load Users ====================
+async function loadUsers() {
+    const tbody = document.getElementById('users-tbody');
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);">加载中...</td></tr>';
+
+    try {
+        const res = await fetch(`${API}/api/admin/users`, {
+            headers: authHeaders()
+        });
+        if (res.status === 403) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--danger);">⛔ 仅 ADMIN 及以上可查看</td></tr>';
+            return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const users = await res.json();
+        if (!users.length) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);">暂无用户</td></tr>';
+            return;
+        }
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td>${u.id}</td>
+                <td>${escapeHtml(u.email)}</td>
+                <td>${roleBadge(u.role)}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--danger);">加载失败：${e.message}</td></tr>`;
+    }
+}
+
+// ==================== Change Role ====================
+async function changeRole() {
+    const userId = document.getElementById('target-user-id').value.trim();
+    const role = document.getElementById('target-role').value;
+    const btn = document.getElementById('btn-change-role');
+
+    if (!userId) {
+        showMsg('role-msg', 'error', '请输入用户 ID');
+        return;
+    }
+
+    btn.disabled = true;
+    try {
+        const res = await fetch(`${API}/api/admin/users/${userId}/role`, {
+            method: 'PUT',
+            headers: authHeaders(),
+            body: JSON.stringify({ role })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        showMsg('role-msg', 'success', `✅ 已将 ${data.email} 的角色改为 ${data.role}`);
+        loadUsers();
+    } catch (e) {
+        showMsg('role-msg', 'error', `❌ ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== Enter key ====================
+document.getElementById('login-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>
