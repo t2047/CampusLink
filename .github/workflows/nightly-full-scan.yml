@@ -1,4 +1,4 @@
-# ─── 每日凌晨 02:00 UTC (北京时间 10:00) ────────────────────
+# ─── 每日凌晨 04:00 ───────────────────
 # 全量深度扫描: SpotBugs(Max/Medium) + OWASP Dependency Check + DAST(ZAP)
 # 耗时目标: 30-60 分钟, 可接受
 
@@ -6,8 +6,8 @@ name: Nightly - Full SAST + SCA + DAST
 
 on:
   schedule:
-    # 每天 UTC 02:00 (北京时间 10:00)
-    - cron: '0 2 * * *'
+    # 每天 04:00 、
+    - cron: '0 20 * * *'
   # 也允许手动触发
   workflow_dispatch:
 
@@ -42,7 +42,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: java
           source-root: backend
@@ -51,7 +51,7 @@ jobs:
         run: mvn compile
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
 
       # SpotBugs full mode: Max effort, Medium threshold
       - name: Run SpotBugs (full)
