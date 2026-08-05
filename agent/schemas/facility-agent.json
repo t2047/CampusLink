@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "agent": "facility-agent",
+  "version": "1.0.0",
+  "description": "校园设施预约 Agent — 理解用户场地需求，自主完成搜索可用房间/场馆、预订、取消、查询预订记录，并以自然语言返回结果。内部包含 LLM 推理、Tool 选择与执行（ReAct 循环）。",
+  "type": "domain_agent",
+  "transport": {
+    "type": "mcp",
+    "protocol": "HTTP + SSE",
+    "baseUrl": "http://localhost:8082",
+    "endpoints": {
+      "capabilities": {
+        "method": "GET",
+        "path": "/agent/capabilities",
+        "description": "返回 Agent 能力声明、健康状态、版本信息"
+      },
+      "invoke": {
+        "method": "POST",
+        "path": "/agent/invoke",
+        "description": "同步调用 Agent。编排层发自然语言请求，Agent 内部自主完成推理→Tool选择→执行→回复生成，返回最终结果"
+      },
+      "stream": {
+        "method": "GET",
+        "path": "/agent/stream",
+        "description": "SSE 流式调用。编排层订阅 Agent 的实时执行进度",
+        "queryParams": {
+          "request_id": {
+            "type": "string",
+            "required": true,
+            "description": "由编排层生成的唯一请求 ID"
+          }
+        }
+      }
+    }
+  },
+
+  "capabilities": {
+    "domains": ["room_booking", "facility_search"],
+    "description": "可以搜索研讨室、自习室、体育场馆，查看可用时间段、房间设备，预订或取消预订，查看自己的预订记录",
+    "examples": [
+      "明天下午有没有能坐10个人、有投影仪的研讨室",
+      "帮我订一个周三下午3点到5点的自习室",
+      "周六上午篮球场还有空吗",
+      "我有哪些即将到来的预订",
+      "把那个研讨室的预订取消了",
+      "下周一全天有没有带视频会议设备的房间"
+    ],
+    "constraints": {
+      "scope": "校园内所有可预订设施（研讨室、自习室、体育场馆、实验室）",
+      "require_confirmation": ["book_room"],
+      "max_booking_duration_hours": 4,
+      "max_days_in_advance": 14,
+      "rate_limit": {
+        "max_requests_per_minute": 5,
+        "max_requests_per_session": 20
+      }
+    }
+  },
+
+  "invoke": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "用户对设施 Agent 的自然语言请求"
+        },
+        "conversation_context": {
+          "type": "object",
+          "description": "编排层传递的跨 Agent 上下文。如上游 Mail Agent 提取的会议室编号、日期、参会人数等",
+          "properties": {
+            "previous_agent": { "type": "string" },
+            "shared_data": {
+              "type": "object",
+              "description": "跨 Agent 共享数据。如 { \"room_name\": \"301研讨室\", \"date\": \"2025-03-20\", \"participants\": 8 }"
+            }
+          }
+        },
+        "confirmed": {
+          "type": "boolean",
+          "default": false,
+          "description": "用户确认预订后重新调用时设为 true"
+        },
+        "confirmation_id": {
+          "type": "string",
+          "description": "确认操作对应的 ID"
+        },
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": { "type": "string" },
+            "parent_span_id": { "type": "string" }
+          }
+        }
+      },
+      "required": ["message"]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "response": {
+          "type": "string",
+          "description": "Agent 对用户请求的自然语言回复"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "needs_confirmation", "no_availability", "partial", "failed"],
+          "description": "completed: 全部完成; needs_confirmation: 预订需确认; no_availability: 无可用房间; partial: 部分操作完成; failed: 执行失败"
+        },
+        "confirmation_required": {
+          "type": "object",
+          "description": "预订确认详情。仅 status=needs_confirmation 时有值",
+          "properties": {
+            "confirmation_id": { "type": "string" },
+            "booking_preview": {
+              "type": "object",
+              "description": "预订预览信息",
+              "properties": {
+                "room_name": { "type": "string" },
+                "building": { "type": "string" },
+                "date": { "type": "string", "format": "date" },
+                "time_slot": { "type": "string", "description": "如 '14:00-16:00'" },
+                "capacity": { "type": "integer" },
+                "equipment": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "message": { "type": "string" }
+          }
+        },
+        "shared_context": {
+          "type": "object",
+          "description": "本 Agent 产出的结构化上下文（如预订确认号、房间信息），可传递给下游 Agent",
+          "additionalProperties": true
+        },
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": { "type": "string", "enum": ["search_rooms", "book_room", "cancel_booking", "list_my_bookings"] },
+              "params_summary": { "type": "string" },
+              "result_summary": { "type": "string" },
+              "status": { "type": "string", "enum": ["success", "failed", "skipped"] }
+            },
+            "required": ["action", "status"]
+          }
+        }
+      },
+      "required": ["response", "status"]
+    }
+  },
+
+  "streaming": {
+    "description": "SSE 实时执行进度推送",
+    "events": {
+      "agent_start": {
+        "payload": {
+          "agent": { "type": "string", "const": "facility-agent" },
+          "message": { "type": "string" }
+        }
+      },
+      "tool_call_start": {
+        "payload": {
+          "tool": { "type": "string", "enum": ["search_rooms", "book_room", "cancel_booking", "list_my_bookings"] },
+          "args_summary": { "type": "string" }
+        }
+      },
+      "tool_call_progress": {
+        "payload": { "tool": { "type": "string" }, "progress": { "type": "string" } }
+      },
+      "tool_call_end": {
+        "payload": {
+          "tool": { "type": "string" },
+          "status": { "type": "string", "enum": ["success", "failed"] },
+          "result_summary": { "type": "string" }
+        }
+      },
+      "token": {
+        "payload": { "content": { "type": "string" } }
+      },
+      "agent_needs_confirmation": {
+        "payload": {
+          "confirmation_id": { "type": "string" },
+          "booking_preview": { "type": "object" },
+          "message": { "type": "string" }
+        }
+      },
+      "agent_done": {
+        "payload": {
+          "response_summary": { "type": "string" },
+          "status": { "type": "string", "enum": ["completed", "partial", "failed"] },
+          "actions_taken": { "type": "array" }
+        }
+      },
+      "agent_error": {
+        "payload": {
+          "code": { "type": "string", "enum": ["UNAVAILABLE", "TIMEOUT", "AUTH_FAILED", "INTERNAL_ERROR", "RATE_LIMITED"] },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+
+  "internalTools": {
+    "description": "Agent 内部使用的 Tool 列表。编排层不直接调用，仅供 Agent 内部 ReAct 使用。",
+    "tools": [
+      {
+        "name": "search_rooms",
+        "description": "按条件搜索可用房间/场馆：类型、容量、日期时间范围、设备要求。返回可用房间及对应时间段。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "room_type": {
+              "type": "string",
+              "enum": ["study_room", "seminar_room", "sports_venue", "lab", "any"],
+              "default": "any"
+            },
+            "capacity": { "type": "integer", "minimum": 1 },
+            "date": { "type": "string", "format": "date" },
+            "start_time": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+            "end_time": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+            "equipment": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["projector", "whiteboard", "video_conf", "computer", "microphone"] }
+            },
+            "building": { "type": "string", "description": "限定建筑物（可选）" }
+          },
+          "required": ["date"]
+        }
+      },
+      {
+        "name": "book_room",
+        "description": "预订指定房间的某个时间段。需经 Agent 内部 guard 确认后执行。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "room_id": { "type": "string" },
+            "date": { "type": "string", "format": "date" },
+            "start_time": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+            "end_time": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+            "title": { "type": "string", "description": "预订用途说明" },
+            "attendees": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["room_id", "date", "start_time", "end_time"]
+        }
+      },
+      {
+        "name": "cancel_booking",
+        "description": "取消已有的房间预订。返回取消确认信息。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "booking_id": { "type": "string" }
+          },
+          "required": ["booking_id"]
+        }
+      },
+      {
+        "name": "list_my_bookings",
+        "description": "查询当前用户的所有预订记录。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["upcoming", "past", "cancelled", "all"],
+              "default": "upcoming"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "agent": "lost-found-agent",
+  "version": "1.0.0",
+  "description": "校园失物招领 Agent — 理解用户失物需求，自主完成报失登记、失物搜索匹配、认领申请，并以自然语言返回结果。内部包含 LLM 推理、Tool 选择与执行（ReAct 循环）。",
+  "type": "domain_agent",
+  "transport": {
+    "type": "mcp",
+    "protocol": "HTTP + SSE",
+    "baseUrl": "http://localhost:8083",
+    "endpoints": {
+      "capabilities": {
+        "method": "GET",
+        "path": "/agent/capabilities",
+        "description": "返回 Agent 能力声明、健康状态、版本信息"
+      },
+      "invoke": {
+        "method": "POST",
+        "path": "/agent/invoke",
+        "description": "同步调用 Agent。编排层发自然语言请求，Agent 内部自主完成推理→Tool选择→执行→回复生成，返回最终结果"
+      },
+      "stream": {
+        "method": "GET",
+        "path": "/agent/stream",
+        "description": "SSE 流式调用。编排层订阅 Agent 的实时执行进度",
+        "queryParams": {
+          "request_id": {
+            "type": "string",
+            "required": true,
+            "description": "由编排层生成的唯一请求 ID"
+          }
+        }
+      }
+    }
+  },
+
+  "capabilities": {
+    "domains": ["lost_and_found"],
+    "description": "可以报告遗失物品、搜索已找到的失物、查看失物详情、提交认领申请。理解模糊的物品描述并智能匹配",
+    "examples": [
+      "我在图书馆丢了一个黑色的双肩包",
+      "有没有人捡到一把蓝色的雨伞",
+      "我想认领那个黑色的钱包",
+      "上周四在食堂丢了一串钥匙，有找到的吗",
+      "帮我看看有没有我的学生卡被捡到"
+    ],
+    "constraints": {
+      "scope": "校园失物招领系统（含各教学楼、图书馆、食堂、宿舍区失物点）",
+      "sensitive_items": ["id_card", "student_card", "wallet", "phone", "laptop"],
+      "require_verification": ["claim_item"],
+      "retention_days": 90,
+      "rate_limit": {
+        "max_requests_per_minute": 5,
+        "max_requests_per_session": 20
+      }
+    }
+  },
+
+  "invoke": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "用户对失物招领 Agent 的自然语言请求。如报失、查找、认领等"
+        },
+        "conversation_context": {
+          "type": "object",
+          "description": "编排层传递的跨 Agent 上下文",
+          "properties": {
+            "previous_agent": { "type": "string" },
+            "shared_data": {
+              "type": "object",
+              "description": "跨 Agent 共享数据。如上游提取的物品描述、特征信息"
+            }
+          }
+        },
+        "confirmed": {
+          "type": "boolean",
+          "default": false,
+          "description": "用户确认认领后重新调用时设为 true"
+        },
+        "confirmation_id": {
+          "type": "string",
+          "description": "确认操作对应的 ID"
+        },
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": { "type": "string" },
+            "parent_span_id": { "type": "string" }
+          }
+        }
+      },
+      "required": ["message"]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "response": {
+          "type": "string",
+          "description": "Agent 对用户请求的自然语言回复"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "needs_more_info", "match_found", "no_match", "needs_verification", "failed"],
+          "description": "completed: 报失/查询完成; needs_more_info: 需要用户补充信息（如更详细的物品描述）; match_found: 找到潜在匹配; no_match: 未找到匹配; needs_verification: 认领需验证身份; failed: 执行失败"
+        },
+        "match_results": {
+          "type": "array",
+          "description": "匹配到的失物列表",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item_id": { "type": "string" },
+              "item_name": { "type": "string" },
+              "category": { "type": "string" },
+              "description": { "type": "string" },
+              "found_location": { "type": "string" },
+              "found_date": { "type": "string", "format": "date" },
+              "status": { "type": "string", "enum": ["unclaimed", "claimed", "disposed"] },
+              "match_score": { "type": "number", "minimum": 0, "maximum": 1, "description": "匹配置信度 0-1" }
+            }
+          }
+        },
+        "verification_required": {
+          "type": "object",
+          "description": "认领验证详情。仅 status=needs_verification 时有值",
+          "properties": {
+            "verification_id": { "type": "string" },
+            "item_name": { "type": "string" },
+            "verification_method": {
+              "type": "string",
+              "enum": ["identity_verification", "proof_description", "pickup_code"],
+              "description": "验证方式"
+            },
+            "message": { "type": "string", "description": "展示给用户的验证提示" },
+            "pickup_location": { "type": "string" }
+          }
+        },
+        "shared_context": {
+          "type": "object",
+          "description": "本 Agent 产出的结构化上下文",
+          "additionalProperties": true
+        },
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": { "type": "string", "enum": ["report_lost", "search_found_items", "get_item_detail", "claim_item"] },
+              "params_summary": { "type": "string" },
+              "result_summary": { "type": "string" },
+              "status": { "type": "string", "enum": ["success", "failed", "skipped"] }
+            },
+            "required": ["action", "status"]
+          }
+        }
+      },
+      "required": ["response", "status"]
+    }
+  },
+
+  "streaming": {
+    "description": "SSE 实时执行进度推送",
+    "events": {
+      "agent_start": {
+        "payload": {
+          "agent": { "type": "string", "const": "lost-found-agent" },
+          "message": { "type": "string" }
+        }
+      },
+      "tool_call_start": {
+        "payload": {
+          "tool": { "type": "string", "enum": ["report_lost", "search_found_items", "get_item_detail", "claim_item"] },
+          "args_summary": { "type": "string" }
+        }
+      },
+      "tool_call_progress": {
+        "payload": { "tool": { "type": "string" }, "progress": { "type": "string" } }
+      },
+      "tool_call_end": {
+        "payload": {
+          "tool": { "type": "string" },
+          "status": { "type": "string", "enum": ["success", "failed"] },
+          "result_summary": { "type": "string" }
+        }
+      },
+      "token": {
+        "payload": { "content": { "type": "string" } }
+      },
+      "agent_needs_more_info": {
+        "description": "需要用户补充更多信息",
+        "payload": {
+          "field": { "type": "string", "description": "需要补充的字段，如 description、lost_location" },
+          "message": { "type": "string" }
+        }
+      },
+      "agent_needs_verification": {
+        "description": "认领需要验证身份",
+        "payload": {
+          "verification_id": { "type": "string" },
+          "item_name": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "agent_done": {
+        "payload": {
+          "response_summary": { "type": "string" },
+          "status": { "type": "string", "enum": ["completed", "match_found", "no_match", "partial", "failed"] },
+          "actions_taken": { "type": "array" }
+        }
+      },
+      "agent_error": {
+        "payload": {
+          "code": { "type": "string", "enum": ["UNAVAILABLE", "TIMEOUT", "AUTH_FAILED", "INTERNAL_ERROR", "RATE_LIMITED"] },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+
+  "internalTools": {
+    "description": "Agent 内部使用的 Tool 列表。编排层不直接调用，仅供 Agent 内部 ReAct 使用。",
+    "tools": [
+      {
+        "name": "report_lost",
+        "description": "报告遗失物品，登记失物信息到系统。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "item_name": { "type": "string" },
+            "category": {
+              "type": "string",
+              "enum": ["electronics", "clothing", "books_stationery", "keys", "wallet_purse", "id_card", "bag", "umbrella", "other"]
+            },
+            "description": { "type": "string", "description": "物品详细描述（颜色、品牌、特征、内部物品等）" },
+            "lost_location": { "type": "string" },
+            "lost_date": { "type": "string", "format": "date" },
+            "lost_time_range": { "type": "string" },
+            "contact_info": { "type": "string", "description": "联系方式（选填）" }
+          },
+          "required": ["item_name", "category", "lost_location", "lost_date"]
+        }
+      },
+      {
+        "name": "search_found_items",
+        "description": "在已有失物招领记录中搜索匹配物品。支持关键词模糊匹配和类别筛选。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "keyword": { "type": "string" },
+            "category": {
+              "type": "string",
+              "enum": ["electronics", "clothing", "books_stationery", "keys", "wallet_purse", "id_card", "bag", "umbrella", "other"]
+            },
+            "found_location": { "type": "string" },
+            "date_from": { "type": "string", "format": "date" },
+            "date_to": { "type": "string", "format": "date" },
+            "color": { "type": "string", "description": "颜色过滤（可选）" }
+          },
+          "required": ["keyword"]
+        }
+      },
+      {
+        "name": "get_item_detail",
+        "description": "获取单个失物的完整详情，包括存放位置、认领状态、保管人联系方式。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "item_id": { "type": "string" }
+          },
+          "required": ["item_id"]
+        }
+      },
+      {
+        "name": "claim_item",
+        "description": "认领失物，提交认领申请。敏感物品（证件、钱包、手机等）需额外验证。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "item_id": { "type": "string" },
+            "proof_description": { "type": "string", "description": "证明物品归属的描述（特征、内部物品等）" }
+          },
+          "required": ["item_id"]
+        }
+      }
+    ]
+  }
+}
