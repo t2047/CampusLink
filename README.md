@@ -10,7 +10,7 @@
 
 | Module | Technology |
 |--------|------------|
-| Backend | Java 21 · Spring Boot 3.4 · Spring Security · JWT |
+| Backend | Java 21 · Spring Boot 4.1.0 · Spring Security · JWT |
 | Database | MySQL 8 |
 | CI/CD | GitHub Actions (SAST + SCA + DAST) |
 | Testing | JUnit 5 · Mockito |
