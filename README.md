@@ -24,8 +24,8 @@ cp .env.example .env
 # Set JWT_SECRET and replace the example passwords in .env
 openssl rand -base64 64
 
-# The backend reads its local .env from backend/
-cp .env backend/.env
+# The API server reads its local .env from apps/api-server/
+cp .env apps/api-server/.env
 
 # Start MySQL and MinIO
 docker compose up -d
@@ -34,14 +34,14 @@ docker compose up -d
 Start the backend in a second terminal:
 
 ```bash
-cd backend
+cd apps/api-server
 ./mvnw spring-boot:run
 ```
 
 Start the React app in a third terminal:
 
 ```bash
-cd frontend_web
+cd apps/web-client
 cp .env.example .env.local
 npm ci
 npm run dev
@@ -104,10 +104,10 @@ curl -H "Authorization: Bearer $TOKEN" \
 ## Tests
 
 ```bash
-cd backend
+cd apps/api-server
 ./mvnw test -DskipDependencyCheck=true -Dspotbugs.skip=true
 
-cd ../frontend_web
+cd ../web-client
 npm run lint
 npm test
 npm run build
@@ -115,17 +115,21 @@ npm run build
 
 CI runs the backend tests and security scans as before, and now also runs `npm ci`, lint, tests, and the production build for the Web app.
 
+The `apps/` directory contains independently runnable applications. Business capabilities such as Lost & Found, email, and booking remain feature modules inside these applications; this repository is not being split into separate Maven or npm workspaces at this stage.
+
 ## Project Structure
 
 ```text
 project/
-├── backend/
-│   └── src/main/java/com/app/campusagent/lostfound/
-│       ├── controller/  dto/  domain/  exception/
-│       ├── repository/  service/  storage/
-├── frontend_web/        React Web app and public/admin-test.html
-├── frontend_mobile/     Future mobile client
-├── ml-service/          Future matching/analytics services
+├── apps/
+│   ├── api-server/
+│   │   └── src/main/java/com/app/campusagent/lostfound/
+│   │       ├── controller/  dto/  domain/  exception/
+│   │       └── repository/  service/  storage/
+│   ├── web-client/      React Web app and public/admin-test.html
+│   └── mobile-client/   Future mobile client
+├── agents/              Future agent schemas and implementations
+├── services/            Future matching/analytics services
 ├── docker-compose.yml   MySQL and MinIO
 └── docs/
 ```

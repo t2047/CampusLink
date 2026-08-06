@@ -8,15 +8,15 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'backend/**'
-      - 'frontend_web/**'
+      - 'apps/api-server/**'
+      - 'apps/web-client/**'
       - 'docker-compose.yml'
       - '.github/workflows/pr-fast-scan.yml'
   pull_request:
     branches: [main, develop]
     paths:
-      - 'backend/**'
-      - 'frontend_web/**'
+      - 'apps/api-server/**'
+      - 'apps/web-client/**'
       - 'docker-compose.yml'
       - '.github/workflows/pr-fast-scan.yml'
   # 允许手动触发快速 SAST 扫描
@@ -29,7 +29,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: backend
+    working-directory: apps/api-server
 
 jobs:
 
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend_web
+        working-directory: apps/web-client
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +47,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend_web/package-lock.json
+          cache-dependency-path: apps/web-client/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -78,7 +78,7 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: java
-          source-root: backend
+          source-root: apps/api-server
 
       - name: Build with Maven
         run: mvn compile
@@ -96,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spotbugs-report-fast
-          path: backend/target/spotbugsXml.xml
+          path: apps/api-server/target/spotbugsXml.xml
           retention-days: 7
 
   # ── Build & Unit Test ──
@@ -131,7 +131,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('backend/pom.xml') }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('apps/api-server/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Build & Run Tests
@@ -149,5 +149,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-report
-          path: backend/target/surefire-reports/
+          path: apps/api-server/target/surefire-reports/
           retention-days: 7

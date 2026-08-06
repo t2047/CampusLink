@@ -18,7 +18,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: backend
+    working-directory: apps/api-server
 
 # 防止多个 nightly 并行（手动触发 + cron 同时撞上）
 concurrency:
@@ -32,14 +32,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend_web
+        working-directory: apps/web-client
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend_web/package-lock.json
+          cache-dependency-path: apps/web-client/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -63,7 +63,7 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: java
-          source-root: backend
+          source-root: apps/api-server
 
       - name: Build with Maven
         run: mvn compile
@@ -80,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spotbugs-report-full
-          path: backend/target/spotbugsXml.xml
+          path: apps/api-server/target/spotbugsXml.xml
           retention-days: 30
 
   # ── Build & Unit Test ──
@@ -116,7 +116,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('backend/pom.xml') }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('apps/api-server/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Build & Run Tests
@@ -133,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-report
-          path: backend/target/surefire-reports/
+          path: apps/api-server/target/surefire-reports/
           retention-days: 30
 
   # ── OWASP Dependency Check (SCA, 全量) ──
@@ -173,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: backend/target/dependency-check-report.html
+          path: apps/api-server/target/dependency-check-report.html
           retention-days: 30
 
   # ── DAST (OWASP ZAP) ──
@@ -209,7 +209,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('backend/pom.xml') }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('apps/api-server/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2-
 
       - name: Start Application & Wait for Readiness

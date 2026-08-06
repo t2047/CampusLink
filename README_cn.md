@@ -24,8 +24,8 @@ cp .env.example .env
 # 编辑 .env，设置 JWT_SECRET 并替换示例密码
 openssl rand -base64 64
 
-# 后端会从 backend/ 读取本地 .env
-cp .env backend/.env
+# API 服务会从 apps/api-server/ 读取本地 .env
+cp .env apps/api-server/.env
 
 # 启动 MySQL 和 MinIO
 docker compose up -d
@@ -34,14 +34,14 @@ docker compose up -d
 在第二个终端启动后端：
 
 ```bash
-cd backend
+cd apps/api-server
 ./mvnw spring-boot:run
 ```
 
 在第三个终端启动 React：
 
 ```bash
-cd frontend_web
+cd apps/web-client
 cp .env.example .env.local
 npm ci
 npm run dev
@@ -104,10 +104,10 @@ curl -H "Authorization: Bearer $TOKEN" \
 ## 测试
 
 ```bash
-cd backend
+cd apps/api-server
 ./mvnw test -DskipDependencyCheck=true -Dspotbugs.skip=true
 
-cd ../frontend_web
+cd ../web-client
 npm run lint
 npm test
 npm run build
@@ -115,17 +115,21 @@ npm run build
 
 CI 会继续执行后端测试和安全扫描，并新增 Web 端的 `npm ci`、lint、测试与生产构建。
 
+`apps/` 目录只存放可以独立启动的应用。Lost & Found、邮件、预约等业务能力继续作为这些应用内部的功能模块；现阶段不拆分为独立的 Maven 或 npm 工作区。
+
 ## 项目结构
 
 ```text
 project/
-├── backend/
-│   └── src/main/java/com/app/campusagent/lostfound/
-│       ├── controller/  dto/  domain/  exception/
-│       ├── repository/  service/  storage/
-├── frontend_web/        React Web 和 public/admin-test.html
-├── frontend_mobile/     后续移动端
-├── ml-service/          后续匹配/分析服务
+├── apps/
+│   ├── api-server/
+│   │   └── src/main/java/com/app/campusagent/lostfound/
+│   │       ├── controller/  dto/  domain/  exception/
+│   │       └── repository/  service/  storage/
+│   ├── web-client/      React Web 和 public/admin-test.html
+│   └── mobile-client/   后续移动端
+├── agents/              后续 Agent Schema 和实现
+├── services/            后续匹配与分析服务
 ├── docker-compose.yml   MySQL 与 MinIO
 └── docs/
 ```
