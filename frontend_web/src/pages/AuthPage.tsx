@@ -13,8 +13,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
 
-  if (user) return <Navigate to="/lost-found" replace />
+  if (user) return <Navigate to={destination ?? '/lost-found'} replace />
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -30,7 +31,6 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     setError('')
     try {
       await (mode === 'login' ? login(email, password) : register(email, password))
-      const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
       navigate(destination ?? '/lost-found', { replace: true })
     } catch (requestError) {
       setError(apiErrorMessage(requestError))

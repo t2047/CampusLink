@@ -1,9 +1,17 @@
 import { Box, CircularProgress } from '@mui/material'
 import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { AdminLayout } from './admin/layout/AdminLayout'
+import { AdminRoute } from './auth/AdminRoute'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { AppShell } from './components/AppShell'
 
+const AdminDashboardPage = lazy(() => import('./admin/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })))
+const AdminFacilitiesPage = lazy(() => import('./admin/facilities/FacilitiesPlaceholderPage').then((module) => ({ default: module.FacilitiesPlaceholderPage })))
+const AdminLostFoundPage = lazy(() => import('./admin/lostFound/LostFoundPlaceholderPage').then((module) => ({ default: module.LostFoundPlaceholderPage })))
+const AdminNotFoundPage = lazy(() => import('./admin/shared/AdminNotFoundPage').then((module) => ({ default: module.AdminNotFoundPage })))
+const AdminUserManagementPage = lazy(() => import('./admin/users/UserManagementPlaceholderPage').then((module) => ({ default: module.UserManagementPlaceholderPage })))
+const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage').then((module) => ({ default: module.AdminForbiddenPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
@@ -16,6 +24,17 @@ export default function App() {
       <Routes>
       <Route path="/login" element={<AuthPage mode="login" />} />
       <Route path="/register" element={<AuthPage mode="register" />} />
+      <Route path="/forbidden" element={<AdminForbiddenPage />} />
+      <Route element={<AdminRoute />}>
+        <Route element={<AdminLayout />}>
+          <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+          <Route path="/admin/lost-found" element={<AdminLostFoundPage />} />
+          <Route path="/admin/facilities" element={<AdminFacilitiesPage />} />
+          <Route path="/admin/users" element={<AdminUserManagementPage />} />
+          <Route path="/admin/*" element={<AdminNotFoundPage />} />
+        </Route>
+      </Route>
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/lost-found" element={<ReportsPage />} />
