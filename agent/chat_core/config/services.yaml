@@ -1,0 +1,35 @@
+# ─── Chat Core 编排层配置 ────────────────────────────────────────────────
+# URL 支持 ${ENV_VAR:default} 占位符，加载时解析环境变量：
+# - 本地联调：.env 中 MAIL_AGENT_URL=http://localhost:8081
+# - Docker：  .env 或 compose 中 MAIL_AGENT_URL=http://mail-agent:8000
+
+# 服务注册表
+services:
+  domain_agents:
+    - name: mail-agent
+      url: ${MAIL_AGENT_URL:http://localhost:8081}
+      timeout_ms: 30000
+    - name: facility-agent
+      url: ${FACILITY_AGENT_URL:http://localhost:8082}
+      timeout_ms: 30000
+    - name: lost-found-agent
+      url: ${LOSTFOUND_AGENT_URL:http://localhost:8083}
+      timeout_ms: 30000
+    - name: skill-agent
+      url: ${SKILL_AGENT_URL:http://localhost:8084}
+      timeout_ms: 30000
+
+  utility_tools:
+    - name: utility-tools
+      url: ${UTILITY_TOOLS_URL:http://localhost:8090}
+      timeout_ms: 5000
+
+  token_service:
+    url: ${TOKEN_SERVICE_URL:http://localhost:8099}
+    timeout_ms: 3000
+
+# 安全（对齐通信安全说明文档）
+security:
+  mode: shared_secret              # Sprint 1-3; 生产切 mtls
+  shared_secret: ${AGENT_SHARED_SECRET}
+  time_window_seconds: 30

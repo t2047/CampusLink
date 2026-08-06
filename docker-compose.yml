@@ -1,0 +1,37 @@
+# Docker Compose — CampusLink Chat Core Development
+#
+# Usage:
+#   docker compose up -d
+#   curl http://localhost:8080/actuator/health
+#   curl http://localhost:8000/health
+#
+# Note: MySQL is expected to run on the host (localhost:3306).
+# Redis has been REMOVED — Chat Core Sprint 1 does not require Redis
+# (nonce dedup uses in-memory map; migration to Redis planned Sprint 2).
+
+version: "3.9"
+
+services:
+  # ─── Chat Backend (Spring Boot + MVC + WebClient) ─────────
+  chat-backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://host.docker.internal:3306/campusLink_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USER:-root}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-root}
+
+  # ─── Orchestration Layer (Python / FastAPI / LangGraph) ───
+  orchestration:
+    build:
+      context: .
+      dockerfile: agent/chat_core/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
