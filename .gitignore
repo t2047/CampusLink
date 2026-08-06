@@ -4,6 +4,7 @@ Thumbs.db
 
 # ─────── Environment ───────
 .env
+.env.local
 # *.env 会误杀 .env.example，只精确忽略 .env
 
 # ─────── IDE ───────

@@ -1,147 +1,131 @@
 # CampusLink
 
-[![English](https://img.shields.io/badge/English%20Version-blue?style=flat-square)](./README.md)
-[![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
+[![English](https://img.shields.io/badge/English%20Version-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
 
-> 🚧 **Sprint 0** — 登录认证 & 角色系统已完成，其余模块待开发。
+CampusLink 是校园服务平台。目前已形成一条可运行的 Web 端 Lost & Found 垂直功能：用户登录后可发布遗失/拾获记录、上传图片、筛选搜索、提交认领证明，并由拾获记录发布者处理申请。
 
----
-
-## 已用技术栈
+## 技术栈
 
 | 模块 | 技术 |
-|------|------|
-| 后端 | Java 21 · Spring Boot 3.4 · Spring Security · JWT |
+|---|---|
+| 后端 | Java 21、Spring Boot 4.1、Spring Security、JWT |
+| Web 前端 | React 19、TypeScript、Vite、MUI、Axios |
 | 数据库 | MySQL 8 |
-| CI/CD | GitHub Actions (SAST + SCA + DAST) |
-| 测试 | JUnit 5 · Mockito |
+| 图片存储 | 私有 MinIO Bucket、15 分钟预签名 URL |
+| 测试 | JUnit 5、Mockito、H2、Vitest、Testing Library |
 
----
+## 本地启动
 
-## 快速启动
+需要预先安装 Java 21、Docker Desktop 和 Node.js 22 或更高版本。
 
 ```bash
-# 1. 克隆
-git clone https://github.com/your-org/teamXX-ad-project.git
-cd teamXX-ad-project
-
-# 2. 配置环境变量
+# 在项目根目录执行
 cp .env.example .env
-# 编辑 .env 填入你的 MySQL 凭据
-
-# 3. 生成 JWT 密钥
+# 编辑 .env，设置 JWT_SECRET 并替换示例密码
 openssl rand -base64 64
-# 复制输出，替换 .env 中的 JWT_SECRET
 
-# 4. 启动
+# 后端会从 backend/ 读取本地 .env
+cp .env backend/.env
+
+# 启动 MySQL 和 MinIO
+docker compose up -d
+```
+
+在第二个终端启动后端：
+
+```bash
 cd backend
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
-首次启动时，系统会根据 `.env` 中的 `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` 自动创建超级管理员账号。
+在第三个终端启动 React：
 
----
-
-## API 参考
-
-### 认证接口（公开）
-
-```
-POST /api/auth/register   — 注册  { email, password }  → 返回 JWT + role（固定为 STUDENT）
-POST /api/auth/login      — 登录  { email, password }  → 返回 JWT + role
+```bash
+cd frontend_web
+cp .env.example .env.local
+npm ci
+npm run dev
 ```
 
-所有认证响应均包含用户角色：
+访问 [http://localhost:5173](http://localhost:5173)。MinIO 控制台为 [http://localhost:9001](http://localhost:9001)，原管理员测试页保留在 [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html)。
 
-```json
-{
-  "token": "eyJhbG...",
-  "email": "user@example.com",
-  "role": "STUDENT"
-}
+`docker compose stop` 可停止基础设施但保留容器；`docker compose down` 会移除容器，但仍保留命名数据卷。
+
+## Lost & Found 功能
+
+- 发布 `LOST` 或 `FOUND` 记录；图片可不上传，也可上传最多 5 张 JPEG、PNG 或 WebP，每张不超过 10 MB。
+- 按关键词、类别、颜色、地点、日期范围、记录类型和状态组合筛选。
+- 通过私有且会过期的图片地址查看详情。
+- 对开放的拾获记录提交认领证明；不能认领自己发布的记录，也不能重复提交有效申请。
+- 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
+- 认领证明只对申请人与拾获记录发布者可见。
+
+本阶段不包含 AI 匹配、Agent、通知、移动端、管理员审核、记录编辑和删除。
+
+## API
+
+认证接口仍为公开接口：
+
+```text
+POST /api/auth/register
+POST /api/auth/login
 ```
 
-### 管理接口（需认证）
+Lost & Found 接口均需携带 `Authorization: Bearer <token>`：
 
-| 端点 | 方法 | 所需角色 | 说明 |
-|------|------|----------|------|
-| `/api/admin/users` | `GET` | `ADMIN`、`SUPER_ADMIN` | 查看所有用户 |
-| `/api/admin/users` | `POST` | `SUPER_ADMIN` | 创建指定角色的用户 |
-| `/api/admin/users/{id}/role` | `PUT` | `SUPER_ADMIN` | 修改用户角色 |
+| 方法 | 接口 | 功能 |
+|---|---|---|
+| `POST` | `/api/lost-found/reports` | 创建 multipart 记录 |
+| `GET` | `/api/lost-found/reports` | 条件筛选与分页 |
+| `GET` | `/api/lost-found/reports/{reportId}` | 查看详情 |
+| `GET` | `/api/lost-found/metadata` | 获取枚举元数据 |
+| `POST` | `/api/lost-found/reports/{reportId}/claims` | 提交认领证明 |
+| `GET` | `/api/lost-found/claims/mine` | 查看我提交的申请 |
+| `GET` | `/api/lost-found/claims/received` | 查看我收到的申请 |
+| `POST` | `/api/lost-found/claims/{claimId}/approve` | 批准申请 |
+| `POST` | `/api/lost-found/claims/{claimId}/reject` | 拒绝申请 |
 
-#### 创建指定角色用户（仅 SUPER_ADMIN）
+创建拾获记录示例：
 
-```json
-POST /api/admin/users
-{
-  "email": "newadmin@example.com",
-  "password": "Secure123!",
-  "role": "ADMIN"
-}
+```bash
+curl -X POST http://localhost:8080/api/lost-found/reports \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'report={"reportType":"FOUND","itemName":"Black headphones","category":"ELECTRONICS","description":"Black headphones in a small scratched case","colour":"Black","location":"Central Library","eventDate":"2026-08-06","timeDescription":"Around 3 pm"};type=application/json' \
+  -F 'images=@headphones.png;type=image/png'
 ```
 
-可选角色：`STUDENT`、`ADMIN`（不可通过 API 创建 `SUPER_ADMIN`）。
+筛选开放的拾获记录：
 
-#### 修改用户角色（仅 SUPER_ADMIN）
-
-```json
-PUT /api/admin/users/3/role
-{
-  "role": "ADMIN"
-}
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/api/lost-found/reports?reportType=FOUND&status=OPEN&category=ELECTRONICS&colour=black&page=0&size=20&sort=createdAt,desc'
 ```
 
----
+## 测试
 
-## 角色体系
+```bash
+cd backend
+./mvnw test -DskipDependencyCheck=true -Dspotbugs.skip=true
 
-| 角色 | 权限 |
-|------|------|
-| `STUDENT` | 公开注册默认角色，仅可使用核心功能 |
-| `ADMIN` | 可查看用户列表，由 SUPER_ADMIN 创建 |
-| `SUPER_ADMIN` | 全部权限，可创建任意角色用户、修改角色、查看用户列表。启动时自动创建 |
-
-### 角色层级
-
-```
-SUPER_ADMIN （管理角色、创建管理员）
-   └── ADMIN （查看用户、管理内容）
-       └── STUDENT （默认用户、核心功能）
+cd ../frontend_web
+npm run lint
+npm test
+npm run build
 ```
 
----
-
-## 测试管理面板
-
-在浏览器中打开 `frontend_web/admin-test.html`：
-
-1. **登录** — 输入 SUPER_ADMIN 凭据（默认：`admin@campuslink.com` / `Admin123!`）
-2. **创建用户** — 注册新用户，可选择 `STUDENT` 或 `ADMIN` 角色
-3. **查看用户列表** — 列出所有已注册用户
-4. **修改角色** — 更新任意用户角色（不可修改自己）
-
----
+CI 会继续执行后端测试和安全扫描，并新增 Web 端的 `npm ci`、lint、测试与生产构建。
 
 ## 项目结构
 
+```text
+project/
+├── backend/
+│   └── src/main/java/com/app/campusagent/lostfound/
+│       ├── controller/  dto/  domain/  exception/
+│       ├── repository/  service/  storage/
+├── frontend_web/        React Web 和 public/admin-test.html
+├── frontend_mobile/     后续移动端
+├── ml-service/          后续匹配/分析服务
+├── docker-compose.yml   MySQL 与 MinIO
+└── docs/
 ```
-teamXX-ad-project/
-├── backend/               ← Spring Boot 后端
-│   └── src/main/java/com/app/campusagent/
-│       ├── config/        ← Security、JWT、CORS、DataInitializer
-│       ├── controller/    ← AuthController、AdminController
-│       ├── domain/        ← User 实体、Role 枚举
-│       ├── dto/           ← AuthResponse、UpdateRoleRequest 等
-│       ├── exception/     ← GlobalExceptionHandler
-│       ├── repository/    ← UserRepository
-│       └── service/       ← AuthService
-├── frontend_web/          ← 前端 Web & 测试页面
-├── frontend_mobile/       ← 移动端
-├── ml-service/            ← ML 推荐引擎
-├── docs/                  ← 文档
-└── scripts/               ← 脚本
-```
-
----
-
-*当前文档为早期开发版本，随项目推进持续更新。*
