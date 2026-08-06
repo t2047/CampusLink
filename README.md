@@ -2,145 +2,130 @@
 
 [![English](https://img.shields.io/badge/English-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
 
-> 🚧 **Sprint 0** — Authentication & Role System complete. Remaining modules under development.
-
----
+CampusLink is a campus-service platform. The current vertical slice provides authentication and a Web-based Lost & Found workflow: publish lost/found reports, upload images, search, submit ownership claims, and review received claims.
 
 ## Tech Stack
 
 | Module | Technology |
-|--------|------------|
-| Backend | Java 21 · Spring Boot 4.1.0 · Spring Security · JWT |
-| Database | MySQL 8 |
-| CI/CD | GitHub Actions (SAST + SCA + DAST) |
-| Testing | JUnit 5 · Mockito |
+|---|---|
+| Backend | Java 21, Spring Boot 4.1, Spring Security, JWT |
+| Web | React 19, TypeScript, Vite, MUI, Axios |
+| Data | MySQL 8 |
+| Images | Private MinIO bucket with 15-minute presigned URLs |
+| Testing | JUnit 5, Mockito, H2, Vitest, Testing Library |
 
----
+## Local Setup
 
-## Quick Start
+Prerequisites: Java 21, Docker Desktop, and Node.js 22 or later.
 
 ```bash
-# 1. Clone
-git clone https://github.com/your-org/teamXX-ad-project.git
-cd teamXX-ad-project
-
-# 2. Configure environment variables
+# From the repository root
 cp .env.example .env
-# Edit .env and fill in your MySQL credentials
-
-# 3. Generate JWT secret
+# Set JWT_SECRET and replace the example passwords in .env
 openssl rand -base64 64
-# Copy the output and replace JWT_SECRET in .env
 
-# 4. Launch
-cd backend
-mvn spring-boot:run
+# The backend reads its local .env from backend/
+cp .env backend/.env
+
+# Start MySQL and MinIO
+docker compose up -d
 ```
 
-On first startup, a **SUPER_ADMIN** account is created automatically using credentials from `.env` (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`).
+Start the backend in a second terminal:
 
----
+```bash
+cd backend
+./mvnw spring-boot:run
+```
+
+Start the React app in a third terminal:
+
+```bash
+cd frontend_web
+cp .env.example .env.local
+npm ci
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). MinIO Console is available at [http://localhost:9001](http://localhost:9001). The legacy administrator test page is preserved at [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html).
+
+Stop the infrastructure without deleting its data with `docker compose stop`. Use `docker compose down` to remove the containers while retaining the named volumes.
+
+## Lost & Found Features
+
+- Publish `LOST` and `FOUND` reports with zero to five JPEG, PNG, or WebP images (10 MB maximum per image).
+- Search reports by keyword, category, colour, location, date range, type, and status.
+- View report details through private, expiring image URLs.
+- Submit ownership proof for an open found item. Users cannot claim their own report or submit a duplicate active claim.
+- Let the found-item reporter approve or reject a claim. Approval marks the report `CLAIMED` and rejects its other pending claims.
+- Keep ownership proof visible only to the claimant and the report publisher.
+
+AI matching, agents, notifications, mobile UI, administrator moderation, report editing, and report deletion are outside this iteration.
 
 ## API Reference
 
-### Authentication (public)
+Authentication remains public:
 
-```
-POST /api/auth/register   — Register  { email, password }  → Returns JWT + role (always STUDENT)
-POST /api/auth/login      — Login     { email, password }  → Returns JWT + role
-```
-
-All auth responses include the user's role:
-
-```json
-{
-  "token": "eyJhbG...",
-  "email": "user@example.com",
-  "role": "STUDENT"
-}
+```text
+POST /api/auth/register
+POST /api/auth/login
 ```
 
-### Admin (authenticated)
+All Lost & Found endpoints require `Authorization: Bearer <token>`:
 
-| Endpoint | Method | Role Required | Description |
-|----------|--------|---------------|-------------|
-| `/api/admin/users` | `GET` | `ADMIN`, `SUPER_ADMIN` | List all users |
-| `/api/admin/users` | `POST` | `SUPER_ADMIN` | Create a user with specified role |
-| `/api/admin/users/{id}/role` | `PUT` | `SUPER_ADMIN` | Change a user's role |
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/lost-found/reports` | Create a multipart report |
+| `GET` | `/api/lost-found/reports` | Filter and page reports |
+| `GET` | `/api/lost-found/reports/{reportId}` | Get report details |
+| `GET` | `/api/lost-found/metadata` | Get enum values |
+| `POST` | `/api/lost-found/reports/{reportId}/claims` | Submit ownership proof |
+| `GET` | `/api/lost-found/claims/mine` | List claims submitted by the user |
+| `GET` | `/api/lost-found/claims/received` | List claims received by the user |
+| `POST` | `/api/lost-found/claims/{claimId}/approve` | Approve a received claim |
+| `POST` | `/api/lost-found/claims/{claimId}/reject` | Reject a received claim |
 
-#### Create user with role (SUPER_ADMIN only)
+Create a report:
 
-```json
-POST /api/admin/users
-{
-  "email": "newadmin@example.com",
-  "password": "Secure123!",
-  "role": "ADMIN"
-}
+```bash
+curl -X POST http://localhost:8080/api/lost-found/reports \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'report={"reportType":"FOUND","itemName":"Black headphones","category":"ELECTRONICS","description":"Black headphones in a small scratched case","colour":"Black","location":"Central Library","eventDate":"2026-08-06","timeDescription":"Around 3 pm"};type=application/json' \
+  -F 'images=@headphones.png;type=image/png'
 ```
 
-Allowed roles: `STUDENT`, `ADMIN`. (Cannot create another `SUPER_ADMIN` via API.)
+Search open found items:
 
-#### Change user role (SUPER_ADMIN only)
-
-```json
-PUT /api/admin/users/3/role
-{
-  "role": "ADMIN"
-}
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/api/lost-found/reports?reportType=FOUND&status=OPEN&category=ELECTRONICS&colour=black&page=0&size=20&sort=createdAt,desc'
 ```
 
----
+## Tests
 
-## Role System
+```bash
+cd backend
+./mvnw test -DskipDependencyCheck=true -Dspotbugs.skip=true
 
-| Role | Access |
-|------|--------|
-| `STUDENT` | Default role on public registration. Access to core features only. |
-| `ADMIN` | Can view the user list. Created by SUPER_ADMIN. |
-| `SUPER_ADMIN` | Full access. Can create users with any role, change roles, and view the user list. Auto-created on startup. |
-
-### Role Hierarchy
-
-```
-SUPER_ADMIN (manage roles, create admins)
-   └── ADMIN (view users, manage content)
-       └── STUDENT (default, core features)
+cd ../frontend_web
+npm run lint
+npm test
+npm run build
 ```
 
----
-
-## Testing the Admin Panel
-
-Open `frontend_web/admin-test.html` in a browser to test:
-
-1. **Login** — Enter SUPER_ADMIN credentials (default: `admin@campuslink.com` / `Admin123!`)
-2. **Create User** — Register a new user with `STUDENT` or `ADMIN` role
-3. **View Users** — List all registered users
-4. **Change Role** — Update any user's role (cannot change your own)
-
----
+CI runs the backend tests and security scans as before, and now also runs `npm ci`, lint, tests, and the production build for the Web app.
 
 ## Project Structure
 
+```text
+project/
+├── backend/
+│   └── src/main/java/com/app/campusagent/lostfound/
+│       ├── controller/  dto/  domain/  exception/
+│       ├── repository/  service/  storage/
+├── frontend_web/        React Web app and public/admin-test.html
+├── frontend_mobile/     Future mobile client
+├── ml-service/          Future matching/analytics services
+├── docker-compose.yml   MySQL and MinIO
+└── docs/
 ```
-teamXX-ad-project/
-├── backend/               ← Spring Boot backend
-│   └── src/main/java/com/app/campusagent/
-│       ├── config/        ← Security, JWT, CORS, DataInitializer
-│       ├── controller/    ← AuthController, AdminController
-│       ├── domain/        ← User entity, Role enum
-│       ├── dto/           ← AuthResponse, UpdateRoleRequest, etc.
-│       ├── exception/     ← GlobalExceptionHandler
-│       ├── repository/    ← UserRepository
-│       └── service/       ← AuthService
-├── frontend_web/          ← Web frontend & test pages
-├── frontend_mobile/       ← Mobile app
-├── ml-service/            ← ML recommendation engine
-├── docs/                  ← Documentation
-└── scripts/               ← Utility scripts
-```
-
----
-
-*This document is in early development and will be updated as the project progresses.*
