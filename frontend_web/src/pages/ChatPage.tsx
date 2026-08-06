@@ -68,7 +68,7 @@ export default function ChatPage({ onLogout }: ChatPageProps) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const closeRef = useRef<(() => void) | null>(null);
+  const closeRef = useRef<{ close: () => void } | null>(null);
   const streamingRef = useRef(false);
 
   // ── 深色模式：class 策略 + localStorage 持久化 ──
@@ -255,7 +255,7 @@ export default function ChatPage({ onLogout }: ChatPageProps) {
           (evt) => handleEvent(evt, assistantId),
           () => finish(),
         );
-        closeRef.current = stream.close;
+        closeRef.current = stream;
       } catch (err) {
         appendContent(
           assistantId,

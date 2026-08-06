@@ -21,6 +21,16 @@
 - chat 路径：messages 模式逐字发出失败时，updates 模式把完整回复作为单条 token 兜底
 - 图异常 / 无节点处理 / 无任何输出：直接用 LLM 回复用户（_direct_llm_reply），
   保证"永远有回复"；LLM 兜底也失败才发 error 事件
+
+多轮对话注意（修复"第二条消息无响应/一直回复中"）：
+- 图使用 MemorySaver checkpointer。若每条消息复用同一 thread_id（如 userId），
+  LangGraph 会把第二条消息当作"恢复上次运行"：
+    * 上次停在 interrupt（如 human_approval）→ 恢复需要 Command(resume=...)，
+      永远等不到 → astream 挂起、无任何事件 → 前端一直"回复中"
+    * 即使上次正常结束，也可能复用旧 checkpoint 状态导致行为异常
+- 因此每条请求使用独立 thread_id（uuid4）：每次都是全新运行，杜绝恢复挂起。
+  后续要做真正的多轮对话 + HITL 恢复时，再改为由前端透传会话 thread_id
+  并在中断后用 Command(resume=...) 恢复。
 """
 
 from __future__ import annotations
@@ -163,6 +173,9 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
     - chat_responder 在 messages 模式未发出 token（同步节点捕获不可靠）时，
       updates 模式把完整回复作为单条 token 发出，保证聊天回复不为空
     - 图异常 / 无节点处理 / 无任何输出 → _direct_llm_reply 直接用 LLM 回复
+
+    多轮安全：每条请求使用独立 thread_id（uuid4），避免 MemorySaver checkpoint
+    复用导致第二条消息被当作"恢复上次运行"而挂起（详见模块 docstring）。
     """
     emitted_content = False   # 是否已向用户发出过内容
     emitted_error = False     # 是否已发出错误事件
@@ -171,7 +184,9 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
     try:
         async for mode, chunk in graph.astream(
             initial_state,
-            config={"configurable": {"thread_id": user_id}},
+            # 关键：每条消息独立 thread_id，杜绝 checkpoint 复用挂起。
+            # （不要用 user_id，否则第二条消息会尝试恢复上次中断的运行）
+            config={"configurable": {"thread_id": str(uuid.uuid4())}},
             stream_mode=["messages", "updates"],
         ):
             if mode == "messages":

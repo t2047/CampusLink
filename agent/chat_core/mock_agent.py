@@ -85,13 +85,6 @@ async def agent_invoke(request: Request):
             "actions_taken": [{"action": "report_lost", "status": "ok"}, {"action": "search_found_items", "status": "ok"}],
             "shared_context": {},
         }
-    if "技能" in msg or "教学" in msg:
-        return {
-            "response": "找到 2 位可教授 Python 的同学：张三（高级）、李四（中级）。",
-            "status": "completed",
-            "actions_taken": [{"action": "search_skills", "status": "ok"}],
-            "shared_context": {},
-        }
     # 邮件搜索默认
     return {
         "response": f"（Mock {AGENT_NAME}）找到 3 封相关邮件：\n[1] 张三 - 考试安排\n[2] 李四 - 项目进度\n[3] 王五 - 会议纪要",

@@ -67,6 +67,7 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 3. intent_type="chat"：闲聊、问候、一般知识问答
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
 5. 无法确定时返回 intent_type="chat", targets=[]
+6. 根据用户语言使用对应语言回答
 
 Domain Agent 能力：
 {agent_capabilities}

@@ -100,6 +100,8 @@ export interface SseEvent {
  * - 支持多行 `data:` 合并（按 SSE 规范以换行连接）
  * - 忽略注释行（以 `:` 开头）
  * - 未知事件名回退为 `message`（前端兜底渲染，不再静默丢弃）
+ * - 流自然结束（未收到显式 done/error）时补发 `done`，确保 UI 状态复位，
+ *   避免 streaming 卡死导致后续消息被 `send()` 拦截（必须刷新才能再发）
  */
 export function createChatStream(
   message: string,
@@ -155,6 +157,11 @@ export function createChatStream(
       if (buffer.trim()) {
         const event = parseSseBlock(buffer);
         if (event) onEvent(event);
+      }
+
+      // ★ 流自然结束（未收到显式 done/error）：补发 done，确保 streaming 复位
+      if (!closed) {
+        onEvent({ type: 'done', data: {} });
       }
     } catch (err) {
       if (!closed) onError(err as Event);
