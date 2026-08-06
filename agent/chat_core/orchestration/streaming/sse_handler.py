@@ -26,6 +26,17 @@ class SSEEvent:
     id: Optional[str] = None
 
 
+def _format_event(evt: SSEEvent) -> str:
+    """将单个事件格式化为标准 SSE 文本（事件间以空行分隔）。"""
+    parts: list[str] = []
+    if evt.id:
+        parts.append(f"id: {evt.id}")
+    parts.append(f"event: {evt.event}")
+    parts.append(f"data: {json.dumps(evt.data, ensure_ascii=False)}")
+    # 末尾空行（"\n\n"）是 SSE 事件边界，缺失会导致接收方无法拆分事件
+    return "\n".join(parts) + "\n\n"
+
+
 class OrchestrationStreamer:
     """编排层 SSE 流处理器（基于最终状态构建事件序列，兼容模式）。"""
 
@@ -79,15 +90,8 @@ class OrchestrationStreamer:
         return events
 
     def to_sse_string(self) -> str:
-        """将事件序列格式化为标准 SSE 文本。"""
-        lines: list[str] = []
-        for ev in self.build_events():
-            if ev.id:
-                lines.append(f"id: {ev.id}")
-            lines.append(f"event: {ev.event}")
-            lines.append(f"data: {json.dumps(ev.data, ensure_ascii=False)}")
-            lines.append("")
-        return "\n".join(lines)
+        """将事件序列格式化为标准 SSE 文本（每个事件以空行结尾）。"""
+        return "".join(_format_event(ev) for ev in self.build_events())
 
 
 def structural_events_from_update(node_name: str, update: dict[str, Any]) -> list[SSEEvent]:
@@ -163,10 +167,4 @@ async def astream_events(state: AgentState) -> AsyncGenerator[str, None]:
     """异步版本：逐事件 yield（兼容模式，Sprint 3+ 流式迁移用）。"""
     streamer = OrchestrationStreamer(state)
     for ev in streamer.build_events():
-        parts = []
-        if ev.id:
-            parts.append(f"id: {ev.id}")
-        parts.append(f"event: {ev.event}")
-        parts.append(f"data: {json.dumps(ev.data, ensure_ascii=False)}")
-        parts.append("")
-        yield "\n".join(parts)
+        yield _format_event(ev)

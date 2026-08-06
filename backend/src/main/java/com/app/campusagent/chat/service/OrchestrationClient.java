@@ -46,8 +46,9 @@ import java.util.UUID;
  *   <li>改用 {@code bodyToFlux(DataBuffer.class)} 读取原始字节，绕过
  *       {@code ServerSentEventHttpMessageReader}（该 reader 在 Spring MVC + WebClient 组合下
  *       会剥离 event 名，导致前端收到全部 {@code message} 而无法渲染）。</li>
- *   <li><b>不攒批：</b>每次订阅创建独立的 {@link SseIncrementalParser}，按 {@code \n\n}
- *       事件边界边收边解析边发出；末尾 {@code flush()} 处理残留半包。</li>
+ *   <li><b>不攒批：</b>每次订阅创建独立的 {@link SseIncrementalParser}，按行状态机解析：
+ *       {@code event:} 行视为新事件边界、空行触发事件提交，边收边解析边发出；
+ *       末尾 {@code flush()} 处理残留半包。兼容上游缺空行分隔的情况。</li>
  *   <li>event 名 100% 保留（{@code token} / {@code agent_start} / {@code agent_step} / …）。</li>
  * </ul>
  */
@@ -148,23 +149,28 @@ public class OrchestrationClient {
     /**
      * 增量 SSE 解析器（每次订阅一个实例，线程隔离）。
      *
-     * <p>{@code feed()} 接收一个分片，把其中完整的事件（以 {@code \n\n} 为边界）立即返回；
-     * 半包残留在内部 buffer，等待下一个分片补齐。{@code flush()} 在流结束时处理残留。</p>
+     * <p>按行状态机：{@code feed()} 逐行消费分片，{@code event:} 行开启/切换事件、
+     * 空行提交当前事件、{@code data:} 行累积 payload；半包残留在内部 buffer。
+     * 兼容两种上游：标准 {@code \n\n} 分隔，以及缺空行、仅以 {@code event:} 换行的写法。
+     * {@code flush()} 在流结束时处理残留。</p>
      */
     private static final class SseIncrementalParser {
 
         private final StringBuilder buffer = new StringBuilder();
+        private String currentEvent = "message";
+        private final List<String> currentData = new ArrayList<>();
+        private boolean inEvent = false;
 
         List<ServerSentEvent<String>> feed(String chunk) {
-            // 统一 CRLF → LF，简化事件边界判断
+            // 统一 CRLF → LF，简化逐行处理
             buffer.append(chunk.replace("\r\n", "\n"));
 
             List<ServerSentEvent<String>> events = new ArrayList<>();
-            int boundary;
-            while ((boundary = buffer.indexOf("\n\n")) != -1) {
-                String block = buffer.substring(0, boundary);
-                buffer.delete(0, boundary + 2);
-                ServerSentEvent<String> evt = parseBlock(block);
+            int idx;
+            while ((idx = buffer.indexOf("\n")) != -1) {
+                String line = buffer.substring(0, idx);
+                buffer.delete(0, idx + 1);
+                ServerSentEvent<String> evt = handleLine(line);
                 if (evt != null) {
                     events.add(evt);
                 }
@@ -173,36 +179,68 @@ public class OrchestrationClient {
         }
 
         List<ServerSentEvent<String>> flush() {
-            if (buffer.length() == 0) {
-                return List.of();
+            List<ServerSentEvent<String>> events = new ArrayList<>();
+            // 处理最后一行（可能没有换行结尾）
+            if (buffer.length() > 0) {
+                ServerSentEvent<String> evt = handleLine(buffer.toString());
+                if (evt != null) {
+                    events.add(evt);
+                }
+                buffer.setLength(0);
             }
-            String block = buffer.toString();
-            buffer.setLength(0);
-            ServerSentEvent<String> evt = parseBlock(block);
-            return evt == null ? List.of() : List.of(evt);
-        }
-
-        private ServerSentEvent<String> parseBlock(String block) {
-            if (block == null || block.isBlank()) {
-                return null;
-            }
-            String event = "message";
-            List<String> dataLines = new ArrayList<>();
-            for (String line : block.split("\n")) {
-                if (line.startsWith("event:")) {
-                    event = line.substring(6).trim();
-                } else if (line.startsWith("data:")) {
-                    // 按 SSE 规范去掉单个前导空格
-                    dataLines.add(line.substring(5).replaceFirst("^ ", ""));
+            // 提交未以空行结束的残留事件
+            if (inEvent) {
+                ServerSentEvent<String> evt = buildEvent();
+                resetEvent();
+                if (evt != null) {
+                    events.add(evt);
                 }
             }
-            if (dataLines.isEmpty()) {
+            return events;
+        }
+
+        private ServerSentEvent<String> handleLine(String line) {
+            if (line.startsWith("event:")) {
+                // 新事件边界：若上一个事件未以空行结束，先补发
+                ServerSentEvent<String> prev = null;
+                if (inEvent) {
+                    prev = buildEvent();
+                }
+                currentEvent = line.substring(6).trim();
+                currentData.clear();
+                inEvent = true;
+                return prev;
+            }
+            if (line.startsWith("data:")) {
+                // 按 SSE 规范去掉单个前导空格
+                currentData.add(line.substring(5).replaceFirst("^ ", ""));
+                inEvent = true;
+                return null;
+            }
+            if (line.isEmpty() && inEvent) {
+                // 空行 = 事件结束
+                ServerSentEvent<String> evt = buildEvent();
+                resetEvent();
+                return evt;
+            }
+            // 注释行（":"）或未知行：忽略
+            return null;
+        }
+
+        private ServerSentEvent<String> buildEvent() {
+            if (currentData.isEmpty()) {
                 return null;
             }
             return ServerSentEvent.<String>builder()
-                    .event(event)
-                    .data(String.join("\n", dataLines))
+                    .event(currentEvent)
+                    .data(String.join("\n", currentData))
                     .build();
+        }
+
+        private void resetEvent() {
+            currentEvent = "message";
+            currentData.clear();
+            inEvent = false;
         }
     }
 

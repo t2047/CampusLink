@@ -278,7 +278,7 @@ def _format_sse(evt: SSEEvent) -> str:
     lines.append(f"event: {evt.event}")
     lines.append(f"data: {json.dumps(evt.data, ensure_ascii=False)}")
     lines.append("")
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
 # ──────────────────────────────────────────────────────────────────────
