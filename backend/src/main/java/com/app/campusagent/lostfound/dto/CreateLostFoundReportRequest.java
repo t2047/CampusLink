@@ -18,4 +18,21 @@ public record CreateLostFoundReportRequest(
         @NotBlank @Size(max = 200) String location,
         @NotNull @PastOrPresent LocalDate eventDate,
         @Size(max = 100) String timeDescription) {
+
+    public CreateLostFoundReportRequest {
+        itemName = trim(itemName);
+        description = trim(description);
+        colour = trimToNull(colour);
+        location = trim(location);
+        timeDescription = trimToNull(timeDescription);
+    }
+
+    private static String trim(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private static String trimToNull(String value) {
+        String trimmed = trim(value);
+        return trimmed == null || trimmed.isEmpty() ? null : trimmed;
+    }
 }
