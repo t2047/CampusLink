@@ -20,10 +20,12 @@ export function ReportDetailPage() {
   const [proof, setProof] = useState('')
   const [claiming, setClaiming] = useState(false)
   const [success, setSuccess] = useState('')
+  const [claimSubmitted, setClaimSubmitted] = useState(false)
 
   useEffect(() => {
     if (!reportId) return
     let active = true
+    setClaimSubmitted(false)
     getReport(reportId)
       .then((data) => { if (active) setReport(data) })
       .catch((requestError) => { if (active) setError(apiErrorMessage(requestError)) })
@@ -41,6 +43,8 @@ export function ReportDetailPage() {
     try {
       await submitClaim(report.id, proof.trim())
       setClaimOpen(false)
+      setProof('')
+      setClaimSubmitted(true)
       setSuccess('Your claim was submitted to the person who posted this item.')
     } catch (requestError) {
       setError(apiErrorMessage(requestError))
@@ -69,7 +73,7 @@ export function ReportDetailPage() {
             <Divider sx={{ my: 3 }} />
             <Stack spacing={1}><Typography><LocationOnIcon fontSize="small" /> {report.location}</Typography><Typography><CalendarTodayIcon fontSize="small" /> {report.eventDate}{report.timeDescription ? ` · ${report.timeDescription}` : ''}</Typography></Stack>
             <Typography sx={{ mt: 3, whiteSpace: 'pre-wrap' }}>{report.description}</Typography>
-            {report.reportType === 'FOUND' && report.status === 'OPEN' && !report.createdByMe && <Button fullWidth size="large" variant="contained" sx={{ mt: 4 }} onClick={() => setClaimOpen(true)}>Submit a claim</Button>}
+            {report.reportType === 'FOUND' && report.status === 'OPEN' && !report.createdByMe && !claimSubmitted && <Button fullWidth size="large" variant="contained" sx={{ mt: 4 }} onClick={() => setClaimOpen(true)}>Submit a claim</Button>}
             {report.createdByMe && report.reportType === 'FOUND' && <Button fullWidth variant="outlined" sx={{ mt: 4 }} onClick={() => navigate('/claims/received')}>Review received claims</Button>}
           </Card>
         </Grid>

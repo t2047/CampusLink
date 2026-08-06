@@ -52,7 +52,7 @@ class LostFoundClaimServiceTest {
     @Test
     void createsClaimForOpenFoundReport() throws Exception {
         LostFoundReport report = report(ReportType.FOUND, owner, 20L);
-        when(reportRepository.findById(20L)).thenReturn(Optional.of(report));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
         when(claimRepository.existsByReportIdAndClaimantIdAndStatusIn(any(), any(), any()))
                 .thenReturn(false);
         when(claimRepository.save(any())).thenAnswer(invocation -> {
@@ -74,7 +74,7 @@ class LostFoundClaimServiceTest {
     @Test
     void rejectsClaimForLostReport() throws Exception {
         LostFoundReport report = report(ReportType.LOST, owner, 20L);
-        when(reportRepository.findById(20L)).thenReturn(Optional.of(report));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
 
         assertThatThrownBy(() -> service.create(
                 20L,
@@ -88,7 +88,7 @@ class LostFoundClaimServiceTest {
     @Test
     void rejectsClaimByReportOwner() throws Exception {
         LostFoundReport report = report(ReportType.FOUND, owner, 20L);
-        when(reportRepository.findById(20L)).thenReturn(Optional.of(report));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
 
         assertThatThrownBy(() -> service.create(
                 20L,
@@ -102,7 +102,7 @@ class LostFoundClaimServiceTest {
     @Test
     void rejectsDuplicateActiveClaim() throws Exception {
         LostFoundReport report = report(ReportType.FOUND, owner, 20L);
-        when(reportRepository.findById(20L)).thenReturn(Optional.of(report));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
         when(claimRepository.existsByReportIdAndClaimantIdAndStatusIn(any(), any(), any()))
                 .thenReturn(true);
 
@@ -119,7 +119,7 @@ class LostFoundClaimServiceTest {
     void rejectsClaimWhenReportIsAlreadyClaimed() throws Exception {
         LostFoundReport report = report(ReportType.FOUND, owner, 20L);
         report.markClaimed();
-        when(reportRepository.findById(20L)).thenReturn(Optional.of(report));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
 
         assertThatThrownBy(() -> service.create(
                 20L,
@@ -136,6 +136,8 @@ class LostFoundClaimServiceTest {
         LostFoundClaim selected = claim(report, claimant, 31L);
         LostFoundClaim other = claim(report, user(3L, "other@u.nus.edu"), 32L);
         when(claimRepository.findById(31L)).thenReturn(Optional.of(selected));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
+        when(claimRepository.findLockedById(31L)).thenReturn(Optional.of(selected));
         when(claimRepository.findByReportIdAndStatus(20L, ClaimStatus.SUBMITTED))
                 .thenReturn(List.of(selected, other));
         when(claimRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -152,6 +154,7 @@ class LostFoundClaimServiceTest {
         LostFoundReport report = report(ReportType.FOUND, owner, 20L);
         LostFoundClaim claim = claim(report, claimant, 31L);
         when(claimRepository.findById(31L)).thenReturn(Optional.of(claim));
+        when(reportRepository.findLockedById(20L)).thenReturn(Optional.of(report));
 
         assertThatThrownBy(() -> service.reject(
                 31L,

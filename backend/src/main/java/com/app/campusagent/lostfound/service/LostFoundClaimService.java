@@ -38,7 +38,7 @@ public class LostFoundClaimService {
             Long reportId,
             CreateClaimRequest request,
             User currentUser) {
-        LostFoundReport report = requireReport(reportId);
+        LostFoundReport report = requireReportForUpdate(reportId);
         if (report.getReportType() != ReportType.FOUND) {
             throw conflict("ONLY_FOUND_REPORTS_CAN_BE_CLAIMED", "Only found-item reports can be claimed");
         }
@@ -83,14 +83,16 @@ public class LostFoundClaimService {
             ClaimDecisionRequest request,
             User currentUser) {
         LostFoundClaim claim = requireClaim(claimId);
-        assertCanReview(claim, currentUser);
+        LostFoundReport report = requireReportForUpdate(claim.getReport().getId());
+        assertCanReview(report, currentUser);
+        claim = requireClaimForUpdate(claimId);
         assertSubmitted(claim);
-        if (claim.getReport().getStatus() != ReportStatus.OPEN) {
+        if (report.getStatus() != ReportStatus.OPEN) {
             throw conflict("REPORT_NOT_OPEN", "This report is no longer open for claims");
         }
 
         List<LostFoundClaim> pending = claimRepository.findByReportIdAndStatus(
-                claim.getReport().getId(), ClaimStatus.SUBMITTED);
+                report.getId(), ClaimStatus.SUBMITTED);
         String note = trimToNull(request.decisionNote());
         claim.approve(note);
         for (LostFoundClaim pendingClaim : pending) {
@@ -98,8 +100,8 @@ public class LostFoundClaimService {
                 pendingClaim.reject("Another claim was approved");
             }
         }
-        claim.getReport().markClaimed();
-        reportRepository.save(claim.getReport());
+        report.markClaimed();
+        reportRepository.save(report);
         claimRepository.saveAll(pending);
         return toResponse(claim, currentUser);
     }
@@ -110,14 +112,16 @@ public class LostFoundClaimService {
             ClaimDecisionRequest request,
             User currentUser) {
         LostFoundClaim claim = requireClaim(claimId);
-        assertCanReview(claim, currentUser);
+        LostFoundReport report = requireReportForUpdate(claim.getReport().getId());
+        assertCanReview(report, currentUser);
+        claim = requireClaimForUpdate(claimId);
         assertSubmitted(claim);
         claim.reject(trimToNull(request.decisionNote()));
         return toResponse(claimRepository.save(claim), currentUser);
     }
 
-    private LostFoundReport requireReport(Long reportId) {
-        return reportRepository.findById(reportId)
+    private LostFoundReport requireReportForUpdate(Long reportId) {
+        return reportRepository.findLockedById(reportId)
                 .orElseThrow(() -> new LostFoundApiException(
                         HttpStatus.NOT_FOUND,
                         "LOST_FOUND_REPORT_NOT_FOUND",
@@ -132,8 +136,16 @@ public class LostFoundClaimService {
                         "The requested claim does not exist"));
     }
 
-    private void assertCanReview(LostFoundClaim claim, User currentUser) {
-        if (!claim.getReport().getCreatedBy().getId().equals(currentUser.getId())) {
+    private LostFoundClaim requireClaimForUpdate(Long claimId) {
+        return claimRepository.findLockedById(claimId)
+                .orElseThrow(() -> new LostFoundApiException(
+                        HttpStatus.NOT_FOUND,
+                        "CLAIM_NOT_FOUND",
+                        "The requested claim does not exist"));
+    }
+
+    private void assertCanReview(LostFoundReport report, User currentUser) {
+        if (!report.getCreatedBy().getId().equals(currentUser.getId())) {
             throw new LostFoundApiException(
                     HttpStatus.FORBIDDEN,
                     "CLAIM_REVIEW_FORBIDDEN",
