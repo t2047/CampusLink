@@ -82,7 +82,6 @@ describe('admin application routes', () => {
 
   it.each([
     ['/admin/lost-found', 'Lost & Found', 'Claim review and administration features are coming soon.'],
-    ['/admin/facilities', 'Facilities', 'Facilities administration will be available here.'],
     ['/admin/users', 'User Management', 'The scope of this module is pending team confirmation.'],
   ])('renders the %s administrator placeholder', async (path, heading, description) => {
     storeSession('ADMIN')
@@ -96,10 +95,19 @@ describe('admin application routes', () => {
     expect(screen.getByRole('link', { name: 'Return to Overview' })).toHaveAttribute('href', '/admin/dashboard')
   })
 
+  it('renders the Facilities dashboard at the facilities route', async () => {
+    storeSession('ADMIN')
+    renderApp('/admin/facilities')
+
+    expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
+    expect(screen.getByText('Total Facilities')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Reservations' })).toHaveAttribute('href', '/admin/facilities/reservations')
+    expect(screen.getByRole('tab', { name: 'Maintenance' })).toHaveAttribute('href', '/admin/facilities/maintenance')
+  })
+
 
   it.each([
     ['Lost & Found', '/admin/lost-found'],
-    ['Facilities', '/admin/facilities'],
     ['User Management', '/admin/users'],
   ])('navigates from the %s dashboard card to its placeholder', async (label, path) => {
     storeSession('ADMIN')
@@ -111,6 +119,16 @@ describe('admin application routes', () => {
     expect(await screen.findByRole('heading', { name: label })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent(path)
     expect(screen.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('navigates from the Facilities dashboard card to the Facilities dashboard', async () => {
+    storeSession('ADMIN')
+    renderApp('/admin/dashboard')
+
+    fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Facilities' }))
+
+    expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/facilities')
   })
 
   it('renders the administration not-found page after the admin access boundary', async () => {
