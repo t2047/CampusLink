@@ -22,15 +22,13 @@
 - 图异常 / 无节点处理 / 无任何输出：直接用 LLM 回复用户（_direct_llm_reply），
   保证"永远有回复"；LLM 兜底也失败才发 error 事件
 
-多轮对话注意（修复"第二条消息无响应/一直回复中"）：
-- 图使用 MemorySaver checkpointer。若每条消息复用同一 thread_id（如 userId），
-  LangGraph 会把第二条消息当作"恢复上次运行"：
-    * 上次停在 interrupt（如 human_approval）→ 恢复需要 Command(resume=...)，
-      永远等不到 → astream 挂起、无任何事件 → 前端一直"回复中"
-    * 即使上次正常结束，也可能复用旧 checkpoint 状态导致行为异常
-- 因此每条请求使用独立 thread_id（uuid4）：每次都是全新运行，杜绝恢复挂起。
-  后续要做真正的多轮对话 + HITL 恢复时，再改为由前端透传会话 thread_id
-  并在中断后用 Command(resume=...) 恢复。
+多轮对话（启用后）：
+- 同一会话复用 thread_id（前端透传 session_id，经后端 → 编排层 ChatRequest.sessionId）
+- MemorySaver checkpoint 累积 messages，实现跨消息上下文
+- 防护：若该 thread 上次运行停在中断（HITL interrupt），恢复需要 Command(resume=...)，
+  直接复用会挂起（"一直回复中"）；_thread_config 在请求前检查
+  graph.get_state().next，非空则换新 thread（放弃旧上下文，但不卡住）
+- HITL 确认恢复（Command(resume=...)）为 Sprint 3 待办
 """
 
 from __future__ import annotations
@@ -38,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import Any, AsyncGenerator
 
@@ -87,6 +86,35 @@ def _get_graph():
     return _graph
 
 
+def _sanitize_thread_id(raw: str) -> str:
+    """校验并清洗会话 ID（thread_id 会作为 MemorySaver checkpoint key）。"""
+    if not raw:
+        return ""
+    return re.sub(r"[^A-Za-z0-9_-]", "", raw)[:128]
+
+
+def _thread_config(graph, session_id: str) -> dict:
+    """构造 LangGraph 配置：多轮上下文按 session_id 复用 thread_id。
+
+    若该 thread 上次运行停在中断（HITL human_approval 的 interrupt），直接恢复会
+    挂起（此前"第二条消息一直回复中"的根因）；此时放弃旧 checkpoint 换新 thread
+    （本次无历史上下文，但不会卡住）。正常结束的 thread 的 next 为空 → 正常复用。
+    """
+    base = _sanitize_thread_id(session_id) or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": base}}
+    try:
+        snapshot = graph.get_state(config)
+        if snapshot and snapshot.next:
+            logger.warning(
+                "thread %s 上次运行未结束（停在 %s），换新 thread 避免恢复挂起",
+                base, snapshot.next,
+            )
+            config["configurable"]["thread_id"] = f"{base}:{uuid.uuid4()}"
+    except Exception:
+        pass  # 无 checkpoint / 单测假图等场景，直接用原 thread
+    return config
+
+
 class ChatRequest(BaseModel):
     """Chat Backend 转发到编排层的请求体。"""
 
@@ -95,6 +123,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息")
     traceId: str = Field(default="", description="分布式追踪 ID")
     conversationContext: dict[str, Any] = Field(default_factory=dict)
+    sessionId: str = Field(default="", description="会话 ID（多轮上下文复用 thread_id）")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -128,6 +157,10 @@ async def chat_stream(request: Request):
         raise HTTPException(status_code=400, detail="invalid request body")
 
     trace_id = payload.traceId or verified.trace_id or str(uuid.uuid4())
+    session_id = _sanitize_thread_id(payload.sessionId)
+
+    logger.info("chat_stream: userId=%s, sessionId=%s, traceId=%s",
+                payload.userId, session_id or "(new)", trace_id)
 
     # 构建初始状态
     initial_state: dict[str, Any] = {
@@ -152,7 +185,7 @@ async def chat_stream(request: Request):
     graph = _get_graph()
 
     return StreamingResponse(
-        _sse_stream(graph, initial_state, payload.userId, trace_id),
+        _sse_stream(graph, initial_state, payload.userId, trace_id, session_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -162,7 +195,8 @@ async def chat_stream(request: Request):
     )
 
 
-async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_id: str) -> AsyncGenerator[str, None]:
+async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_id: str,
+                      session_id: str = "") -> AsyncGenerator[str, None]:
     """流式执行 LangGraph 并逐事件生成 SSE 文本。
 
     stream_mode=["messages", "updates"]：
@@ -176,8 +210,8 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
       无产出才补发完整回复
     - 图异常 / 无节点处理 / 无任何输出 → _direct_llm_reply 直接用 LLM 回复
 
-    多轮安全：每条请求使用独立 thread_id（uuid4），避免 MemorySaver checkpoint
-    复用导致第二条消息被当作"恢复上次运行"而挂起（详见模块 docstring）。
+    多轮上下文：同一会话复用 thread_id（前端 session_id 透传）——
+    MemorySaver checkpoint 累积 messages；上次停在中断时由 _thread_config 换新 thread。
     """
     emitted_content = False   # 是否已向用户发出过内容
     emitted_error = False     # 是否已发出错误事件
@@ -189,9 +223,9 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
     try:
         async for mode, chunk in graph.astream(
             initial_state,
-            # 关键：每条消息独立 thread_id，杜绝 checkpoint 复用挂起。
-            # （不要用 user_id，否则第二条消息会尝试恢复上次中断的运行）
-            config={"configurable": {"thread_id": str(uuid.uuid4())}},
+            # 多轮上下文：同一会话复用 thread_id（MemorySaver checkpoint 累积 messages）；
+            # 若上次运行停在中断（HITL）则由 _thread_config 换新 thread 避免恢复挂起
+            config=_thread_config(graph, session_id),
             stream_mode=["messages", "updates"],
         ):
             if mode == "messages":

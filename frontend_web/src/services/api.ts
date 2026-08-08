@@ -109,13 +109,16 @@ export interface SseEvent {
  */
 export function createChatStream(
   message: string,
+  sessionId: string,
   onEvent: (evt: SseEvent) => void,
   onError: (err: unknown) => void,
 ): { close: () => void } {
   const token = getToken();
   if (!token) throw new Error('Not authenticated');
 
-  const url = `${API_BASE}/api/chat/stream?message=${encodeURIComponent(message)}`;
+  const params = new URLSearchParams({ message });
+  if (sessionId) params.set('session_id', sessionId);
+  const url = `${API_BASE}/api/chat/stream?${params.toString()}`;
 
   const controller = new AbortController();
   let closed = false;

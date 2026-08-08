@@ -51,11 +51,13 @@ public class ChatController {
      * SSE 流式聊天。
      *
      * @param message 用户消息
+     * @param sessionId 可选会话 ID（多轮上下文；前端会话级 UUID）
      * @param traceId 可选追踪 ID
      */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> streamChat(
             @RequestParam String message,
+            @RequestParam(value = "session_id", required = false) String sessionId,
             @RequestParam(required = false) String traceId) {
 
         // 从 SecurityContext 提取身份（由 JwtAuthFilter 填充）
@@ -72,7 +74,7 @@ public class ChatController {
 
         // 直接返回编排层事件流，由 Spring MVC SSE writer 序列化；
         // 异常时降级为 error 事件，保证流不中断。
-        return orchestrationClient.streamChat(rawJwt, userId, role, message, resolvedTraceId)
+        return orchestrationClient.streamChat(rawJwt, userId, role, message, sessionId, resolvedTraceId)
                 .onErrorResume(e -> {
                     log.error("Chat stream failed: userId={}, err={}", userId, e.getMessage());
                     return Flux.just(ServerSentEvent.<String>builder()

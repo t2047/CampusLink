@@ -62,7 +62,8 @@
 ## 架构要点
 
 - 编排层 LangGraph：`input_guardrail → intent_router → agent_invoker / utility_executor / chat_responder → output_guardrail → response_aggregator`
-- 多轮对话：`thread_id = userId`，MemorySaver checkpointer
+- 多轮对话：前端 session_id（localStorage 持久化）→ 后端 → 编排层 thread_id，
+  MemorySaver checkpoint 累积消息上下文；上次停在中断（HITL）时换新 thread 防挂起
 - HITL：`interrupt()` 暂停等待审批，`Command(resume=...)` 恢复
 
 ## 待办（Sprint 3+）

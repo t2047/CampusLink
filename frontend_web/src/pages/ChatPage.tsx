@@ -56,6 +56,15 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
+
+  // 会话 ID（多轮上下文）：localStorage 持久化，同一会话复用同一 thread_id；登出清除
+  const [sessionId] = useState(() => {
+    const existing = localStorage.getItem('sessionId');
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem('sessionId', id);
+    return id;
+  });
   const [streaming, setStreaming] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [dark, setDark] = useState<boolean>(() => {
@@ -250,6 +259,7 @@ export default function ChatPage() {
       try {
         const stream = createChatStream(
           msg,
+          sessionId,
           (evt) => handleEvent(evt, assistantId),
           () => finish(),
         );
@@ -262,7 +272,7 @@ export default function ChatPage() {
         finish();
       }
     },
-    [input, handleEvent, appendContent, finish],
+    [input, sessionId, handleEvent, appendContent, finish],
   );
 
   // ── 停止生成 ────────────────────────────────
@@ -293,6 +303,7 @@ export default function ChatPage() {
   const handleLogout = useCallback(() => {
     closeRef.current?.close();
     clearToken();
+    localStorage.removeItem('sessionId');
     document.documentElement.classList.remove('dark');
     localStorage.removeItem('theme');
     navigate('/login', { replace: true });

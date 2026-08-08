@@ -76,15 +76,17 @@ public class OrchestrationClient {
      * @param userId  用户 ID（来自 SecurityContext）
      * @param role    用户角色
      * @param message 用户消息
+     * @param sessionId 会话 ID（多轮上下文，透传给编排层作为 thread_id）
      * @param traceId 分布式追踪 ID（不存在则生成）
      */
     public Flux<ServerSentEvent<String>> streamChat(String userJwt, String userId, String role,
-                                                    String message, String traceId) {
+                                                    String message, String sessionId,
+                                                    String traceId) {
         String resolvedTraceId = (traceId == null || traceId.isBlank())
                 ? UUID.randomUUID().toString() : traceId;
 
         // 为编排层调用构建请求体（不含原始 JWT）
-        String requestBody = buildRequestBody(userId, role, message, resolvedTraceId);
+        String requestBody = buildRequestBody(userId, role, message, sessionId, resolvedTraceId);
 
         // 构造安全 Headers（编排层共享密钥 HMAC 签名）
         HttpHeaders headers = buildSecureHeaders(requestBody, resolvedTraceId);
@@ -241,13 +243,17 @@ public class OrchestrationClient {
     // 请求构建与签名
     // ──────────────────────────────────────────────────────────────────────
 
-    private String buildRequestBody(String userId, String role, String message, String traceId) {
+    private String buildRequestBody(String userId, String role, String message, String sessionId, String traceId) {
         try {
-            JsonNode body = objectMapper.createObjectNode()
+            com.fasterxml.jackson.databind.node.ObjectNode body = (com.fasterxml.jackson.databind.node.ObjectNode)
+                    objectMapper.createObjectNode()
                     .put("userId", userId)
                     .put("role", role)
                     .put("message", message)
                     .put("traceId", traceId);
+            if (sessionId != null && !sessionId.isBlank()) {
+                body.put("sessionId", sessionId);
+            }
             return objectMapper.writeValueAsString(body);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build request body", e);
