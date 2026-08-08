@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.1.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.2.0.json",
   "agent": "lost-found-agent",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "校园失物招领领域 Agent。负责报失、搜索拾获记录、查看详情和提交认领；所有写操作必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
@@ -25,7 +25,8 @@
     "requiredHeaders": ["Authorization", "X-Nonce", "X-Timestamp", "X-Signature"],
     "delegationTokenAudience": "lost-found-agent",
     "nonceMustMatchJti": true,
-    "writeConfirmationRequired": ["report_lost", "claim_item"]
+    "writeConfirmationRequired": ["report_lost", "claim_item"],
+    "confirmationTtlSeconds": 600
   },
   "capabilities": {
     "domains": ["lost_and_found"],
@@ -163,32 +164,37 @@
     {
       "name": "report_lost",
       "requiresConfirmation": true,
-      "required": ["item_name", "category", "description", "lost_location", "lost_date"]
+      "required": ["item_name", "category", "description", "location", "event_date"]
     },
     {
       "name": "search_found_items",
       "requiresConfirmation": false,
       "defaults": {"report_type": "FOUND", "status": "OPEN", "limit": 100}
     },
-    {"name": "get_item_detail", "requiresConfirmation": false, "required": ["item_id"]},
+    {"name": "get_item_detail", "requiresConfirmation": false, "required": ["report_id"]},
     {
       "name": "claim_item",
       "requiresConfirmation": true,
-      "required": ["item_id", "proof_description"]
+      "required": ["report_id", "proof_description"]
     }
   ],
   "streaming": {
     "events": [
       "agent_start",
-      "tool_call_start",
-      "tool_call_progress",
-      "tool_call_end",
-      "agent_needs_more_info",
-      "agent_needs_confirmation",
+      "tool_execution",
+      "needs_more_info",
+      "confirmation_required",
       "token",
       "agent_done",
       "agent_error"
     ],
     "retentionSeconds": 300
+  },
+  "matching": {
+    "candidateDefaults": {"reportType": "FOUND", "status": "OPEN", "limit": 100},
+    "topK": 5,
+    "defaultMinimumScore": 0.35,
+    "weights": {"text": 0.30, "category": 0.30, "colour": 0.15, "location": 0.15, "date": 0.10},
+    "missingFieldsRenormalizeWeights": true
   }
 }

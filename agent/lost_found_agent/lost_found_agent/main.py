@@ -8,13 +8,19 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
 from .config import Settings, get_settings
+from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
 from .models import InvokeRequest, InvokeResponse
 from .rate_limit import RateLimiter
+from .rules import RuleEngine
 from .security import AgentSecurity
+from .tools import CampusApiClient
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    api_client: CampusApiClient | None = None,
+) -> FastAPI:
     active_settings = settings or get_settings()
     security = AgentSecurity(active_settings)
     limiter = RateLimiter(
@@ -22,10 +28,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         active_settings.agent_rate_limit_per_session,
     )
     event_store = EventStore(active_settings.agent_event_ttl_seconds)
+    owns_api_client = api_client is None
+    active_api_client = api_client or CampusApiClient(active_settings)
+    rule_engine = RuleEngine(
+        active_api_client,
+        ConfirmationStore(ttl_seconds=600),
+        active_settings.lost_found_match_min_score,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
+        try:
+            yield
+        finally:
+            if owns_api_client:
+                await active_api_client.close()
 
     app = FastAPI(
         title="CampusLink Lost & Found Agent",
@@ -48,7 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "agent": active_settings.agent_name,
             "version": active_settings.agent_version,
-            "status": "tools_ready",
+            "status": "rules_ready",
             "capabilities": {
                 "domains": ["lost_and_found"],
                 "actions": [
@@ -74,12 +91,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "agent_start", {"agent": active_settings.agent_name, "message": payload.message}
             ),
         )
-        response = InvokeResponse(
-            response="Agent 真实业务工具已就绪，自然语言规则对话将在下一阶段接入。",
-            status="failed",
-            shared_context={"stage": "tools_ready"},
-            request_id=request_id,
-        )
+        try:
+            response = await rule_engine.handle(
+                payload,
+                verified,
+                request_id,
+                lambda event: event_store.append(request_id, event),
+            )
+        except Exception:
+            response = InvokeResponse(
+                response="Agent 处理请求时发生内部错误。",
+                status="failed",
+                request_id=request_id,
+            )
+            event_store.append(
+                request_id,
+                AgentEvent(
+                    "agent_error",
+                    {"code": "INTERNAL_ERROR", "message": response.response},
+                ),
+            )
         event_store.append(
             request_id,
             AgentEvent(

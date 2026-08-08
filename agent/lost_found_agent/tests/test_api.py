@@ -12,7 +12,7 @@ def test_public_health_reports_rules_mode(client: TestClient) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "lost-found-agent",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "mode": "rules",
         "model_configured": False,
     }
@@ -52,7 +52,7 @@ def test_authenticated_invoke_creates_replayable_events(
     response = client.post("/agent/invoke", content=body, headers=headers)
 
     assert response.status_code == 200
-    assert response.json()["status"] == "failed"
+    assert response.json()["status"] in {"no_match", "needs_more_info"}
     assert response.json()["request_id"] == "request-1"
 
     stream_body, stream_headers = signed_request(settings, None, action="stream")

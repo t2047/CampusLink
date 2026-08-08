@@ -9,12 +9,14 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
     Draft202012Validator.check_schema(schema)
-    assert schema["version"] == "1.1.0"
+    assert schema["version"] == "1.2.0"
     assert schema["security"]["writeConfirmationRequired"] == [
         "report_lost",
         "claim_item",
     ]
     assert schema["capabilities"]["privacy"]["exposesPublisherContact"] is False
+    assert schema["matching"]["topK"] == 5
+    assert sum(schema["matching"]["weights"].values()) == 1
 
 
 def test_sample_response_matches_contract() -> None:
