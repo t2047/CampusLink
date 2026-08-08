@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.2.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.3.0.json",
   "agent": "lost-found-agent",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "校园失物招领领域 Agent。负责报失、搜索拾获记录、查看详情和提交认领；所有写操作必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
@@ -184,6 +184,7 @@
       "tool_execution",
       "needs_more_info",
       "confirmation_required",
+      "model_fallback",
       "token",
       "agent_done",
       "agent_error"
@@ -196,5 +197,15 @@
     "defaultMinimumScore": 0.35,
     "weights": {"text": 0.30, "category": 0.30, "colour": 0.15, "location": 0.15, "date": 0.10},
     "missingFieldsRenormalizeWeights": true
+  },
+  "model": {
+    "modes": ["auto", "rules", "llm"],
+    "compatibleProtocol": "OpenAI chat completions",
+    "responsibilities": ["intent_detection", "field_extraction"],
+    "allowedTools": ["report_lost", "search_found_items", "get_item_detail", "claim_item"],
+    "maximumToolsPerInvocation": 2,
+    "validatedOutput": true,
+    "fallbackMode": "rules",
+    "writeConfirmationCannotBeBypassed": true
   }
 }

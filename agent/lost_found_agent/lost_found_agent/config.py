@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     agent_name: str = "lost-found-agent"
-    agent_version: str = "0.3.0"
+    agent_version: str = "0.4.0"
     lost_found_agent_mode: Literal["auto", "rules", "llm"] = "auto"
     agent_shared_secret: str = Field(min_length=32)
     agent_backend_shared_secret: str = Field(min_length=32)
@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     lost_found_match_min_score: float = Field(default=0.35, ge=0, le=1)
     lost_found_llm_api_key: str = ""
     lost_found_llm_base_url: str = "https://api.deepseek.com"
-    lost_found_llm_model: str = "deepseek-chat"
+    lost_found_llm_model: str = "deepseek-v4-flash"
+    lost_found_llm_timeout_seconds: float = Field(default=10, ge=1, le=60)
 
     @model_validator(mode="after")
     def validate_llm_mode(self) -> "Settings":

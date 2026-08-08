@@ -72,6 +72,22 @@ def test_english_multiturn_report_requires_confirmation_before_writing(
     assert [call[0] for call in fake_api.calls] == ["report_lost", "search_found_items"]
 
 
+def test_natural_chinese_report_is_supported_by_rule_fallback(
+    client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    result = invoke(
+        client,
+        settings,
+        "我在2026-08-08下午于中央图书馆丢了一副黑色耳机，耳机盒上有橙色贴纸。",
+        trace_id="chinese-natural-report",
+    )
+
+    assert result["status"] == "needs_confirmation"
+    assert result["shared_context"]["item_name"] == "黑色耳机"
+    assert result["shared_context"]["location"] == "中央图书馆"
+    assert fake_api.calls == []
+
+
 def test_confirmation_is_one_time_and_bound_to_user(
     client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
 ) -> None:

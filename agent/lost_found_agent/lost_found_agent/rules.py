@@ -121,15 +121,25 @@ class RuleEngine:
         verified: VerifiedRequest,
         request_id: str,
         emit: Emit,
+        interpreted_intent: Intent | None = None,
+        interpreted_fields: dict[str, Any] | None = None,
     ) -> InvokeResponse:
         language = detect_language(payload.message)
         if payload.confirmed or payload.confirmation_id:
             return await self._handle_confirmation(payload, verified, request_id, language, emit)
 
         context = safe_context(payload.conversation_context.shared_data)
-        intent = detect_intent(payload.message, context.get("intent"))
+        intent = interpreted_intent or detect_intent(payload.message, context.get("intent"))
         context["intent"] = intent
         context.update(extract_fields(payload.message, intent))
+        if interpreted_fields:
+            context.update(
+                {
+                    key: value
+                    for key, value in interpreted_fields.items()
+                    if key in ALLOWED_CONTEXT_FIELDS and key != "intent"
+                }
+            )
 
         if intent == "report_lost":
             return self._prepare_report(context, verified, request_id, language, emit)
@@ -464,7 +474,7 @@ def detect_intent(message: str, previous: Any = None) -> Intent:
     ):
         return "get_item_detail"
     if re.search(r"\bi lost\b|\breport(?:ed)? lost\b|\blost my\b", lowered) or any(
-        keyword in message for keyword in ("我丢了", "丢失", "遗失", "报失")
+        keyword in message for keyword in ("我丢了", "丢了", "丢失", "遗失", "报失")
     ):
         return "report_lost"
     if re.search(r"\bsearch\b|\bfind\b|\bfound item", lowered) or any(
@@ -530,7 +540,7 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
                 fields["colour"] = value
                 break
 
-    iso_dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", message)
+    iso_dates = re.findall(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", message)
     if iso_dates:
         fields["event_date"] = iso_dates[0]
         if len(iso_dates) > 1:
@@ -550,13 +560,26 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
 
     if intent == "report_lost" and "item_name" not in fields:
         item = re.search(
-            r"(?:我丢了|丢失了|遗失了)\s*(?:一(?:个|把|只|本|张))?\s*([^,，;；\n]{2,30})",
+            r"(?:我丢了|丢了|丢失了|遗失了)\s*(?:一(?:个|把|只|本|张|副))?\s*"
+            r"([^,，。;；\n]{2,30})",
             message,
         )
         english_item = re.search(r"(?:i lost|lost my)\s+([^,;\n]{2,40})", message, re.IGNORECASE)
         matched_item = item or english_item
         if matched_item:
             fields["item_name"] = matched_item.group(1).strip()
+        if "location" not in fields:
+            location = re.search(
+                r"于([^,，。;；\n]{2,40}?)(?:丢了|丢失|遗失)",
+                message,
+            ) or re.search(
+                r"在([^,，。;；\n]{2,40}?)(?:丢了|丢失|遗失)",
+                message,
+            )
+            if location:
+                fields["location"] = location.group(1).strip()
+        if "description" not in fields and len(message.strip()) >= 10:
+            fields["description"] = message.strip()
     if intent == "search_found_items" and "keyword" not in fields:
         search = re.search(r"(?:帮我找|查找|搜索)\s*([^,，;；\n]{2,40})", message)
         english_search = re.search(r"(?:find|search for)\s+([^,;\n]{2,40})", message, re.IGNORECASE)
