@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.1.0.json",
+  "agent": "lost-found-agent",
+  "version": "1.1.0",
+  "description": "校园失物招领领域 Agent。负责报失、搜索拾获记录、查看详情和提交认领；所有写操作必须经过用户确认。",
+  "agentType": "domain_agent",
+  "transport": {
+    "type": "mcp-compatible-http",
+    "protocol": "HTTP + SSE",
+    "baseUrl": "http://localhost:8083",
+    "endpoints": {
+      "health": {"method": "GET", "path": "/health", "authenticated": false},
+      "capabilities": {"method": "GET", "path": "/agent/capabilities", "authenticated": false},
+      "invoke": {"method": "POST", "path": "/agent/invoke", "authenticated": true},
+      "stream": {
+        "method": "GET",
+        "path": "/agent/stream",
+        "authenticated": true,
+        "queryParams": {"request_id": {"type": "string", "required": true}}
+      }
+    }
+  },
+  "security": {
+    "requiredHeaders": ["Authorization", "X-Nonce", "X-Timestamp", "X-Signature"],
+    "delegationTokenAudience": "lost-found-agent",
+    "nonceMustMatchJti": true,
+    "writeConfirmationRequired": ["report_lost", "claim_item"]
+  },
+  "capabilities": {
+    "domains": ["lost_and_found"],
+    "languages": ["zh", "en"],
+    "actions": ["report_lost", "search_found_items", "get_item_detail", "claim_item"],
+    "privacy": {
+      "exposesPublisherContact": false,
+      "exposesStorageObjectKey": false,
+      "exposesOtherUsersClaimProof": false
+    },
+    "rateLimit": {"perUserPerMinute": 5, "perSession": 20}
+  },
+  "$defs": {
+    "category": {
+      "type": "string",
+      "enum": [
+        "ELECTRONICS",
+        "CLOTHING",
+        "BOOKS_STATIONERY",
+        "KEYS",
+        "WALLET_PURSE",
+        "ID_CARD",
+        "BAG",
+        "UMBRELLA",
+        "OTHER"
+      ]
+    },
+    "invokeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "conversation_context": {
+          "type": "object",
+          "properties": {
+            "previous_agent": {"type": ["string", "null"]},
+            "session_id": {"type": ["string", "null"]},
+            "shared_data": {"type": "object", "additionalProperties": true}
+          },
+          "additionalProperties": false
+        },
+        "confirmed": {"type": "boolean", "default": false},
+        "confirmation_id": {"type": ["string", "null"]},
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": {"type": ["string", "null"]},
+            "parent_span_id": {"type": ["string", "null"]}
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["message"]
+    },
+    "matchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {"type": "string"},
+        "item_name": {"type": "string"},
+        "category": {"$ref": "#/$defs/category"},
+        "description": {"type": "string"},
+        "found_location": {"type": "string"},
+        "found_date": {"type": "string", "format": "date"},
+        "status": {"type": "string", "enum": ["OPEN", "CLAIMED", "CLOSED"]},
+        "match_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "match_reason": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": [
+        "item_id",
+        "item_name",
+        "category",
+        "description",
+        "found_location",
+        "found_date",
+        "status",
+        "match_score",
+        "match_reason"
+      ]
+    },
+    "invokeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "needs_more_info",
+            "match_found",
+            "no_match",
+            "needs_confirmation",
+            "failed"
+          ]
+        },
+        "match_results": {"type": "array", "items": {"$ref": "#/$defs/matchResult"}},
+        "confirmation_required": {
+          "type": ["object", "null"],
+          "properties": {
+            "confirmation_id": {"type": "string"},
+            "action": {"type": "string", "enum": ["report_lost", "claim_item"]},
+            "summary": {"type": "string"},
+            "expires_at": {"type": "string", "format": "date-time"}
+          },
+          "required": ["confirmation_id", "action", "summary", "expires_at"]
+        },
+        "shared_context": {"type": "object", "additionalProperties": true},
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": ["report_lost", "search_found_items", "get_item_detail", "claim_item"]
+              },
+              "params_summary": {"type": ["string", "null"]},
+              "result_summary": {"type": ["string", "null"]},
+              "status": {"type": "string", "enum": ["success", "failed", "skipped"]}
+            },
+            "required": ["action", "status"]
+          }
+        },
+        "request_id": {"type": "string"}
+      },
+      "required": ["response", "status", "request_id"]
+    }
+  },
+  "invoke": {
+    "input": {"$ref": "#/$defs/invokeInput"},
+    "output": {"$ref": "#/$defs/invokeOutput"}
+  },
+  "internalTools": [
+    {
+      "name": "report_lost",
+      "requiresConfirmation": true,
+      "required": ["item_name", "category", "description", "lost_location", "lost_date"]
+    },
+    {
+      "name": "search_found_items",
+      "requiresConfirmation": false,
+      "defaults": {"report_type": "FOUND", "status": "OPEN", "limit": 100}
+    },
+    {"name": "get_item_detail", "requiresConfirmation": false, "required": ["item_id"]},
+    {
+      "name": "claim_item",
+      "requiresConfirmation": true,
+      "required": ["item_id", "proof_description"]
+    }
+  ],
+  "streaming": {
+    "events": [
+      "agent_start",
+      "tool_call_start",
+      "tool_call_progress",
+      "tool_call_end",
+      "agent_needs_more_info",
+      "agent_needs_confirmation",
+      "token",
+      "agent_done",
+      "agent_error"
+    ],
+    "retentionSeconds": 300
+  }
+}

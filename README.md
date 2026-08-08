@@ -4,6 +4,8 @@
 
 CampusLink is a campus-service platform. The current vertical slice provides authentication and a Web-based Lost & Found workflow: publish lost/found reports, upload images, search, submit ownership claims, and review received claims.
 
+Lost & Found Agent development status and future work are maintained in the [Chinese technical roadmap](docs/lost-found/TECHNICAL_ROADMAP_cn.md).
+
 ## Tech Stack
 
 | Module | Technology |

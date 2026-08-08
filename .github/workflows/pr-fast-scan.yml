@@ -10,6 +10,8 @@ on:
     paths:
       - 'backend/**'
       - 'frontend_web/**'
+      - 'agent/**'
+      - 'docs/lost-found/**'
       - 'docker-compose.yml'
       - '.github/workflows/pr-fast-scan.yml'
   pull_request:
@@ -17,6 +19,8 @@ on:
     paths:
       - 'backend/**'
       - 'frontend_web/**'
+      - 'agent/**'
+      - 'docs/lost-found/**'
       - 'docker-compose.yml'
       - '.github/workflows/pr-fast-scan.yml'
   # 允许手动触发快速 SAST 扫描
@@ -36,6 +40,54 @@ defaults:
     working-directory: backend
 
 jobs:
+
+  agent-quality:
+    name: Agent Lint, Test & Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agent/lost_found_agent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/lost_found_agent/uv.lock
+      - name: Install uv
+        run: python -m pip install uv
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-extras
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy lost_found_agent tests
+      - name: Pytest
+        run: uv run pytest
+      - name: Bandit
+        run: uv run bandit -r lost_found_agent -x tests -q
+      - name: Python dependency audit
+        run: uv run pip-audit
+      - name: Build non-root Agent image
+        run: docker build -t campuslink-lost-found-agent:${{ github.sha }} .
+
+  agent-codeql:
+    name: Agent CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize Python CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          source-root: agent/lost_found_agent
+      - name: Perform Python CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
 
   frontend:
     name: Frontend Lint, Test & Build
