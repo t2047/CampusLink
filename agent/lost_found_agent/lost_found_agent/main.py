@@ -48,7 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "agent": active_settings.agent_name,
             "version": active_settings.agent_version,
-            "status": "foundation",
+            "status": "tools_ready",
             "capabilities": {
                 "domains": ["lost_and_found"],
                 "actions": [
@@ -75,9 +75,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         )
         response = InvokeResponse(
-            response="Agent 基础服务已就绪，真实业务工具将在下一阶段接入。",
+            response="Agent 真实业务工具已就绪，自然语言规则对话将在下一阶段接入。",
             status="failed",
-            shared_context={"stage": "foundation"},
+            shared_context={"stage": "tools_ready"},
             request_id=request_id,
         )
         event_store.append(

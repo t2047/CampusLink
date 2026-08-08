@@ -33,6 +33,14 @@ cp .env backend/.env
 docker compose up -d
 ```
 
+To run the optional Spring Boot + Lost & Found Agent integration stack, also set the three Agent secrets from `.env.example` (generate each with `openssl rand -hex 32`) and run:
+
+```bash
+docker compose --profile agent up -d --build
+```
+
+`LOST_FOUND_LLM_API_KEY` may remain empty; `auto` mode then uses the rule engine. The normal `docker compose up -d` command remains unchanged and starts only MySQL and MinIO.
+
 Start the backend in a second terminal:
 
 ```bash

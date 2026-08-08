@@ -33,6 +33,14 @@ cp .env backend/.env
 docker compose up -d
 ```
 
+如需启动 Spring Boot + Lost & Found Agent 可选联调环境，还需填写 `.env.example` 中的三个 Agent 密钥（每个可用 `openssl rand -hex 32` 生成），然后执行：
+
+```bash
+docker compose --profile agent up -d --build
+```
+
+`LOST_FOUND_LLM_API_KEY` 可以保持为空，`auto` 模式会使用规则引擎。普通 `docker compose up -d` 仍只启动 MySQL 和 MinIO。
+
 在第二个终端启动后端：
 
 ```bash

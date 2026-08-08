@@ -5,7 +5,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-campuslink}
       MYSQL_DATABASE: campusLink_db
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -30,6 +30,50 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  api-server:
+    profiles: ["agent"]
+    build:
+      context: ./backend
+    environment:
+      MYSQL_URL: jdbc:mysql://mysql:3306/campusLink_db?useSSL=false&allowPublicKeyRetrieval=true
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-campuslink}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_EXPIRATON_MS: ${JWT_EXPIRATON_MS:-86400000}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@campuslink.local}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-campuslink}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      AGENT_BACKEND_SHARED_SECRET: ${AGENT_BACKEND_SHARED_SECRET:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  lost-found-agent:
+    profiles: ["agent"]
+    build:
+      context: ./agent/lost_found_agent
+    environment:
+      CAMPUS_API_URL: http://api-server:8080
+      LOST_FOUND_AGENT_MODE: ${LOST_FOUND_AGENT_MODE:-auto}
+      AGENT_SHARED_SECRET: ${AGENT_SHARED_SECRET:-}
+      AGENT_BACKEND_SHARED_SECRET: ${AGENT_BACKEND_SHARED_SECRET:-}
+      LOST_FOUND_CONFIRMATION_SECRET: ${LOST_FOUND_CONFIRMATION_SECRET:-}
+      LOST_FOUND_LLM_API_KEY: ${LOST_FOUND_LLM_API_KEY:-}
+      LOST_FOUND_LLM_BASE_URL: ${LOST_FOUND_LLM_BASE_URL:-https://api.deepseek.com}
+      LOST_FOUND_LLM_MODEL: ${LOST_FOUND_LLM_MODEL:-deepseek-chat}
+    ports:
+      - "8083:8083"
+    depends_on:
+      - api-server
 
 volumes:
   mysql_data:

@@ -13,6 +13,9 @@ on:
       - 'agent/**'
       - 'docs/lost-found/**'
       - 'docker-compose.yml'
+      - '.env.example'
+      - 'README.md'
+      - 'README_cn.md'
       - '.github/workflows/pr-fast-scan.yml'
   pull_request:
     branches: [main, develop]
@@ -22,6 +25,9 @@ on:
       - 'agent/**'
       - 'docs/lost-found/**'
       - 'docker-compose.yml'
+      - '.env.example'
+      - 'README.md'
+      - 'README_cn.md'
       - '.github/workflows/pr-fast-scan.yml'
   # 允许手动触发快速 SAST 扫描
   workflow_dispatch:
@@ -218,6 +224,16 @@ jobs:
           JWT_EXPIRATON_MS: "86400000"
         # mvn test: 只 compile + test，不触发 verify 阶段的 SpotBugs/OWASP
         run: mvn test -Pfast-sast
+
+      - name: Verify Docker Compose configuration
+        working-directory: ${{ github.workspace }}
+        run: |
+          docker compose config --quiet
+          docker compose --profile agent config --quiet
+
+      - name: Build non-root backend image
+        working-directory: ${{ github.workspace }}
+        run: docker build -t campuslink-api-server:${{ github.sha }} backend
 
       - name: Upload Test Report
         if: always()
