@@ -39,3 +39,81 @@ services:
       # Docker 网络内用服务名互访（.env 中的 localhost 仅限本地联调）
       - TOKEN_SERVICE_URL=http://chat-backend:8080
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      # Sprint 3：MCP Server 端点（服务名互访）
+      - MAIL_AGENT_MCP_URL=http://mail-agent-mcp:8081/mcp/
+      - FACILITY_AGENT_MCP_URL=http://facility-agent-mcp:8082/mcp/
+      - LOSTFOUND_AGENT_MCP_URL=http://lostfound-agent-mcp:8083/mcp/
+      - SKILL_AGENT_MCP_URL=http://skill-agent-mcp:8084/mcp/
+      - UTILITY_TOOLS_MCP_URL=http://utility-mcp:8090/mcp/
+    depends_on:
+      - chat-backend
+      - mail-agent-mcp
+      - facility-agent-mcp
+      - lostfound-agent-mcp
+      - skill-agent-mcp
+      - utility-mcp
+
+  # ─── MCP Servers (Sprint 3) ─────────────────────────────────
+  # Domain Agent 与 Utility 均暴露 MCP streamable HTTP 端点（/mcp/）。
+  # 验签凭据：env_file(.env) 提供 TOKEN_SERVICE_JWKS_URL（RS256 验签必需）
+  mail-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=mail-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8081:8081"
+    depends_on:
+      - chat-backend
+
+  facility-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=facility-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8082:8082"
+
+  lostfound-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=lost-found-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8083:8083"
+
+  skill-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=skill-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8084:8084"
+
+  utility-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    command: ["uvicorn", "mcp_servers.utility_server:app", "--host", "0.0.0.0", "--port", "8090"]
+    env_file:
+      - .env
+    environment:
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8090:8090"

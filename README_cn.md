@@ -151,12 +151,13 @@ teamXX-ad-project/
 │       └── service/       ← AuthService
 ├── agent/                 ← 聊天编排层（Python）
 │   ├── chat_core/         ← FastAPI + LangGraph 9 节点状态机、MCP 客户端、安全中间件
+│   ├── mcp_servers/       ← 独立 MCP Server（domain_server / utility_server / security 中间件）
 │   ├── schemas/           ← 各领域 Agent 能力声明（mail/facility/lost-found 等）
-│   └── shared/            ← Agent 共享安全中间件（HMAC + Nonce + RS256/HS256 双模式验签）
+│   └── shared/            ← Agent 共享安全中间件（RS256/HS256 双模式验签）
 ├── frontend_web/          ← 前端 Web & 测试页面
 ├── frontend_mobile/       ← 移动端
 ├── ml-service/            ← ML 推荐引擎
-├── docs/                  ← 文档（含通信安全说明）
+├── docs/                  ← 文档（含通信安全说明、Agent 接口变动说明）
 └── scripts/               ← 脚本
 ```
 

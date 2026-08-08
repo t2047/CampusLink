@@ -18,9 +18,8 @@ import time
 import uuid
 
 import httpx
-import jwt as pyjwt
 
-from orchestration.mcp.client import AgentClient
+from orchestration.mcp.client import AgentClient, _describe_mcp_failure
 from orchestration.mcp.registry import AgentConfig, ServiceRegistry
 
 SECRET = "test-secret"
@@ -31,7 +30,6 @@ def make_registry(token_service_url: str | None = "http://backend:8080") -> Serv
     reg.shared_secret = SECRET
     reg.token_service_url = token_service_url
     # 测试默认联调模式：Token Service 不可用时允许回退本地 HS256
-    reg.allow_hs256_fallback = True
     reg.agents["mail-agent"] = AgentConfig(
         name="mail-agent", url="http://agent:8081", timeout_ms=30000
     )
@@ -39,6 +37,7 @@ def make_registry(token_service_url: str | None = "http://backend:8080") -> Serv
         name="utility-tools", url="http://util:8090", timeout_ms=5000
     )
     reg.utility_url = "http://util:8090"
+    reg.utility_mcp_url = "http://util:8090/mcp/"
     return reg
 
 
@@ -132,27 +131,19 @@ def test_get_delegation_token_server_error_returns_none():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# 2. 本地 HS256 回退：jti == nonce
+# 2. 本地 HS256 回退：jti 绑定（MCP 层不要求 X-Nonce，jti 可任意）
 # ──────────────────────────────────────────────────────────────────────
 
-def test_issue_local_token_jti_equals_nonce():
-    client = AgentClient(registry=make_registry())
-    nonce = "fixed-nonce-123"
-    token = client.issue_local_delegation_token(
-        user_id="u1", role="STUDENT", target_agent="mail-agent", nonce=nonce
-    )
-    payload = pyjwt.decode(token, SECRET, algorithms=["HS256"])
-    assert payload["jti"] == nonce
-    assert payload["aud"] == "mail-agent"
-    assert payload["sub"] == "u1"
-    assert payload["intended_action"] == "invoke"
+def test_issue_local_token_removed():
+    """HS256 本地签发已移除（2026-08-08）：AgentClient 不再有该方法。"""
+    assert not hasattr(AgentClient, "issue_local_delegation_token")
 
 
 # ──────────────────────────────────────────────────────────────────────
-# 3. _obtain_delegation_token：RS256 优先，失败回退
+# 3. _obtain_delegation_token：RS256 兑换优先，失败 fail-closed（返回 None）
 # ──────────────────────────────────────────────────────────────────────
 
-def test_obtain_token_prefers_rs256_then_fallback_hs256():
+def test_obtain_token_prefers_rs256_then_fail_closed():
     def handler_ok(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"token": "rs256.token"})
 
@@ -171,98 +162,107 @@ def test_obtain_token_prefers_rs256_then_fallback_hs256():
     def handler_fail(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="token service down")
 
-    async def scenario_fallback() -> dict:
+    async def scenario_fail() -> str | None:
         client = AgentClient(
             registry=make_registry(),
             _http=httpx.AsyncClient(transport=httpx.MockTransport(handler_fail)),
         )
         try:
-            token = await client._obtain_delegation_token("u1", "STUDENT", "mail-agent", "nonce-y")
-            return {"token": token}
+            return await client._obtain_delegation_token("u1", "STUDENT", "mail-agent", "nonce-y")
         finally:
             await client.close()
 
-    result = asyncio.run(scenario_fallback())
-    payload = pyjwt.decode(result["token"], SECRET, algorithms=["HS256"])
-    assert payload["jti"] == "nonce-y"
-    assert payload["aud"] == "mail-agent"
-
-
-def test_obtain_token_fail_closed_when_fallback_disabled():
-    """ALLOW_HS256_FALLBACK=false 时 Token Service 不可用 → 返回 None（拒绝调用）。"""
-
-    def handler_fail(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, text="token service down")
-
-    async def scenario() -> str | None:
-        reg = make_registry()
-        reg.allow_hs256_fallback = False
-        client = AgentClient(
-            registry=reg,
-            _http=httpx.AsyncClient(transport=httpx.MockTransport(handler_fail)),
-        )
-        try:
-            return await client._obtain_delegation_token("u1", "STUDENT", "mail-agent", "nonce-z")
-        finally:
-            await client.close()
-
-    assert asyncio.run(scenario()) is None
+    # fail-closed：Token Service 不可用时拒绝调用，不再回退本地 HS256 签发
+    assert asyncio.run(scenario_fail()) is None
 
 
 # ──────────────────────────────────────────────────────────────────────
-# 4. invoke_agent 集成：X-Nonce == token 的 jti
+# 5. _parse_mcp_result：MCP 工具返回解析（text JSON 主路径 + structured 回退）
 # ──────────────────────────────────────────────────────────────────────
 
-def test_invoke_agent_binds_nonce_to_token_jti():
-    agent_calls: dict = {}
+class FakeTextContent:
+    type = "text"
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/internal/token/exchange":
-            payload = json.loads(request.content)
-            # 测试用 HS256 代替 RS256（仅便于本地验签，逻辑等价）
-            token = pyjwt.encode(
-                {
-                    "sub": payload["userId"],
-                    "role": payload["role"],
-                    "aud": payload["targetAgent"],
-                    "jti": payload["jti"],
-                    "iat": int(time.time()),
-                    "exp": int(time.time()) + 30,
-                    "intended_action": "invoke",
-                },
-                "rs256-test-secret",
-                algorithm="HS256",
-            )
-            return httpx.Response(200, json={"token": token})
-        if request.url.path == "/agent/invoke":
-            agent_calls["headers"] = request.headers
-            agent_calls["body"] = json.loads(request.content)
-            return httpx.Response(200, json={"response": "ok", "status": "completed"})
-        return httpx.Response(404)
+    def __init__(self, text: str):
+        self.text = text
 
-    async def scenario() -> dict:
-        client = AgentClient(
-            registry=make_registry(),
-            _http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        )
+
+class FakeCallResult:
+    def __init__(self, content=None, structured_content=None, isError=False):
+        self.content = content or []
+        self.structured_content = structured_content
+        self.isError = isError
+
+
+def test_describe_mcp_failure_transport_error():
+    """MCP 服务未启动（连接层失败）→ 明确英文报错：服务名 + URL + 运行提示。"""
+    err = httpx.ConnectError("connection refused")
+    msg = _describe_mcp_failure(err, "utility-tools", "http://localhost:8090/mcp/")
+    assert "MCP service 'utility-tools' is unreachable at http://localhost:8090/mcp/" in msg
+    assert "Please ensure the service is running" in msg
+
+
+def test_describe_mcp_failure_non_transport():
+    """非传输层异常 → 保留原始原因文本。"""
+    assert _describe_mcp_failure(ValueError("bad thing"), "x", "u") == "bad thing"
+
+
+def test_invoke_utility_mcp_unreachable_error(monkeypatch):
+    """invoke_utility 在 MCP 服务不可达时返回英文明确报错（不暴露裸异常）。"""
+
+    async def scenario():
+        client = AgentClient(registry=make_registry())
+
+        async def boom(*args, **kwargs):
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(client, "_call_mcp_tool", boom)
         try:
-            return await client.invoke_agent(
-                agent_name="mail-agent",
-                message="帮我找张三的邮件",
-                user_id="u1",
-                user_role="STUDENT",
-                trace_id="t1",
-            )
+            return await client.invoke_utility("get_current_time", {})
         finally:
             await client.close()
 
     result = asyncio.run(scenario())
-    assert result["status"] == "completed"
+    assert result["status"] == "failed"
+    assert "is unreachable" in result["error"]
+    assert "utility-tools" in result["error"]
 
-    token = agent_calls["headers"]["Authorization"].removeprefix("Bearer ")
-    payload = pyjwt.decode(token, "rs256-test-secret", algorithms=["HS256"])
-    # 核心一致性：调用 Agent 时的 X-Nonce == token 内 jti
-    assert payload["jti"] == agent_calls["headers"]["X-Nonce"]
-    assert payload["aud"] == "mail-agent"
-    assert payload["sub"] == "u1"
-    verify_hmac(agent_calls["headers"], agent_calls["body"])
+
+def test_parse_mcp_result_text_json():
+    """主路径：text content 是 JSON 字符串 → 解析为 dict。"""
+    client = AgentClient(registry=make_registry())
+    result = FakeCallResult(
+        content=[FakeTextContent(json.dumps({"response": "ok", "status": "completed"}))]
+    )
+    parsed = client._parse_mcp_result(result)
+    assert parsed == {"response": "ok", "status": "completed"}
+
+
+def test_parse_mcp_result_text_non_json():
+    """text content 非 JSON → 包装为 response 字段。"""
+    client = AgentClient(registry=make_registry())
+    parsed = client._parse_mcp_result(FakeCallResult(content=[FakeTextContent("你好")]))
+    assert parsed["response"] == "你好"
+    assert parsed["status"] == "completed"
+
+
+def test_parse_mcp_result_structured_list():
+    """回退：structured_content（list）中含业务 dict 的项。"""
+    client = AgentClient(registry=make_registry())
+    result = FakeCallResult(
+        structured_content=[{"response": "结构化结果", "status": "completed"}]
+    )
+    parsed = client._parse_mcp_result(result)
+    assert parsed["response"] == "结构化结果"
+
+
+def test_parse_mcp_result_is_error():
+    client = AgentClient(registry=make_registry())
+    parsed = client._parse_mcp_result(FakeCallResult(isError=True))
+    assert parsed["status"] == "failed"
+
+
+def test_parse_mcp_result_empty():
+    client = AgentClient(registry=make_registry())
+    parsed = client._parse_mcp_result(FakeCallResult())
+    assert parsed == {"response": "", "status": "completed"}

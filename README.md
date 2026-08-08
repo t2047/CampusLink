@@ -152,12 +152,14 @@ teamXX-ad-project/
 │       └── service/       ← AuthService
 ├── agent/                 ← Chat orchestration layer (Python)
 │   ├── chat_core/         ← FastAPI + LangGraph 9-node state machine, MCP client, security middleware
+│   ├── mcp_servers/       ← Standalone MCP Servers (domain_server / utility_server / security middleware)
 │   ├── schemas/           ← Domain agent capability declarations (mail/facility/lost-found, …)
-│   └── shared/            ← Shared agent security middleware (HMAC + Nonce + RS256/HS256)
+│   └── shared/            ← Shared agent security (RS256/HS256 token verification)
 ├── frontend_web/          ← Web frontend & test pages
 ├── frontend_mobile/       ← Mobile app
 ├── ml-service/            ← ML recommendation engine
-├── docs/                  ← Documentation (incl. communication security)
+├── docs/                  ← Documentation (incl. communication security,
+│                            agent interface change notice)
 └── scripts/               ← Utility scripts
 ```
 

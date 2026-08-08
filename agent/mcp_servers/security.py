@@ -1,0 +1,128 @@
+"""MCP 版安全中间件 — Agent MCP Server 入站校验。
+
+Sprint 3 安全模型（MCP 化后，对齐 docs/communication-security.md）：
+
+- **认证**：`Authorization: Bearer <Delegation Token>`（RS256/HS256 双模式验签，
+  `aud` 必须等于本 Agent 名，TTL 30s）
+- **防重放**：token 短时有效 + `X-Timestamp` 时间窗口（30s）
+- **传输完整性**：生产由 TLS 保证。自研 REST 时代的 body HMAC 签名与
+  `jti == X-Nonce` 绑定在 MCP 层取消——MCP 请求体由 SDK 序列化为标准 JSON-RPC，
+  无法按 body 动态签名，且 token 短时有效已覆盖重放风险
+- 校验通过后身份写入 `request.state`（user_id / user_role），供工具实现使用
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from typing import Any, Optional
+
+import jwt
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["McpSecurityMiddleware", "TokenVerifier"]
+
+
+class TokenVerifier:
+    """Delegation Token 验签（RS256，JWKS 公钥）。
+
+    HS256 联调回退已移除（2026-08-08）：所有 Agent/Utility 必须配置
+    TOKEN_SERVICE_JWKS_URL 走 RS256；未配置时直接拒绝（fail-closed）。
+    """
+
+    def __init__(self, agent_name: str):
+        self.agent_name = agent_name
+        self.jwks_url = os.environ.get("TOKEN_SERVICE_JWKS_URL", "")
+        self.time_window = int(os.environ.get("SECURITY_TIME_WINDOW", "30"))
+        self._jwks_client: Optional[jwt.PyJWKClient] = None
+
+    def verify_token(self, token: str) -> dict[str, Any]:
+        """RS256 验签并返回 claims；任何失败抛 ValueError。"""
+        if not token:
+            raise ValueError("missing bearer token")
+        if not self.jwks_url:
+            raise ValueError(
+                "TOKEN_SERVICE_JWKS_URL not configured (RS256 required)"
+            )
+        try:
+            claims = self._verify(token)
+        except Exception:
+            # 后端重启会更换 RSA 密钥（每次启动随机生成），PyJWKClient 可能缓存了
+            # 旧公钥（kid 不匹配）→ 强制刷新一次 JWKS 再验
+            self._jwks_client = jwt.PyJWKClient(self.jwks_url)
+            claims = self._verify(token)
+
+        # PyJWT 会把 aud claim 规范化为 list（即使签发时是单个字符串）
+        aud = claims.get("aud")
+        if isinstance(aud, list):
+            if self.agent_name not in aud:
+                raise ValueError(
+                    f"token for {aud}, not '{self.agent_name}'"
+                )
+        elif aud != self.agent_name:
+            raise ValueError(
+                f"token for '{aud}', not '{self.agent_name}'"
+            )
+        return claims
+
+    def _verify(self, token: str) -> dict[str, Any]:
+        """从 JWKS 拉取公钥并验签（RS256）。
+
+        aud 值匹配由 verify_token 手动检查（aud 存在性由 require 保证）：
+        decode 不传 audience 参数时 PyJWT 对含 aud 的 token 默认抛
+        "Invalid audience"，会盖过更明确的手动检查信息。
+        """
+        if self._jwks_client is None:
+            self._jwks_client = jwt.PyJWKClient(self.jwks_url)
+        signing_key = self._jwks_client.get_signing_key_from_jwt(token)
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            options={"require": ["sub", "aud", "exp"], "verify_aud": False},
+        )
+
+
+class McpSecurityMiddleware(BaseHTTPMiddleware):
+    """FastAPI 中间件：校验所有 MCP 请求（含 initialize 握手）。"""
+
+    def __init__(self, app, agent_name: str):
+        super().__init__(app)
+        self.verifier = TokenVerifier(agent_name)
+
+    async def dispatch(self, request: Request, call_next):
+        # 健康检查放行（K8s/Docker 探针）
+        if request.url.path == "/health":
+            return await call_next(request)
+        try:
+            auth = request.headers.get("Authorization", "")
+            if not auth.startswith("Bearer "):
+                raise ValueError("missing bearer token")
+            claims = self.verifier.verify_token(auth.removeprefix("Bearer ").strip())
+
+            # 可选时间窗口防重放（token 本身 30s TTL 已兜底）
+            ts_str = request.headers.get("X-Timestamp")
+            if ts_str:
+                try:
+                    ts = int(ts_str)
+                except ValueError:
+                    raise ValueError("invalid timestamp")
+                if abs(int(time.time()) - ts) > self.verifier.time_window:
+                    raise ValueError("timestamp window exceeded")
+
+            request.state.user_id = claims.get("sub")
+            request.state.user_role = claims.get("role")
+            request.state.intended_action = claims.get("intended_action", "invoke")
+        except Exception as e:
+            logger.warning(
+                "McpSecurityMiddleware rejected %s %s: %s",
+                request.method, request.url.path, e,
+            )
+            return JSONResponse(status_code=401, content={"detail": str(e)})
+
+        return await call_next(request)

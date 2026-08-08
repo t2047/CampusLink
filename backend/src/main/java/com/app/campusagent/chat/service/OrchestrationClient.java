@@ -15,6 +15,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -93,9 +97,14 @@ public class OrchestrationClient {
 
         log.info("Forwarding chat to orchestration: userId={}, traceId={}", userId, resolvedTraceId);
 
-        // Flux.defer：每次订阅创建独立解析器，避免并发订阅共享可变状态
+        // Flux.defer：每次订阅创建独立解析器与解码器，避免并发订阅共享可变状态
         return Flux.defer(() -> {
             SseIncrementalParser parser = new SseIncrementalParser();
+            // 有状态 UTF-8 解码器：跨网络分片保留不完整的多字节序列。
+            // （new String(bytes, UTF_8) 逐分片解码会把切断在分片边界的汉字
+            //   替换成 U+FFFD（��），如"但这��是统计上的巧合"）
+            CharsetDecoder utf8 = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPLACE);
 
             return webClient.post()
                     .uri(properties.getOrchestrationBaseUrl() + "/chat/stream")
@@ -106,13 +115,23 @@ public class OrchestrationClient {
                     .retrieve()
                     // ── 关键 1：原始字节读取，绕过 ServerSentEventHttpMessageReader ──
                     .bodyToFlux(DataBuffer.class)
-                    .map(this::decodeDataBuffer)
+                    .map(buf -> decodeDataBuffer(buf, utf8))
                     // ── 关键 2：增量解析，事件随到随发（不攒批）──
                     .flatMapIterable(parser::feed)
                     // flush() 返回 List<ServerSentEvent<String>>，必须 flatMapMany 展开为
                     // 事件流，否则 Mono<List<T>> 与 Flux<T> 泛型不兼容（inference variable
                     // T has incompatible bounds）
-                    .concatWith(Mono.fromCallable(parser::flush).flatMapMany(Flux::fromIterable))
+                    .concatWith(Mono.fromCallable(() -> {
+                        // 流结束：decoder 收尾（endOfInput=true）处理尾部残留字节，
+                        // 再交给 parser 提交残留事件
+                        String tail = decodeTail(utf8);
+                        List<ServerSentEvent<String>> events = new ArrayList<>();
+                        if (!tail.isEmpty()) {
+                            events.addAll(parser.feed(tail));
+                        }
+                        events.addAll(parser.flush());
+                        return events;
+                    }).flatMapMany(Flux::fromIterable))
                     .defaultIfEmpty(errorEvent("empty stream"))
                     .onErrorResume(e -> {
                         log.error("Orchestration call failed: traceId={}, err={}",
@@ -126,12 +145,25 @@ public class OrchestrationClient {
     // 增量 SSE 解析器
     // ──────────────────────────────────────────────────────────────────────
 
-    /** 将单个 DataBuffer 解码为 UTF-8 文本并释放缓冲。 */
-    private String decodeDataBuffer(DataBuffer buffer) {
+    /** 用有状态解码器将单个 DataBuffer 解码为 UTF-8 文本并释放缓冲。 */
+    private static String decodeDataBuffer(DataBuffer buffer, CharsetDecoder utf8) {
         byte[] bytes = new byte[buffer.readableByteCount()];
         buffer.read(bytes);
         DataBufferUtils.release(buffer);
-        return new String(bytes, StandardCharsets.UTF_8);
+        CharBuffer out = CharBuffer.allocate(bytes.length + 64);
+        // endOfInput=false：遇不完整多字节序列返回 UNDERFLOW 并保留在解码器状态中，
+        // 等待下一个分片续接，不会产生 U+FFFD
+        utf8.decode(ByteBuffer.wrap(bytes), out, false);
+        out.flip();
+        return out.toString();
+    }
+
+    /** 流结束时收尾解码器（endOfInput=true），处理尾部残留字节。 */
+    private static String decodeTail(CharsetDecoder utf8) {
+        CharBuffer out = CharBuffer.allocate(64);
+        utf8.decode(ByteBuffer.allocate(0), out, true);
+        out.flip();
+        return out.toString();
     }
 
     /**

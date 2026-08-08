@@ -19,6 +19,8 @@ dependencies = [
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
     "PyJWT>=2.8",
+    # MCP（Sprint 3：编排层 ↔ Agent/Utility 统一走 MCP 协议；锁 v1.x 稳定 API）
+    "mcp>=1.28,<2",
 ]
 
 [project.optional-dependencies]

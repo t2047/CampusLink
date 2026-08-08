@@ -2,26 +2,34 @@
 # URL 支持 ${ENV_VAR:default} 占位符，加载时解析环境变量：
 # - 本地联调：.env 中 MAIL_AGENT_URL=http://localhost:8081
 # - Docker：  .env 或 compose 中 MAIL_AGENT_URL=http://mail-agent:8000
+#
+# Sprint 3（MCP）：mcp_url 为各 Agent/Utility 的 MCP streamable HTTP 端点，
+# 编排层通过 MCP 协议调用（每 Agent 一个 invoke 工具 / utility 4 个工具）。
 
 # 服务注册表
 services:
   domain_agents:
     - name: mail-agent
       url: ${MAIL_AGENT_URL:http://localhost:8081}
+      mcp_url: ${MAIL_AGENT_MCP_URL:http://localhost:8081/mcp/}
       timeout_ms: 30000
     - name: facility-agent
       url: ${FACILITY_AGENT_URL:http://localhost:8082}
+      mcp_url: ${FACILITY_AGENT_MCP_URL:http://localhost:8082/mcp/}
       timeout_ms: 30000
     - name: lost-found-agent
       url: ${LOSTFOUND_AGENT_URL:http://localhost:8083}
+      mcp_url: ${LOSTFOUND_AGENT_MCP_URL:http://localhost:8083/mcp/}
       timeout_ms: 30000
     - name: skill-agent
       url: ${SKILL_AGENT_URL:http://localhost:8084}
+      mcp_url: ${SKILL_AGENT_MCP_URL:http://localhost:8084/mcp/}
       timeout_ms: 30000
 
   utility_tools:
     - name: utility-tools
       url: ${UTILITY_TOOLS_URL:http://localhost:8090}
+      mcp_url: ${UTILITY_TOOLS_MCP_URL:http://localhost:8090/mcp/}
       timeout_ms: 5000
 
   token_service:
@@ -33,5 +41,3 @@ security:
   mode: shared_secret              # Sprint 1-3; 生产切 mtls
   shared_secret: ${AGENT_SHARED_SECRET}
   time_window_seconds: 30
-  # Token Service 不可用时是否回退本地 HS256 签发（默认 false = fail-closed；本地联调在 .env 设 true）
-  allow_hs256_fallback: ${ALLOW_HS256_FALLBACK:false}

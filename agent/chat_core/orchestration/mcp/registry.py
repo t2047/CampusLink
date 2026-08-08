@@ -43,6 +43,8 @@ class AgentConfig:
     url: str
     timeout_ms: int = 30000
     type: str = "domain_agent"  # domain_agent | tool_provider
+    # Sprint 3：MCP streamable HTTP 端点（如 http://host:port/mcp/）；设置后走 MCP 协议
+    mcp_url: Optional[str] = None
 
 
 def _resolve_env(value: Any) -> Any:
@@ -69,11 +71,10 @@ class ServiceRegistry:
 
     agents: dict[str, AgentConfig] = field(default_factory=dict)
     utility_url: Optional[str] = None
+    utility_mcp_url: Optional[str] = None
     token_service_url: Optional[str] = None
     shared_secret: str = ""
     time_window_seconds: int = 30
-    # 默认 fail-closed（与 services.yaml 默认一致）：Token Service 不可用时拒绝调用而非降级 HS256
-    allow_hs256_fallback: bool = False
 
     @classmethod
     def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> "ServiceRegistry":
@@ -93,9 +94,6 @@ class ServiceRegistry:
         registry.time_window_seconds = int(
             config.get("security", {}).get("time_window_seconds", 30)
         )
-        registry.allow_hs256_fallback = str(
-            config.get("security", {}).get("allow_hs256_fallback", False)
-        ).lower() == "true"
 
         # Token Service
         token_cfg = services.get("token_service")
@@ -109,6 +107,7 @@ class ServiceRegistry:
                 url=agent["url"],
                 timeout_ms=agent.get("timeout_ms", 30000),
                 type="domain_agent",
+                mcp_url=agent.get("mcp_url"),
             )
 
         # Utility Tool Provider
@@ -118,9 +117,12 @@ class ServiceRegistry:
                 url=tool["url"],
                 timeout_ms=tool.get("timeout_ms", 5000),
                 type="tool_provider",
+                mcp_url=tool.get("mcp_url"),
             )
             if registry.utility_url is None:
                 registry.utility_url = tool["url"]
+            if registry.utility_mcp_url is None:
+                registry.utility_mcp_url = tool.get("mcp_url")
 
         if not registry.shared_secret:
             logger.warning(

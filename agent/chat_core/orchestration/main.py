@@ -8,7 +8,7 @@
 - /chat/stream 由编排层入站安全中间件校验（Chat Backend 共享密钥 HMAC 签名 + Nonce 防重放）
 - 编排层 → Agent：RS256 Delegation Token 从 Token Service 兑换（当前内嵌于 Chat
   Backend 的 POST /internal/token/exchange；独立部署 Sprint 3+，仅切换 TOKEN_SERVICE_URL）
-- Token Service 不可用时回退本地 HS256 签发（AGENT_SHARED_SECRET，仅限联调）
+- Token Service 不可用时 fail-closed 拒绝调用（HS256 本地回退已移除，2026-08-08）
 
 流式（修复"整段一起出 + 慢"）：
 - 之前：graph.ainvoke 等整个图跑完 → 一次性构造全部 SSE → 慢且无打字机效果
@@ -42,8 +42,12 @@ from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from dotenv import find_dotenv, load_dotenv
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
+
+# 自动加载仓库根目录 .env（向上查找；不覆盖已设置的变量）
+load_dotenv(find_dotenv())
 
 from .graph.graph import build_graph
 from .llm import chat_llm
@@ -177,6 +181,7 @@ async def chat_stream(request: Request):
         "requires_approval": False,
         "error": None,
         "failed_agents": [],
+        "service_failures": [],   # 失败兜底上下文，每轮重置（防跨轮残留误触发）
         "delegation_tokens": {},
     }
 

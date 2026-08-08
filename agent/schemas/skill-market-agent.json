@@ -6,30 +6,18 @@
   "type": "domain_agent",
   "transport": {
     "type": "mcp",
-    "protocol": "HTTP + SSE",
+    "protocol": "streamable HTTP",
     "baseUrl": "http://localhost:8084",
     "endpoints": {
-      "capabilities": {
-        "method": "GET",
-        "path": "/agent/capabilities",
-        "description": "返回 Agent 能力声明、健康状态、版本信息"
+      "mcp": {
+        "method": "POST / GET",
+        "path": "/mcp/",
+        "description": "MCP streamable HTTP 端点（Sprint 3 起承载全部调用）。调用工具：invoke（输入/输出契约见下方 invoke 段）"
       },
-      "invoke": {
-        "method": "POST",
-        "path": "/agent/invoke",
-        "description": "同步调用 Agent。编排层发自然语言请求，Agent 内部自主完成推理→Tool选择→执行→回复生成，返回最终结果"
-      },
-      "stream": {
+      "health": {
         "method": "GET",
-        "path": "/agent/stream",
-        "description": "SSE 流式调用。编排层订阅 Agent 的实时执行进度",
-        "queryParams": {
-          "request_id": {
-            "type": "string",
-            "required": true,
-            "description": "由编排层生成的唯一请求 ID"
-          }
-        }
+        "path": "/health",
+        "description": "健康检查（无鉴权）"
       }
     }
   },
@@ -164,7 +152,9 @@
   },
 
   "streaming": {
-    "description": "SSE 实时执行进度推送",
+    "status": "not_implemented",
+    "deprecated": true,
+    "description": "Sprint 3 起不再推送 Agent 内部执行进度（编排层经 MCP 同步调用 invoke）。确认交互由 invoke 返回 status=needs_confirmation + confirmation_required 承载；前端步骤展示改用返回的 actions_taken。以下事件定义保留作历史参考",
     "events": {
       "agent_start": {
         "payload": {

@@ -11,41 +11,51 @@ pip install -e ".[dev]"
 
 复制根目录 `.env`（DEEPSEEK_API_KEY / AGENT_SHARED_SECRET / TOKEN_SERVICE_URL /
 TOKEN_SERVICE_JWKS_URL 等已配置）。
-`.env` 需在进程工作目录可读（或由部署环境注入）。
+**进程启动时自动加载仓库根目录 `.env`**（`load_dotenv(find_dotenv())`，向上查找、不覆盖
+已设置的变量）——无需手动 `source`，Linux / macOS / Windows 命令完全一致。
 
 | 变量 | 说明 |
 |------|------|
-| `AGENT_SHARED_SECRET` | HMAC 请求签名密钥（与 Chat Backend 共用） |
+| `AGENT_SHARED_SECRET` | 编排层 → Token Service 兑换请求的 HMAC 认证密钥（与 Chat Backend 共用） |
 | `TOKEN_SERVICE_URL` | Token Service 地址（当前内嵌于 Chat Backend，`http://localhost:8080`） |
 | `TOKEN_SERVICE_JWKS_URL` | Agent 端 RS256 验签公钥端点（`http://localhost:8080/.well-known/jwks.json`） |
-| `ALLOW_HS256_FALLBACK` | Token Service 不可用时是否回退本地 HS256（默认 `false` = fail-closed；本地联调在 `.env` 设 `true`） |
 | `DEEPSEEK_*` | 意图分类 / 闲聊 LLM |
 
 ## 启动编排层
 
 ```bash
 cd agent/chat_core
-# 确保 .env 可被读取（python-dotenv 或 shell export）
-set -a && source ../.env && set +a   # Linux/macOS
-# Windows PowerShell: 逐条 $env:XXX=...
-uvicorn orchestration.main:app --port 8000
+uvicorn orchestration.main:app --port 8000   # 自动加载仓库根 .env，无需手动 source
 ```
+
+> 无需 `source .env`：`orchestration/main.py` 启动时自动 `load_dotenv(find_dotenv())`。
+> （可选）如需 shell 级变量可手动加载：Linux `set -a && source ../../.env && set +a`；
+> Windows PowerShell `powershell -ExecutionPolicy Bypass -File ..\load_env.ps1`。
 
 验证：`curl http://localhost:8000/health`
 
-## 启动 Mock Agent / Mock Utility（联调用）
+## 启动 Agent / Utility MCP Server（Sprint 3）
+
+每个领域 Agent 一个独立 MCP Server（streamable HTTP，端口 8081-8084），Utility 一个（8090）。
+`domain_server.py` / `utility_server.py` 启动时自动加载仓库根 `.env`（无需手动 source）：
 
 ```bash
-# 终端 1：Mock Mail Agent（端口 8081）
-# RS256 模式：设置 TOKEN_SERVICE_JWKS_URL 后 Agent 走 JWKS 验签；
-# 不设置则退化为 HS256（联调回退模式，与编排层本地签发对应）
-set -a && source ../.env && set +a
-MOCK_AGENT_NAME=mail-agent uvicorn mock_agent:app --port 8081
+# 终端 1：Mail Agent MCP Server（端口 8081）
+# 必须在 agent/ 目录下运行（mcp_servers 包位于 agent/）
+cd agent
+MCP_AGENT_NAME=mail-agent uvicorn mcp_servers.domain_server:app --port 8081
 
-# 终端 2：Mock Utility Tools（端口 8090）
-set -a && source ../.env && set +a
-uvicorn mock_utility:app --port 8090
+# 终端 2：Facility Agent（8082）— 同理换 MCP_AGENT_NAME=facility-agent
+# 终端 3：Utility Tools MCP Server（8090）
+uvicorn mcp_servers.utility_server:app --port 8090
 ```
+
+> Windows PowerShell 注意：`$env:MCP_AGENT_NAME = "mail-agent"` 设置 Agent 名；
+> .env 自动加载，无需额外命令。RS256 验签必需 `TOKEN_SERVICE_JWKS_URL`（.env 已含），
+> 缺失时启动会打印 WARNING 且 MCP 请求全部 401。
+
+MCP 端点均为 `http://localhost:<port>/mcp/`（`services.yaml` 的 `*_MCP_URL` 默认值）。
+编排层通过 MCP streamable HTTP 调用（`Authorization: Bearer <Delegation Token>`）。
 
 ## 端到端调用编排层（含安全 Headers）
 
@@ -79,16 +89,17 @@ cd agent/chat_core
 pytest -q
 ```
 
-## 安全模式说明（当前）
+## 安全模式说明（当前，Sprint 3 MCP）
 
 - **编排层 ← Chat Backend**：共享密钥 HMAC（`AGENT_SHARED_SECRET`）+ Nonce/Timestamp 防重放
 - **编排层 → Token Service**：`POST {TOKEN_SERVICE_URL}/internal/token/exchange` 兑换
-  **RS256 Delegation Token**（HMAC 头认证；`jti` 绑定编排层即将使用的 `X-Nonce`）
-- **Agent 端验签**：设置 `TOKEN_SERVICE_JWKS_URL` → RS256（PyJWKClient 拉公钥）；
-  未设置 → HS256（共享密钥）
-- **联调回退**：Token Service 不可用时编排层用 `AGENT_SHARED_SECRET` 本地签发 HS256
-  Delegation Token（仅限本地联调；生产设 `ALLOW_HS256_FALLBACK=false` 即 fail-closed，
-  禁止降级）
+  **RS256 Delegation Token**（HMAC 头认证）
+- **编排层 → Agent / Utility（MCP）**：`Authorization: Bearer <token>` + `X-Timestamp`，
+  Agent 端 `McpSecurityMiddleware` 验签 + `aud` 匹配；生产传输完整性由 TLS 保证
+  （自研 REST 时代的 body HMAC 与 `jti==X-Nonce` 绑定已随 MCP 化取消）
+- **Agent 端验签**：RS256（JWKS，`TOKEN_SERVICE_JWKS_URL`）；**未配置直接拒绝**（fail-closed）
+- **失败兜底**：Token Service 不可用时编排层 fail-closed 拒绝调用（不再回退 HS256），
+  工具/子 Agent 失败转主 Agent（LLM）生成友好回复
 - **Sprint 3+**：Token Service 独立部署，仅切换 `TOKEN_SERVICE_URL` / `TOKEN_SERVICE_JWKS_URL`
 
 完整链路见 [docs/communication-security.md](../../docs/communication-security.md)。

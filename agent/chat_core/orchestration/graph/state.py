@@ -68,3 +68,4 @@ class AgentState(TypedDict, total=False):
     # ── 降级 ──
     error: str | None
     failed_agents: list[str]
+    service_failures: list[str]           # 工具/子 Agent 失败描述（转主 Agent 兜底）

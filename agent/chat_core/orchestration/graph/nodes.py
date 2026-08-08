@@ -20,7 +20,7 @@
   回调被 stream_mode="messages" 捕获 → 前端打字机；不用 astream 手动聚合，
   避免其末尾完整 chunk 被当作 token 重发）
 - Agent 调用的 Delegation Token 由 AgentClient 内部获取：优先从 Token Service 兑换
-  RS256（内嵌于 Chat Backend），Token Service 不可用时回退本地 HS256（仅联调）
+  RS256（内嵌于 Chat Backend）；Token Service 不可用时 fail-closed 拒绝调用
 """
 
 from __future__ import annotations
@@ -49,7 +49,6 @@ UTILITY_CAPABILITIES: dict[str, str] = {
     "calculator": "数学计算，如加减乘除、开方、三角函数",
     "get_current_time": "查询当前日期时间、星期几",
     "unit_converter": "单位换算（长度/重量/温度/货币）",
-    "text_translator": "文本翻译（中英日韩）",
     "web_search": "联网搜索获取实时信息",
 }
 
@@ -63,13 +62,13 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 
 规则：
 1. intent_type="domain_agent"：用户需要操作邮件、预约设施、失物招领、技能市场
-2. intent_type="utility"：用户需要计算、查时间、单位换算、翻译、联网搜索
+2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索
 3. intent_type="chat"：闲聊、问候、一般知识问答
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
 5. 无法确定时返回 intent_type="chat", targets=[]
 6. 根据用户语言使用对应语言回答
 7. 用户明确拒绝使用工具（如"不要用工具""别调用工具""不用工具计算""不需要搜索"
-   等）时，intent_type="chat"——直接回答或说明，即使消息里含计算/搜索/翻译等
+   等）时，intent_type="chat"——直接回答或说明，即使消息里含计算/搜索等
    工具关键词；"工具"指所有 utility 工具与 domain agent
 
 Domain Agent 能力：
@@ -198,7 +197,7 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     user_id = state.get("user_id", "")
 
     # Delegation Token 由 client 内部获取：RS256（Token Service）优先，
-    # Token Service 不可用时回退本地 HS256（仅联调，见 mcp/client.py）
+    # Delegation Token 由 client 内部获取：RS256（Token Service），不可用时 fail-closed
     result = await client.invoke_agent(
         agent_name=agent_name,
         message=user_msg,
@@ -235,6 +234,10 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         if agent_name not in failed:
             failed.append(agent_name)
         update["failed_agents"] = failed
+        # 失败上下文：转主 Agent（LLM）兜底时使用
+        update["service_failures"] = list(state.get("service_failures") or []) + [
+            f"「{agent_name}」服务暂时不可用"
+        ]
 
     return update
 
@@ -266,9 +269,10 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     utility_plan = state.get("utility_plan", [])
 
     results: dict[str, Any] = {}
+    failures: list[str] = []
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
-        # Delegation Token 由 client 内部获取（RS256 优先，失败回退本地 HS256）
+        # Delegation Token 由 client 内部获取（RS256；兑换失败即拒绝，见 mcp/client.py）
         result = await client.invoke_utility(
             tool_name=tool_name,
             params=params,
@@ -276,8 +280,14 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
             user_role=state.get("user_role", "STUDENT"),
         )
         results[tool_name] = result
+        if not isinstance(result, dict) or result.get("status") == "failed":
+            failures.append(f"工具 {tool_name} 暂时不可用")
 
-    return {"utility_results": results} if results else {}
+    update: dict[str, Any] = {"utility_results": results}
+    if failures:
+        # 失败上下文：转主 Agent（LLM）兜底时使用
+        update["service_failures"] = list(state.get("service_failures") or []) + failures
+    return update if (results or failures) else {}
 
 
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:
@@ -288,14 +298,7 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
     if tool_name == "calculator":
         match = re.search(r"[\d+\-*/().\s^]+", msg)
         return {"expression": match.group(0).strip() if match else "0"}
-    if tool_name == "text_translator":
-        target = "zh"
-        m = re.search(r"翻译成(英文|英语|中文|日语|韩语)", msg)
-        lang_map = {"英文": "en", "英语": "en", "中文": "zh", "日语": "ja", "韩语": "ko"}
-        if m:
-            target = lang_map.get(m.group(1), "zh")
-        text = re.sub(r"^(请|帮我把|帮我|把)?(这段|这个)?(文本)?(翻译成\w+[，,]?|翻译[，,]?)", "", msg).strip()
-        return {"text": text, "target_lang": target, "source_lang": "auto"}
+    # text_translator 已移除（2026-08-08）：翻译由 chat_responder 的 LLM 直答
     return {}
 
 
@@ -312,6 +315,28 @@ async def chat_responder(state: AgentState) -> AgentState:
     若 messages 模式未捕获（边界情况），main.py 的 updates 模式兜底会把完整
     回复作为单条 token 发出，保证回复不为空。
     """
+    # 主 Agent 兜底：工具/子 Agent 调用失败时，由 LLM 生成友好的失败说明
+    failures = list(state.get("service_failures") or [])
+    if failures:
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        llm = chat_llm()
+        try:
+            response = await llm.ainvoke([
+                SystemMessage(content=(
+                    "你是校园助手。部分服务当前不可用，请用自然、友好的语气向用户说明情况，"
+                    "给出替代建议或请其稍后重试。不要提及内部技术细节。"
+                )),
+                HumanMessage(content=f"用户请求：{user_msg}\n不可用的服务：{'; '.join(failures)}"),
+            ])
+            content = getattr(response, "content", "") or ""
+            return {"messages": [
+                AIMessage(content=content.strip() or "抱歉，部分服务暂时不可用，请稍后重试。")
+            ]}
+        except Exception:
+            return {"messages": [
+                AIMessage(content="抱歉，部分服务暂时不可用，请稍后重试。")
+            ]}
+
     if state.get("error"):
         return {"messages": [AIMessage(content="抱歉，我没有理解你的请求，请换一种说法。")]}
 
@@ -397,12 +422,11 @@ def _format_utility_result(tool_name: str, result: Any) -> str:
         return f"（{tool_name} 返回异常：{result}）"
     if "result" in result and isinstance(result["result"], (int, float)):
         return f"计算结果：{result.get('expression', '')} = {result['result']}"
-    if result.get("datetime"):
-        return f"现在是 {result['datetime']}（{result.get('timezone', 'Asia/Shanghai')}）"
-    if result.get("translated_text"):
-        return f"翻译结果：{result['translated_text']}"
+    if "timezone" in result and result.get("value"):
+        return f"现在是 {result['value']}（{result.get('timezone', 'Asia/Shanghai')}）"
     if result.get("error") or result.get("status") == "failed":
-        return f"（{tool_name} 调用失败：{result.get('error', 'unknown')}）"
+        # 失败项只显示友好文案，不暴露英文技术详情（详情在日志 / error 字段）
+        return f"（{tool_name} 暂时不可用，请稍后重试）"
     return json.dumps(result, ensure_ascii=False)
 
 

@@ -10,8 +10,8 @@ from typing import Literal
 from .state import AgentState
 
 RouteResult = Literal["agent_invoker", "utility_tool_executor", "chat_responder"]
-AgentAfterResult = Literal["invoke_next", "needs_approval", "to_guard", "to_fallback"]
-UtilityAfterResult = Literal["agent_invoker", "to_guard"]
+AgentAfterResult = Literal["invoke_next", "needs_approval", "to_guard", "to_fallback", "to_chat"]
+UtilityAfterResult = Literal["agent_invoker", "to_guard", "to_chat"]
 GuardAfterResult = Literal["aggregate", "end"]
 
 
@@ -41,11 +41,25 @@ def after_agent_invoke(state: AgentState) -> AgentAfterResult:
     if current < len(agent_plan):
         return "invoke_next"
 
+    # 全部子 Agent 失败 → 转主 Agent（LLM）生成友好兜底回复
+    # 集合覆盖判定：failed_agents 必须真正覆盖全部计划 Agent（避免长度比较在
+    # 名单去重/重复时误判；failed_agents 由 nodes 追加逻辑保证不重复）
+    failed = set(state.get("failed_agents") or [])
+    if agent_plan and failed and failed >= set(agent_plan):
+        return "to_chat"
+
     return "to_guard"
 
 
 def after_utility(state: AgentState) -> UtilityAfterResult:
-    """Utility 调用后：若还有 Agent 待调用则进入 Agent 路径，否则汇聚。"""
+    """Utility 调用后：全部失败 → 转主 Agent（LLM）兜底；
+    还有 Agent 待调用则进入 Agent 路径，否则汇聚。"""
+    results = state.get("utility_results", {}) or {}
+    if results and all(
+        not isinstance(r, dict) or r.get("status") == "failed"
+        for r in results.values()
+    ):
+        return "to_chat"
     if state.get("agent_plan"):
         return "agent_invoker"
     return "to_guard"

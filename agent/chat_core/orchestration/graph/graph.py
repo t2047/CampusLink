@@ -43,11 +43,13 @@ _AGENT_AFTER_ROUTES = {
     "needs_approval": "human_approval",
     "to_guard": "output_guardrail",
     "to_fallback": "fallback_handler",
+    "to_chat": "chat_responder",
 }
 
 _UTILITY_AFTER_ROUTES = {
     "agent_invoker": "agent_invoker",
     "to_guard": "output_guardrail",
+    "to_chat": "chat_responder",
 }
 
 _GUARD_AFTER_ROUTES = {

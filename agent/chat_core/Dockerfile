@@ -4,9 +4,13 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Dependencies
-COPY agent/chat_core/pyproject.toml agent/chat_core/requirements.txt* ./
+# 注意：pyproject 先 COPY、orchestration 源码后 COPY，若 editable install 因源码
+# 目录缺失而失败会走 fallback，故 fallback 也需装全运行时依赖（含 langgraph/mcp）
+COPY agent/chat_core/pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || \
-    pip install --no-cache-dir fastapi uvicorn[standard] python-dotenv httpx
+    pip install --no-cache-dir fastapi "uvicorn[standard]" python-dotenv httpx PyJWT \
+        "mcp>=1.28,<2" "langgraph>=0.2" "langchain-core>=0.3" \
+        "langchain-openai>=0.2" "langchain-community>=0.3" "pydantic>=2.7" "PyYAML>=6.0"
 
 # Source
 COPY agent/chat_core/orchestration ./orchestration

@@ -131,6 +131,7 @@ public class DelegationTokenProvider {
         String tokenJti = (jti == null || jti.isBlank()) ? UUID.randomUUID().toString() : jti;
 
         return Jwts.builder()
+                .header().keyId(keyId).and()   // kid = RFC 7638 指纹，Agent 端 JWKS 按 kid 定位公钥
                 .subject(userId)
                 .claim("role", role)
                 .audience().add(targetAgent).and()
