@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || \
 
 # Source
 COPY agent/chat_core/orchestration ./orchestration
+# 配置（services.yaml：服务注册表 / 安全段；容器内由 env_file 提供环境变量占位符）
+COPY agent/chat_core/config ./config
 
 # Non-root user
 RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app

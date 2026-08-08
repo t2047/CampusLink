@@ -1,5 +1,6 @@
 package com.app.campusagent.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -33,9 +34,12 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final List<String> allowedOrigins;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:8080,http://localhost:5173}") List<String> allowedOrigins) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.allowedOrigins = allowedOrigins;
     }
 
     @Bean
@@ -53,10 +57,15 @@ public class SecurityConfig {
                         ).permitAll()
                         // 健康检查 / 认证端点放行
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/api/auth/**").permitAll()
+                        // Token Service 内嵌端点：JWKS（公钥，Agent 端验签用）与
+                        // token exchange（仅编排层调用，controller 内做 HMAC 校验，无用户 JWT）
+                        .requestMatchers("/.well-known/jwks.json", "/internal/token/exchange").permitAll()
                         // Chat API 必须认证
                         .requestMatchers("/api/chat/**").authenticated()
-                        // 其余默认拒绝
-                        .anyRequest().permitAll())
+                        // 管理端点必须认证（角色细粒度由方法级 @PreAuthorize 控制）
+                        .requestMatchers("/api/admin/**").authenticated()
+                        // 其余默认拒绝（新增端点须在此显式声明）
+                        .anyRequest().denyAll())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -70,7 +79,8 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:8080"));
+        // 允许的来源从配置读取（默认覆盖 vite dev 3000 / 5173 与后端自身 8080）
+        config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

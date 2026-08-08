@@ -16,11 +16,11 @@
 - 节点返回<strong>最小状态增量</strong>（而非整个 state），避免 stream_mode="updates"
   携带全量 state 导致事件重复（例如 response_aggregator 在已有 AIMessage 时返回 {}）
 - LLM 统一从 ..llm 工厂创建（DeepSeek，.env 配置，streaming=True）
-- chat_responder 为异步节点（await llm.ainvoke）：streaming=True 时 token 通过回调
-  被 stream_mode="messages" 捕获 → 前端打字机效果
-- Sprint 1：Agent 调用时若 state 未携带 Delegation Token，
-  用 AGENT_SHARED_SECRET 本地签发 HS256 Token（与 Mock Agent 联调）；
-  Sprint 3+ 改为从 Token Service 获取 RS256 Token
+- chat_responder 为异步节点（await llm.ainvoke；模型 streaming=True 时 token 经
+  回调被 stream_mode="messages" 捕获 → 前端打字机；不用 astream 手动聚合，
+  避免其末尾完整 chunk 被当作 token 重发）
+- Agent 调用的 Delegation Token 由 AgentClient 内部获取：优先从 Token Service 兑换
+  RS256（内嵌于 Chat Backend），Token Service 不可用时回退本地 HS256（仅联调）
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ def input_guardrail(state: AgentState) -> AgentState:
 
 
 # ---------------------------------------------------------------------------
-# 2. 意图路由器（混合：规则预判 → LLM 精判）
+# 2. 意图路由（混合：规则预判 → LLM 精判）
 # ---------------------------------------------------------------------------
 
 def _rule_based_intent(message: str) -> tuple[str, list[str]] | None:
@@ -220,20 +220,13 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     user_msg = state["messages"][-1].content
     user_id = state.get("user_id", "")
 
-    # Delegation Token：优先用 state 中已携带的（Sprint 3+），否则本地签发（Sprint 1）
-    tokens = state.get("delegation_tokens") or {}
-    delegation_token = tokens.get(agent_name) or client.issue_local_delegation_token(
-        user_id=user_id,
-        role=state.get("user_role", "STUDENT"),
-        target_agent=agent_name,
-    )
-
+    # Delegation Token 由 client 内部获取：RS256（Token Service）优先，
+    # Token Service 不可用时回退本地 HS256（仅联调，见 mcp/client.py）
     result = await client.invoke_agent(
         agent_name=agent_name,
         message=user_msg,
         user_id=user_id,
         user_role=state.get("user_role", ""),
-        delegation_token=delegation_token,
         conversation_context=_build_conversation_context(state),
         trace_id=state.get("trace_id"),
     )
@@ -250,7 +243,8 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     }
 
     update: dict[str, Any] = {
-        "agent_invocations": [invocation],
+        # 追加而非覆盖：agent_plan 含多 Agent 时保留全部调用记录（聚合器依赖）
+        "agent_invocations": list(state.get("agent_invocations") or []) + [invocation],
         "current_agent_index": index + 1,
     }
 
@@ -259,7 +253,11 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         update["approval_context"] = result.get("confirmation_required") or {}
         update["approval_agent"] = agent_name
     elif result.get("status") == "failed" or result.get("error"):
-        update["failed_agents"] = [agent_name]
+        # 追加而非覆盖：多 Agent 连续失败时保留全部失败名单
+        failed = list(state.get("failed_agents") or [])
+        if agent_name not in failed:
+            failed.append(agent_name)
+        update["failed_agents"] = failed
 
     return update
 
@@ -293,16 +291,12 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     results: dict[str, Any] = {}
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
-        token = (state.get("delegation_tokens") or {}).get("utility-tools") \
-            or client.issue_local_delegation_token(
-                user_id=state.get("user_id", ""),
-                role=state.get("user_role", "STUDENT"),
-                target_agent="utility-tools",
-            )
+        # Delegation Token 由 client 内部获取（RS256 优先，失败回退本地 HS256）
         result = await client.invoke_utility(
             tool_name=tool_name,
             params=params,
-            delegation_token=token,
+            user_id=state.get("user_id", ""),
+            user_role=state.get("user_role", "STUDENT"),
         )
         results[tool_name] = result
 
@@ -333,12 +327,13 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
 # ---------------------------------------------------------------------------
 
 async def chat_responder(state: AgentState) -> AgentState:
-    """闲聊/知识问答：LLM 直接回复（DeepSeek，异步 ainvoke）。
+    """闲聊/知识问答：LLM 回复（DeepSeek，异步 ainvoke）。
 
-    使用异步 ainvoke 且模型 streaming=True：token 通过 LangChain 回调被
-    ``graph.astream(stream_mode="messages")`` 捕获，前端实现打字机效果。
-    若 messages 模式未捕获（同步上下文等边界情况），main.py 的 updates
-    模式兜底会把完整回复作为单条 token 发出，保证回复不为空。
+    使用异步 ``ainvoke``（模型 streaming=True 时内部走流式，token 经 LangChain 回调
+    被 ``graph.astream(stream_mode="messages")`` 捕获 → 前端打字机）。
+
+    若 messages 模式未捕获（边界情况），main.py 的 updates 模式兜底会把完整
+    回复作为单条 token 发出，保证回复不为空。
     """
     if state.get("error"):
         return {"messages": [AIMessage(content="抱歉，我没有理解你的请求，请换一种说法。")]}
@@ -346,7 +341,8 @@ async def chat_responder(state: AgentState) -> AgentState:
     llm = chat_llm()
     try:
         response = await llm.ainvoke(state.get("messages", [HumanMessage(content="你好")]))
-        return {"messages": [AIMessage(content=response.content)]}
+        content = getattr(response, "content", "") or ""
+        return {"messages": [AIMessage(content=content.strip() or "抱歉，我现在暂时无法回复，请稍后重试。")]}
     except Exception:
         return {"messages": [AIMessage(content="抱歉，我现在暂时无法回复，请稍后重试。")]}
 
@@ -458,16 +454,18 @@ def human_approval(state: AgentState) -> AgentState:
         "approval_agent": None,
     }
 
-    if isinstance(decision, dict) and decision.get("approved"):
-        if state.get("agent_invocations"):
-            update["agent_invocations"] = [
-                {**state["agent_invocations"][-1], "output_status": "confirmed"}
-            ]
-    else:
-        if state.get("agent_invocations"):
-            update["agent_invocations"] = [
-                {**state["agent_invocations"][-1], "output_response": "操作已取消。", "output_status": "cancelled"}
-            ]
+    if state.get("agent_invocations"):
+        # 只 merge 最后一条（当前等待审批的 Agent），保留前面已完成 Agent 的记录
+        invocations = list(state["agent_invocations"])
+        if isinstance(decision, dict) and decision.get("approved"):
+            invocations[-1] = {**invocations[-1], "output_status": "confirmed"}
+        else:
+            invocations[-1] = {
+                **invocations[-1],
+                "output_response": "操作已取消。",
+                "output_status": "cancelled",
+            }
+        update["agent_invocations"] = invocations
 
     return update
 

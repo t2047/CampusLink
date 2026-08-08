@@ -35,3 +35,7 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Docker 网络内用服务名互访（.env 中的 localhost 仅限本地联调）
+      - TOKEN_SERVICE_URL=http://chat-backend:8080
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json

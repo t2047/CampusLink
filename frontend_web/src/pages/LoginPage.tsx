@@ -3,25 +3,29 @@
 // ──────────────────────────────────────────────
 
 import { useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import {
   login,
   register,
   setToken,
+  isLoggedIn,
   type LoginRequest,
   type RegisterRequest,
 } from '../services/api';
 
-interface LoginPageProps {
-  onLogin: () => void;
-}
-
-export default function LoginPage({ onLogin }: LoginPageProps) {
+export default function LoginPage() {
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // 已登录访问登录页 → 直接进聊天
+  if (isLoggedIn()) {
+    return <Navigate to="/chat" replace />;
+  }
 
   const toggleMode = () => {
     setMode(mode === 'login' ? 'register' : 'login');
@@ -43,7 +47,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         result = await register(req);
       }
       setToken(result.token);
-      onLogin();
+      navigate('/chat', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败');
     } finally {

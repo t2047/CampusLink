@@ -31,14 +31,14 @@ import java.util.UUID;
  *   <li>构造安全 Headers（HMAC 签名 + Nonce + Timestamp）并透传</li>
  *   <li>将编排层 SSE 事件流<strong>增量解码</strong>为 {@code Flux<ServerSentEvent<String>>}，
  *       事件随到随发，不等待整个流结束（保证前端打字机效果）</li>
- *   <li>为每个目标 Agent 通过 {@link DelegationTokenProvider} 签发 RS256 Delegation Token</li>
  * </ul>
  *
  * <p>安全说明（对齐通信安全文档）：</p>
  * <ul>
  *   <li>原始用户 JWT 不离开 Chat Backend；Agent 只拿到 30s 有效的 Delegation Token</li>
- *   <li>Delegation Token 由本组件内嵌的 {@link DelegationTokenProvider} 以 RS256 签发</li>
- *   <li>Sprint 3+ 迁移：改为调用独立 Token Service {@code POST /internal/token/exchange}</li>
+ *   <li>Delegation Token 由内嵌 Token Service（{@link com.app.campusagent.chat.controller.TokenExchangeController}）
+ *       以 RS256 签发，编排层按需兑换（{@code POST /internal/token/exchange}）</li>
+ *   <li>Sprint 3+ 迁移：Token Service 独立部署，仅切换 {@code TOKEN_SERVICE_URL}，接口形态不变</li>
  * </ul>
  *
  * <p><b>SSE 增量解码说明：</b></p>
@@ -59,16 +59,13 @@ public class OrchestrationClient {
 
     private final ChatProperties properties;
     private final WebClient webClient;
-    private final DelegationTokenProvider delegationTokenProvider;
     private final ObjectMapper objectMapper;
 
     public OrchestrationClient(ChatProperties properties,
                                WebClient webClient,
-                               DelegationTokenProvider delegationTokenProvider,
                                ObjectMapper objectMapper) {
         this.properties = properties;
         this.webClient = webClient;
-        this.delegationTokenProvider = delegationTokenProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -121,17 +118,6 @@ public class OrchestrationClient {
                         return Flux.just(errorEvent("编排层暂时不可用"));
                     });
         });
-    }
-
-    /**
-     * 为指定 Agent 签发 Delegation Token（RS256，30s TTL）。
-     *
-     * @param userId      用户 ID
-     * @param role        用户角色
-     * @param targetAgent 目标 Agent（aud）
-     */
-    public String exchangeForDelegationToken(String userId, String role, String targetAgent) {
-        return delegationTokenProvider.issueDelegationToken(userId, role, targetAgent, "invoke");
     }
 
     // ──────────────────────────────────────────────────────────────────────

@@ -12,9 +12,10 @@
 | 模块 | 技术 |
 |------|------|
 | 后端 | Java 21 · Spring Boot 3.4 · Spring Security · JWT |
+| 聊天编排 | Python 3.12 · FastAPI · LangGraph · DeepSeek |
 | 数据库 | MySQL 8 |
 | CI/CD | GitHub Actions (SAST + SCA + DAST) |
-| 测试 | JUnit 5 · Mockito |
+| 测试 | JUnit 5 · Mockito · pytest |
 
 ---
 
@@ -39,6 +40,18 @@ mvn spring-boot:run
 ```
 
 首次启动时，系统会根据 `.env` 中的 `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` 自动创建超级管理员账号。
+
+---
+
+## 通信安全
+
+服务间通信安全链路（详见 [docs/communication-security.md](docs/communication-security.md)）：
+
+- **前端 → 后端**：用户 JWT（HS256，Bearer）
+- **后端 → 编排层**：共享密钥 HMAC 签名 + Nonce/Timestamp 防重放
+- **编排层 → Agent**：RS256 Delegation Token（由内嵌于后端的 Token Service 签发，
+  `POST /internal/token/exchange` 兑换，Agent 端通过 `/.well-known/jwks.json` 验签）
+- **原始用户 JWT 不离开后端**；Agent 只拿到 30s 有效、`aud` 绑定目标 Agent 的 Delegation Token
 
 ---
 
@@ -129,16 +142,21 @@ teamXX-ad-project/
 ├── backend/               ← Spring Boot 后端
 │   └── src/main/java/com/app/campusagent/
 │       ├── config/        ← Security、JWT、CORS、DataInitializer
+│       ├── chat/          ← 聊天 SSE、编排层客户端、DelegationTokenProvider、Token Exchange/JWKS 端点
 │       ├── controller/    ← AuthController、AdminController
 │       ├── domain/        ← User 实体、Role 枚举
-│       ├── dto/           ← AuthResponse、UpdateRoleRequest 等
+│       ├── dto/           ← AuthResponse、UpdateRoleRequest、TokenExchange* 等
 │       ├── exception/     ← GlobalExceptionHandler
 │       ├── repository/    ← UserRepository
 │       └── service/       ← AuthService
+├── agent/                 ← 聊天编排层（Python）
+│   ├── chat_core/         ← FastAPI + LangGraph 9 节点状态机、MCP 客户端、安全中间件
+│   ├── schemas/           ← 各领域 Agent 能力声明（mail/facility/lost-found 等）
+│   └── shared/            ← Agent 共享安全中间件（HMAC + Nonce + RS256/HS256 双模式验签）
 ├── frontend_web/          ← 前端 Web & 测试页面
 ├── frontend_mobile/       ← 移动端
 ├── ml-service/            ← ML 推荐引擎
-├── docs/                  ← 文档
+├── docs/                  ← 文档（含通信安全说明）
 └── scripts/               ← 脚本
 ```
 

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "campuslink-chat-core"
 version = "0.1.0"
 description = "CampusLink Chat Core — LangGraph orchestration layer"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",

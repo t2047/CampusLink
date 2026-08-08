@@ -11,9 +11,10 @@
 | Module | Technology |
 |--------|------------|
 | Backend | Java 21 · Spring Boot 3.4 · Spring Security · JWT |
+| Chat Orchestration | Python 3.12 · FastAPI · LangGraph · DeepSeek |
 | Database | MySQL 8 |
 | CI/CD | GitHub Actions (SAST + SCA + DAST) |
-| Testing | JUnit 5 · Mockito |
+| Testing | JUnit 5 · Mockito · pytest |
 
 ---
 
@@ -38,6 +39,20 @@ mvn spring-boot:run
 ```
 
 On first startup, a **SUPER_ADMIN** account is created automatically using credentials from `.env` (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`).
+
+---
+
+## Communication Security
+
+Full chain documented in [docs/communication-security.md](docs/communication-security.md):
+
+- **Frontend → Backend**: user JWT (HS256, Bearer)
+- **Backend → Orchestration**: shared-secret HMAC signature + Nonce/Timestamp anti-replay
+- **Orchestration → Agent**: RS256 Delegation Token issued by the Token Service
+  embedded in the backend (`POST /internal/token/exchange`), verified by Agents via
+  `/.well-known/jwks.json`
+- **The raw user JWT never leaves the backend**; Agents only receive a 30s token
+  whose `aud` is bound to the target agent
 
 ---
 
@@ -128,16 +143,21 @@ teamXX-ad-project/
 ├── backend/               ← Spring Boot backend
 │   └── src/main/java/com/app/campusagent/
 │       ├── config/        ← Security, JWT, CORS, DataInitializer
+│       ├── chat/          ← Chat SSE, orchestration client, DelegationTokenProvider, Token Exchange/JWKS
 │       ├── controller/    ← AuthController, AdminController
 │       ├── domain/        ← User entity, Role enum
-│       ├── dto/           ← AuthResponse, UpdateRoleRequest, etc.
+│       ├── dto/           ← AuthResponse, UpdateRoleRequest, TokenExchange*, etc.
 │       ├── exception/     ← GlobalExceptionHandler
 │       ├── repository/    ← UserRepository
 │       └── service/       ← AuthService
+├── agent/                 ← Chat orchestration layer (Python)
+│   ├── chat_core/         ← FastAPI + LangGraph 9-node state machine, MCP client, security middleware
+│   ├── schemas/           ← Domain agent capability declarations (mail/facility/lost-found, …)
+│   └── shared/            ← Shared agent security middleware (HMAC + Nonce + RS256/HS256)
 ├── frontend_web/          ← Web frontend & test pages
 ├── frontend_mobile/       ← Mobile app
 ├── ml-service/            ← ML recommendation engine
-├── docs/                  ← Documentation
+├── docs/                  ← Documentation (incl. communication security)
 └── scripts/               ← Utility scripts
 ```
 

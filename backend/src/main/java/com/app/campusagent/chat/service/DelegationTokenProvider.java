@@ -101,7 +101,7 @@ public class DelegationTokenProvider {
     }
 
     /**
-     * 签发 Agent Delegation Token。
+     * 签发 Agent Delegation Token（jti 随机生成）。
      *
      * @param userId         原始用户 ID（来自已验签的用户 JWT）
      * @param role           用户角色（如 STUDENT）
@@ -110,9 +110,25 @@ public class DelegationTokenProvider {
      * @return 签好的 JWT 字符串
      */
     public String issueDelegationToken(String userId, String role, String targetAgent, String intendedAction) {
+        return issueDelegationToken(userId, role, targetAgent, intendedAction, null);
+    }
+
+    /**
+     * 签发 Agent Delegation Token。
+     *
+     * @param userId         原始用户 ID（来自已验签的用户 JWT）
+     * @param role           用户角色（如 STUDENT）
+     * @param targetAgent    目标 Agent 名称（aud，防跨 Agent 滥用）
+     * @param intendedAction 预期操作（如 invoke；后续可细化到具体 Tool）
+     * @param jti            请求唯一 ID（jti）；由调用方（编排层）传入即将用于
+     *                       Agent 请求的 {@code X-Nonce}，使 Agent 端可校验
+     *                       {@code claims.jti == X-Nonce}（防重放绑定）。为 null/空则随机生成。
+     * @return 签好的 JWT 字符串
+     */
+    public String issueDelegationToken(String userId, String role, String targetAgent, String intendedAction, String jti) {
         Instant now = Instant.now();
         Instant exp = now.plus(Duration.ofSeconds(tokenTtlSeconds));
-        String nonce = UUID.randomUUID().toString();
+        String tokenJti = (jti == null || jti.isBlank()) ? UUID.randomUUID().toString() : jti;
 
         return Jwts.builder()
                 .subject(userId)
@@ -121,7 +137,7 @@ public class DelegationTokenProvider {
                 .issuer(ISSUER)
                 .claim("intended_action", intendedAction)
                 .claim("delegated_by", DELEGATED_BY)
-                .id(nonce)
+                .id(tokenJti)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(exp))
                 .signWith(privateKey, Jwts.SIG.RS256)

@@ -25,7 +25,7 @@ services:
       timeout_ms: 5000
 
   token_service:
-    url: ${TOKEN_SERVICE_URL:http://localhost:8099}
+    url: ${TOKEN_SERVICE_URL:http://localhost:8080}
     timeout_ms: 3000
 
 # 安全（对齐通信安全说明文档）
@@ -33,3 +33,5 @@ security:
   mode: shared_secret              # Sprint 1-3; 生产切 mtls
   shared_secret: ${AGENT_SHARED_SECRET}
   time_window_seconds: 30
+  # Token Service 不可用时是否回退本地 HS256 签发（默认 false = fail-closed；本地联调在 .env 设 true）
+  allow_hs256_fallback: ${ALLOW_HS256_FALLBACK:false}

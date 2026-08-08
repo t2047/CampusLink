@@ -32,7 +32,7 @@ DEFAULT_CONFIG_PATH = os.environ.get(
     "ORCHESTRATION_CONFIG", "config/services.yaml"
 )
 
-_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
 
 
 @dataclass
@@ -46,10 +46,15 @@ class AgentConfig:
 
 
 def _resolve_env(value: Any) -> Any:
-    """递归解析 ${ENV_VAR} 占位符（字符串内全部替换）。"""
+    """递归解析 ${ENV_VAR} 与 ${ENV_VAR:default} 占位符（字符串内全部替换）。"""
     if isinstance(value, str):
         def repl(match: re.Match) -> str:
-            return os.environ.get(match.group(1), "")
+            var = match.group(1)
+            default = match.group(2)
+            env_value = os.environ.get(var)
+            if env_value is not None:
+                return env_value
+            return default if default is not None else ""
         return _ENV_PATTERN.sub(repl, value)
     if isinstance(value, dict):
         return {k: _resolve_env(v) for k, v in value.items()}
@@ -67,6 +72,8 @@ class ServiceRegistry:
     token_service_url: Optional[str] = None
     shared_secret: str = ""
     time_window_seconds: int = 30
+    # 默认 fail-closed（与 services.yaml 默认一致）：Token Service 不可用时拒绝调用而非降级 HS256
+    allow_hs256_fallback: bool = False
 
     @classmethod
     def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> "ServiceRegistry":
@@ -86,6 +93,9 @@ class ServiceRegistry:
         registry.time_window_seconds = int(
             config.get("security", {}).get("time_window_seconds", 30)
         )
+        registry.allow_hs256_fallback = str(
+            config.get("security", {}).get("allow_hs256_fallback", False)
+        ).lower() == "true"
 
         # Token Service
         token_cfg = services.get("token_service")

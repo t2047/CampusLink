@@ -11,15 +11,12 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   createChatStream,
   clearToken,
   type SseEvent,
 } from '../services/api';
-
-interface ChatPageProps {
-  onLogout: () => void;
-}
 
 // ── Types ────────────────────────────────────
 
@@ -54,7 +51,8 @@ const SUGGESTIONS = [
   '把 15 美元换算成人民币',
 ];
 
-export default function ChatPage({ onLogout }: ChatPageProps) {
+export default function ChatPage() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
@@ -297,8 +295,8 @@ export default function ChatPage({ onLogout }: ChatPageProps) {
     clearToken();
     document.documentElement.classList.remove('dark');
     localStorage.removeItem('theme');
-    onLogout();
-  }, [onLogout]);
+    navigate('/login', { replace: true });
+  }, [navigate]);
 
   // ── 输入框 ──────────────────────────────────
 

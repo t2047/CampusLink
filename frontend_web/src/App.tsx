@@ -1,15 +1,15 @@
 // ──────────────────────────────────────────────
-//  App Root — Login / Chat routing + Dark mode init
+//  App Root — Router + Dark mode init
 // ──────────────────────────────────────────────
 
-import { useState, useCallback, useEffect } from 'react';
-import { isLoggedIn } from './services/api';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import ChatPage from './pages/ChatPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(isLoggedIn);
-
   // 初始化深色模式（默认跟随系统，用户手动切换后存 localStorage）
   useEffect(() => {
     const saved = localStorage.getItem('theme');
@@ -18,12 +18,20 @@ export default function App() {
     document.documentElement.classList.toggle('dark', dark);
   }, []);
 
-  const handleLogin = useCallback(() => setLoggedIn(true), []);
-  const handleLogout = useCallback(() => setLoggedIn(false), []);
-
-  return loggedIn ? (
-    <ChatPage onLogout={handleLogout} />
-  ) : (
-    <LoginPage onLogin={handleLogin} />
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* 根路径：已登录进聊天，未登录由 ProtectedRoute 带去 /login */}
+      <Route path="/" element={<Navigate to="/chat" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
   );
 }

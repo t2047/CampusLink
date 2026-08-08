@@ -3,7 +3,11 @@
 //  Centralises HTTP calls to the Chat Backend.
 // ──────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080';
+// API 基地址：
+// - dev：留空 → 同源相对路径（由 vite server.proxy 把 /api 转发到 http://localhost:8080，
+//   避免浏览器跨域 CORS 403）
+// - 部署：可通过 VITE_API_BASE 指向独立后端域名（此时需后端 CORS 放行该 origin）
+const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 // ── Types ────────────────────────────────────
 
@@ -106,7 +110,7 @@ export interface SseEvent {
 export function createChatStream(
   message: string,
   onEvent: (evt: SseEvent) => void,
-  onError: (err: Event) => void,
+  onError: (err: unknown) => void,
 ): { close: () => void } {
   const token = getToken();
   if (!token) throw new Error('Not authenticated');
@@ -164,7 +168,7 @@ export function createChatStream(
         onEvent({ type: 'done', data: {} });
       }
     } catch (err) {
-      if (!closed) onError(err as Event);
+      if (!closed) onError(err);
     }
   })();
 
