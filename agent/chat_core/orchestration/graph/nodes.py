@@ -2,7 +2,7 @@
 
 包含 9 个节点：
 - input_guardrail:      输入安全护栏（规则级，Sprint 1）
-- intent_router:        混合式意图分类（规则预判 + LLM 精判）
+- intent_router:        LLM 语义意图分类（DeepSeek）
 - agent_invoker:        调用 Domain Agent（MCP Client + 安全 Headers）
 - utility_tool_executor:调用 Utility Tool
 - chat_responder:       LLM 直接回复（闲聊）
@@ -68,6 +68,9 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
 5. 无法确定时返回 intent_type="chat", targets=[]
 6. 根据用户语言使用对应语言回答
+7. 用户明确拒绝使用工具（如"不要用工具""别调用工具""不用工具计算""不需要搜索"
+   等）时，intent_type="chat"——直接回答或说明，即使消息里含计算/搜索/翻译等
+   工具关键词；"工具"指所有 utility 工具与 domain agent
 
 Domain Agent 能力：
 {agent_capabilities}
@@ -75,23 +78,6 @@ Domain Agent 能力：
 Utility Tool 能力：
 {utility_capabilities}
 """
-
-# 规则级关键词预判（LLM 不可用时的 fallback + 混合路由前置过滤）
-_INTENT_KEYWORDS: dict[str, dict[str, list[str]]] = {
-    "domain_agent": {
-        "mail-agent": ["邮件", "邮箱", "收发", "收件箱", "发件", "附件", "归档", "删除邮件"],
-        "facility-agent": ["研讨室", "自习室", "体育馆", "场地", "预订", "预约", "会议室", "教室"],
-        "lost-found-agent": ["丢失", "遗失", "失物", "招领", "捡到", "丢了", "认领"],
-        "skill-agent": ["技能", "教学", "辅导", "找人教", "发布技能", "吉他", "编程"],
-    },
-    "utility": {
-        "calculator": ["计算", "等于", "加", "减", "乘", "除", "开方", "平方"],
-        "get_current_time": ["现在几点", "时间", "今天", "星期几", "日期"],
-        "unit_converter": ["换算", "多少公里", "多少英里", "多少斤", "转换单位"],
-        "text_translator": ["翻译", "翻译成", "英文怎么说", "日语怎么说"],
-        "web_search": ["搜索", "查一下", "搜一下", "新闻", "最新"],
-    },
-}
 
 _INJECTION_PATTERNS: list[str] = [
     r"ignore\s+(all\s+)?previous\s+instructions",
@@ -137,21 +123,15 @@ def input_guardrail(state: AgentState) -> AgentState:
 
 
 # ---------------------------------------------------------------------------
-# 2. 意图路由（混合：规则预判 → LLM 精判）
+# 2. 意图路由（LLM 语义分类）
 # ---------------------------------------------------------------------------
 
-def _rule_based_intent(message: str) -> tuple[str, list[str]] | None:
-    """关键词规则预判。命中则直接返回，未命中返回 None 交给 LLM。"""
-    message_lower = message.lower()
-    for intent, targets in _INTENT_KEYWORDS.items():
-        hits = [t for t, kws in targets.items() if any(k in message_lower for k in kws)]
-        if hits:
-            return intent, hits
-    return None
-
-
 def intent_router(state: AgentState) -> AgentState:
-    """混合式意图分类：先规则预判，规则不确定时调用 LLM（DeepSeek）。"""
+    """意图分类：完全由 LLM 语义判定（DeepSeek，temperature=0）。
+
+    不再使用关键词规则预判：规则无法理解"不要用计算器"这类否定语境，
+    且维护成本高。LLM 失败/超时/返回非 JSON 时安全降级为 chat（不乱调工具）。
+    """
     user_msg = state["messages"][-1].content if state.get("messages") else ""
 
     # Prompt injection 已由 input_guardrail 拦截
@@ -164,24 +144,21 @@ def intent_router(state: AgentState) -> AgentState:
             "current_agent_index": 0,
         }
 
-    rule_result = _rule_based_intent(user_msg)
-    if rule_result is not None:
-        intent_type, targets = rule_result
-    else:
-        llm = intent_llm()
-        prompt = _INTENT_SYSTEM_PROMPT.format(
-            agent_capabilities=json.dumps(AGENT_CAPABILITIES, ensure_ascii=False, indent=2),
-            utility_capabilities=json.dumps(UTILITY_CAPABILITIES, ensure_ascii=False, indent=2),
+    llm = intent_llm()
+    prompt = _INTENT_SYSTEM_PROMPT.format(
+        agent_capabilities=json.dumps(AGENT_CAPABILITIES, ensure_ascii=False, indent=2),
+        utility_capabilities=json.dumps(UTILITY_CAPABILITIES, ensure_ascii=False, indent=2),
+    )
+    try:
+        response = llm.invoke(
+            [SystemMessage(content=prompt), HumanMessage(content=user_msg)]
         )
-        try:
-            response = llm.invoke(
-                [SystemMessage(content=prompt), HumanMessage(content=user_msg)]
-            )
-            parsed = json.loads(response.content)
-            intent_type = parsed.get("intent_type", "chat")
-            targets = parsed.get("targets", [])
-        except Exception:
-            intent_type, targets = "chat", []
+        parsed = json.loads(response.content)
+        intent_type = parsed.get("intent_type", "chat")
+        targets = parsed.get("targets", [])
+    except Exception:
+        # LLM 失败/超时/返回非 JSON → 安全降级为闲聊，不误调 Agent/Utility
+        intent_type, targets = "chat", []
 
     if intent_type == "domain_agent":
         agent_plan, utility_plan = targets, []

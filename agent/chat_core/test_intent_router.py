@@ -1,7 +1,9 @@
-"""测试 — 意图路由（规则预判 + LLM 兜底）。
+"""测试 — 意图路由（LLM 语义分类）。
 
-覆盖：关键词规则命中 / LLM JSON 解析 / 异常兜底 / 各意图分支状态写入。
-LLM 路径通过注入 fake llm 对象验证（不发起真实网络调用）。
+意图分类完全由 LLM 判定（不再有关键词规则预判）：
+- 规则级关键词已移除（无法理解"不要用计算器"这类否定语境）
+- LLM 路径通过注入 fake llm 对象验证（不发起真实网络调用）
+- LLM 失败/超时/返回非 JSON → 安全降级为 chat（不误调 Agent/Utility）
 
 注意：节点现在返回"最小状态增量"（不再是全量 state），
 测试断言的是返回的增量 dict 中的字段。
@@ -11,10 +13,9 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from orchestration.graph.nodes import _rule_based_intent, intent_router
+from orchestration.graph.nodes import intent_router
 from orchestration.graph.state import AgentState
 
 
@@ -39,43 +40,7 @@ def make_state(message: str) -> AgentState:
     )
 
 
-@pytest.mark.parametrize(
-    "message,expected_intent,expected_target",
-    [
-        ("帮我找一下张三的邮件", "domain_agent", "mail-agent"),
-        ("明天下午有没有研讨室", "domain_agent", "facility-agent"),
-        ("我丢了黑色的双肩包", "domain_agent", "lost-found-agent"),
-        ("有没有人教 Python", "domain_agent", "skill-agent"),
-        ("1+1等于几", "utility", "calculator"),
-        ("现在几点了", "utility", "get_current_time"),
-        ("10公里等于多少英里", "utility", "unit_converter"),
-        ("把这段翻译成英文", "utility", "text_translator"),
-        ("搜一下最近的新闻", "utility", "web_search"),
-    ],
-)
-def test_rule_based_intent(message, expected_intent, expected_target):
-    result = _rule_based_intent(message)
-    assert result is not None
-    intent, targets = result
-    assert intent == expected_intent
-    assert expected_target in targets
-
-
-def test_rule_based_intent_miss_returns_none():
-    assert _rule_based_intent("今天天气怎么样") is None
-    assert _rule_based_intent("你好呀") is None
-
-
-def test_intent_router_rule_hit_sets_state():
-    state = make_state("帮我找张三的邮件")
-    result = intent_router(state)
-    assert result["intent_type"] == "domain_agent"
-    assert "mail-agent" in result["agent_plan"]
-    assert result["utility_plan"] == []
-    assert result["current_agent_index"] == 0
-
-
-def test_intent_router_llm_valid_json(monkeypatch):
+def test_intent_router_llm_chat(monkeypatch):
     state = make_state("今天天气怎么样")
     fake = FakeLLM(json.dumps({"intent_type": "chat", "targets": [], "reasoning": "闲聊"}))
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
@@ -83,6 +48,34 @@ def test_intent_router_llm_valid_json(monkeypatch):
     assert result["intent_type"] == "chat"
     assert result["agent_plan"] == []
     assert result["utility_plan"] == []
+
+
+def test_intent_router_llm_domain_agent(monkeypatch):
+    state = make_state("帮我找一下张三的邮件")
+    fake = FakeLLM(json.dumps({
+        "intent_type": "domain_agent",
+        "targets": ["mail-agent"],
+        "reasoning": "用户要查邮件",
+    }))
+    monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
+    result = intent_router(state)
+    assert result["intent_type"] == "domain_agent"
+    assert result["agent_plan"] == ["mail-agent"]
+    assert result["utility_plan"] == []
+
+
+def test_intent_router_llm_utility(monkeypatch):
+    state = make_state("把 15 美元换算成人民币")
+    fake = FakeLLM(json.dumps({
+        "intent_type": "utility",
+        "targets": ["unit_converter"],
+        "reasoning": "单位换算",
+    }))
+    monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
+    result = intent_router(state)
+    assert result["intent_type"] == "utility"
+    assert result["utility_plan"] == ["unit_converter"]
+    assert result["agent_plan"] == []
 
 
 def test_intent_router_llm_multi_target(monkeypatch):
@@ -98,6 +91,21 @@ def test_intent_router_llm_multi_target(monkeypatch):
     assert set(result["agent_plan"]) == {"mail-agent", "facility-agent"}
 
 
+def test_intent_router_negation_delegated_to_llm(monkeypatch):
+    """否定语境（'不要用计算器'）交给 LLM 语义判定：LLM 判 chat → 路由 chat。"""
+    state = make_state("不要用计算器，2+2 等于几")
+    fake = FakeLLM(json.dumps({
+        "intent_type": "chat",
+        "targets": [],
+        "reasoning": "用户明确拒绝使用计算工具，直接回答",
+    }))
+    monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
+    result = intent_router(state)
+    assert result["intent_type"] == "chat"
+    assert result["agent_plan"] == []
+    assert result["utility_plan"] == []
+
+
 def test_intent_router_llm_invalid_json_falls_back_to_chat(monkeypatch):
     state = make_state("今天天气怎么样")
     fake = FakeLLM("不是 JSON 的响应文本")
@@ -105,3 +113,17 @@ def test_intent_router_llm_invalid_json_falls_back_to_chat(monkeypatch):
     result = intent_router(state)
     assert result["intent_type"] == "chat"
     assert result["agent_plan"] == []
+
+
+def test_intent_router_llm_raises_falls_back_to_chat(monkeypatch):
+    """LLM 抛异常（网络/超时）→ 安全降级 chat，不误调工具。"""
+
+    class RaisingLLM:
+        def invoke(self, messages):
+            raise RuntimeError("llm down")
+
+    monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: RaisingLLM())
+    result = intent_router(make_state("帮我订个研讨室"))
+    assert result["intent_type"] == "chat"
+    assert result["agent_plan"] == []
+    assert result["utility_plan"] == []

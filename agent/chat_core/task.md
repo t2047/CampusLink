@@ -47,9 +47,12 @@
   无产出才补发；异常路径（`stream_failed`）跳过补发，避免与 `_direct_llm_reply` 重复
 - 回归测试：`test_sse_stream.py`（乱序 / 仅 messages / 仅 updates 三种场景）
 
-### 意图路由：规则 + LLM 混合（Task 4）- 规则预判：关键词命中 → 零成本快速路由（不触发 LLM）
-- LLM 精判：规则未命中 → DeepSeek 结构化分类（temperature=0）
-- 分类：`domain_agent` / `utility` / `chat`
+### 意图路由：LLM 语义分类（Task 4，2026-08-08 更新）
+
+- **规则预判已移除**：关键词规则无法理解"不要用计算器"这类否定语境（含关键词即命中
+  utility），且新增能力需同步维护关键词表；分类完全交给 LLM（DeepSeek，temperature=0）
+- LLM 失败/超时/返回非 JSON → 安全降级 `chat`（不误调 Agent/Utility）
+- 分类：`domain_agent` / `utility` / `chat`（prompt 带 agent/utility 能力清单）
 
 ### 编排层入站安全（Task 5/7）
 

@@ -206,13 +206,13 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
 
                 content = getattr(message_chunk, "content", None)
                 if content and getattr(message_chunk, "type", "") not in ("tool", "function"):
-                    # 末尾完整重放检测：LLM 流末尾可能重放聚合后的完整文本
-                    # （chunk 内容 == 已拼全文 → 前端把分块拼接与完整文本再拼一遍，
-                    #  回复出现两遍）。丢弃该 chunk。
-                    # 阈值 8：低于该长度不判重放，避免误伤"你好你好"这类正常重复词块。
-                    # 取舍：内容本身为长重复块（每块 ≥8 且完全相同）时可能误丢，概率极低
-                    # （且 ainvoke 已消除重放源头，此处仅为双保险），可接受。
-                    if len(chat_buf) >= 8 and content == chat_buf:
+                    # 末尾完整重放检测：LangGraph 在 LLM 结束（on_llm_end）时会把聚合后的
+                    # 完整回复再作为一条 chunk 发到 messages 模式（content == 已拼全文），
+                    # 前端把分块拼接与完整文本再拼一遍 → 回复出现两遍。丢弃该 chunk。
+                    # 不做长度阈值：短回复（如"1+1"→"2"）的完整 chunk 同样会被重放，
+                    # 有阈值时漏检（表现为"22"）。取舍：若 LLM 恰好输出"X X"完整重复且
+                    # 分块边界恰好落在 X|X，可能误丢后一块——概率极低，且远小于回复两遍的影响。
+                    if content == chat_buf:
                         continue
                     chat_buf += content
                     chat_streamed = True

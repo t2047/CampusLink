@@ -90,10 +90,19 @@ def test_messages_trailing_full_replay_dropped(monkeypatch):
     assert tokens == ["好的", "！", "你想再来一次什么？😄"]
 
 
-def test_repeated_short_chunks_not_dropped(monkeypatch):
-    """'你好你好'（短重复词块）不应被误判为完整重放丢弃。"""
-    tokens = _run([_chat_token("你好"), _chat_token("你好")], monkeypatch)
-    assert tokens == ["你好", "你好"]
+def test_short_reply_full_replay_dropped(monkeypatch):
+    """短回复（用户实际场景：'1+1'→'2'）：末尾完整 chunk 同样被丢弃，不出现'22'。"""
+    tokens = _run([_chat_token("2"), _chat_token("2")], monkeypatch)
+    assert tokens == ["2"]  # 不是 ["2", "2"]
+
+
+def test_charwise_chunks_not_dropped(monkeypatch):
+    """逐字分块（'你好你好'切为 你/好/你/好）：每块 != 已拼全文，不误丢。"""
+    tokens = _run(
+        [_chat_token("你"), _chat_token("好"), _chat_token("你"), _chat_token("好")],
+        monkeypatch,
+    )
+    assert tokens == ["你", "好", "你", "好"]
 
 
 def test_updates_before_messages_no_duplicate(monkeypatch):
