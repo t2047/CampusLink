@@ -1,6 +1,8 @@
 # CampusLink Lost & Found Agent
 
-这是 Lost & Found 领域 Agent 的独立 FastAPI 服务。当前已接入报失、搜索、详情和认领四个真实 Spring Boot 工具；自然语言规则对话会在下一阶段接入。
+这是 Lost & Found 领域 Agent 的独立 FastAPI 服务。当前已在无模型 API Key 的情况下支持中英文报失、搜索、详情和认领，支持多轮字段补充、写操作确认和可解释 Top 5 候选重排。
+
+报失和认领在首次调用时只返回 10 分钟有效的确认 ID，确认前不会写数据库。确认 ID 与用户绑定且只能使用一次。
 
 ## 本地运行
 

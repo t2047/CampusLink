@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     agent_name: str = "lost-found-agent"
-    agent_version: str = "0.2.0"
+    agent_version: str = "0.3.0"
     lost_found_agent_mode: Literal["auto", "rules", "llm"] = "auto"
     agent_shared_secret: str = Field(min_length=32)
     agent_backend_shared_secret: str = Field(min_length=32)

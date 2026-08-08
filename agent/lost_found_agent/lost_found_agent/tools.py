@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import httpx
 import jwt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import Settings
 
@@ -32,6 +32,13 @@ class ReportLostInput(BaseModel):
     colour: str | None = Field(default=None, max_length=50)
     time_description: str | None = Field(default=None, max_length=100)
 
+    @field_validator("event_date")
+    @classmethod
+    def event_date_cannot_be_future(cls, value: date) -> date:
+        if value > date.today():
+            raise ValueError("event_date cannot be in the future")
+        return value
+
 
 class SearchFoundItemsInput(BaseModel):
     keyword: str | None = None
@@ -42,6 +49,12 @@ class SearchFoundItemsInput(BaseModel):
     date_to: date | None = None
     page: int = Field(default=0, ge=0)
     size: int = Field(default=100, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "SearchFoundItemsInput":
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must be on or before date_to")
+        return self
 
 
 class GetItemDetailInput(BaseModel):
