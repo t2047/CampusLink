@@ -7,6 +7,7 @@ WORKDIR /build
 COPY pyproject.toml uv.lock README.md ./
 COPY lost_found_agent ./lost_found_agent
 RUN pip install --no-cache-dir uv \
+    && uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file /dist/requirements.txt \
     && uv build --wheel --out-dir /dist
 
 FROM python:3.12-slim
@@ -21,8 +22,10 @@ RUN groupadd --system campuslink \
 
 WORKDIR /app
 COPY --from=builder /dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl \
-    && rm -f /tmp/*.whl
+COPY --from=builder /dist/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && pip install --no-cache-dir --no-deps /tmp/*.whl \
+    && rm -f /tmp/*.whl /tmp/requirements.txt
 
 USER campuslink
 EXPOSE 8083

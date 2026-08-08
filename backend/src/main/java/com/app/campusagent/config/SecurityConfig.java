@@ -23,13 +23,16 @@ import java.util.Arrays;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final AgentDelegationAuthFilter agentDelegationAuthFilter;
     private final List<String> allowedOrigins;
 
     @SuppressFBWarnings("EI_EXPOSE_REP2")
     public SecurityConfig(
             JwtAuthFilter jwtAuthFilter,
+            AgentDelegationAuthFilter agentDelegationAuthFilter,
             @Value("${app.cors.allowed-origins:http://localhost:5173}") String allowedOrigins) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.agentDelegationAuthFilter = agentDelegationAuthFilter;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
@@ -48,9 +51,12 @@ public class SecurityConfig {
                                 "Unauthorized")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/internal/lost-found/**")
+                        .hasRole("AGENT_LOST_FOUND")
                         .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
                         .anyRequest().authenticated()
                 )
+                .addFilterBefore(agentDelegationAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
