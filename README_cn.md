@@ -4,6 +4,8 @@
 
 CampusLink 是校园服务平台。目前已形成一条可运行的 Web 端 Lost & Found 垂直功能：用户登录后可发布遗失/拾获记录、上传图片、筛选搜索、提交认领证明，并由拾获记录发布者处理申请。
 
+Lost & Found Agent 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中。
+
 ## 技术栈
 
 | 模块 | 技术 |
