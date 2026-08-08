@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from .config import Settings, get_settings
 from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
+from .llm import LlmInterpreter, LlmUnavailable
 from .models import InvokeRequest, InvokeResponse
 from .rate_limit import RateLimiter
 from .rules import RuleEngine
@@ -20,6 +21,7 @@ from .tools import CampusApiClient
 def create_app(
     settings: Settings | None = None,
     api_client: CampusApiClient | None = None,
+    llm_interpreter: LlmInterpreter | None = None,
 ) -> FastAPI:
     active_settings = settings or get_settings()
     security = AgentSecurity(active_settings)
@@ -30,6 +32,9 @@ def create_app(
     event_store = EventStore(active_settings.agent_event_ttl_seconds)
     owns_api_client = api_client is None
     active_api_client = api_client or CampusApiClient(active_settings)
+    active_llm_interpreter = None
+    if active_settings.effective_mode == "llm":
+        active_llm_interpreter = llm_interpreter or LlmInterpreter(active_settings)
     rule_engine = RuleEngine(
         active_api_client,
         ConfirmationStore(ttl_seconds=600),
@@ -43,6 +48,8 @@ def create_app(
         finally:
             if owns_api_client:
                 await active_api_client.close()
+            if active_llm_interpreter:
+                await active_llm_interpreter.close()
 
     app = FastAPI(
         title="CampusLink Lost & Found Agent",
@@ -65,7 +72,7 @@ def create_app(
         return {
             "agent": active_settings.agent_name,
             "version": active_settings.agent_version,
-            "status": "rules_ready",
+            "status": "llm_ready" if active_settings.effective_mode == "llm" else "rules_ready",
             "capabilities": {
                 "domains": ["lost_and_found"],
                 "actions": [
@@ -92,11 +99,30 @@ def create_app(
             ),
         )
         try:
+            interpretation = None
+            if active_llm_interpreter and not (payload.confirmed or payload.confirmation_id):
+                try:
+                    interpretation = await active_llm_interpreter.interpret(
+                        payload.message,
+                        payload.conversation_context.shared_data,
+                    )
+                except LlmUnavailable:
+                    event_store.append(
+                        request_id,
+                        AgentEvent(
+                            "model_fallback",
+                            {"reason": "model_unavailable_or_invalid", "mode": "rules"},
+                        ),
+                    )
             response = await rule_engine.handle(
                 payload,
                 verified,
                 request_id,
                 lambda event: event_store.append(request_id, event),
+                interpreted_intent=interpretation.intent if interpretation else None,
+                interpreted_fields=(
+                    interpretation.fields.model_dump(exclude_none=True) if interpretation else None
+                ),
             )
         except Exception:
             response = InvokeResponse(

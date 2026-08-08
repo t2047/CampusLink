@@ -17,6 +17,14 @@ uv run uvicorn lost_found_agent.main:app --host 0.0.0.0 --port 8083
 
 模型 API Key 可以为空；`auto` 模式会使用规则模式。服务安全密钥不能为空。
 
+模型模式说明：
+
+- `auto`：配置 `LOST_FOUND_LLM_API_KEY` 时使用 OpenAI-compatible 模型，否则使用规则引擎；
+- `rules`：始终使用规则引擎；
+- `llm`：强制使用模型，缺少 API Key 时拒绝启动。
+
+模型只负责四种允许意图的识别和字段提取，输出必须通过 Pydantic 校验。模型超时、限流、返回无效 JSON 或请求越权工具时会自动降级到规则引擎。报失和认领仍由服务端确认流程控制，模型不能直接写数据库或绕过确认。当前默认使用 `deepseek-v4-flash`；可将 `LOST_FOUND_LLM_MODEL` 改为 `deepseek-v4-pro`，也可配合 `LOST_FOUND_LLM_BASE_URL` 接入其他 OpenAI-compatible 服务。
+
 从仓库根目录可以启动整个 Agent 联调环境：
 
 ```bash
