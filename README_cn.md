@@ -59,8 +59,9 @@ npm run dev
 - 对开放的拾获记录提交认领证明；不能认领自己发布的记录，也不能重复提交有效申请。
 - 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
 - 认领证明只对申请人与拾获记录发布者可见。
+- `ADMIN` 和 `SUPER_ADMIN` 可以使用只读管理页面查看统计、筛选全部记录、分页浏览和识别记录发布者。
 
-本阶段不包含 AI 匹配、Agent、通知、移动端、管理员审核、记录编辑和删除。
+本阶段不包含 AI 匹配、Agent、通知、移动端、管理员写操作、记录编辑和删除。
 
 ## API
 
@@ -84,6 +85,13 @@ Lost & Found 接口均需携带 `Authorization: Bearer <token>`：
 | `GET` | `/api/lost-found/claims/received` | 查看我收到的申请 |
 | `POST` | `/api/lost-found/claims/{claimId}/approve` | 批准申请 |
 | `POST` | `/api/lost-found/claims/{claimId}/reject` | 拒绝申请 |
+
+仅管理员可访问的 Lost & Found 接口：
+
+| 方法 | 接口 | 功能 |
+|---|---|---|
+| `GET` | `/api/admin/lost-found/overview` | 获取记录和待处理认领统计 |
+| `GET` | `/api/admin/lost-found/reports` | 筛选并分页查看全部记录 |
 
 创建拾获记录示例：
 
@@ -113,7 +121,7 @@ npm test
 npm run build
 ```
 
-CI 会继续执行后端测试和安全扫描，并新增 Web 端的 `npm ci`、lint、测试与生产构建。
+PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。当前尚未指定部署环境，因此不会擅自启用 CD。
 
 ## 项目结构
 

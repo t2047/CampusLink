@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -6,6 +6,26 @@ import { TOKEN_KEY, USER_KEY } from './api/client'
 import { AuthProvider } from './auth/AuthContext'
 
 vi.mock('./pages/ReportsPage', () => ({ ReportsPage: () => <p>Lost and Found page</p> }))
+vi.mock('./api/adminLostFound', () => ({
+  getAdminLostFoundOverview: vi.fn().mockResolvedValue({
+    totalReports: 0,
+    openReports: 0,
+    claimedReports: 0,
+    closedReports: 0,
+    lostReports: 0,
+    foundReports: 0,
+    submittedClaims: 0,
+  }),
+  searchAdminLostFoundReports: vi.fn().mockResolvedValue({
+    content: [],
+    page: 0,
+    size: 25,
+    totalElements: 0,
+    totalPages: 0,
+    first: true,
+    last: true,
+  }),
+}))
 
 function setDesktopViewport() {
   Object.defineProperty(window, 'matchMedia', {
@@ -81,7 +101,6 @@ describe('admin application routes', () => {
 
 
   it.each([
-    ['/admin/lost-found', 'Lost & Found', 'Claim review and administration features are coming soon.'],
     ['/admin/facilities', 'Facilities', 'Facilities administration will be available here.'],
     ['/admin/users', 'User Management', 'The scope of this module is pending team confirmation.'],
   ])('renders the %s administrator placeholder', async (path, heading, description) => {
@@ -98,7 +117,6 @@ describe('admin application routes', () => {
 
 
   it.each([
-    ['Lost & Found', '/admin/lost-found'],
     ['Facilities', '/admin/facilities'],
     ['User Management', '/admin/users'],
   ])('navigates from the %s dashboard card to its placeholder', async (label, path) => {
@@ -111,6 +129,18 @@ describe('admin application routes', () => {
     expect(await screen.findByRole('heading', { name: label })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent(path)
     expect(screen.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('navigates from the dashboard to the Lost & Found administration page', async () => {
+    storeSession('ADMIN')
+    renderApp('/admin/dashboard')
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Overview' })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Lost & Found' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/lost-found'))
+    expect(await screen.findByRole('heading', { name: 'Lost & Found' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Lost & Found' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('renders the administration not-found page after the admin access boundary', async () => {

@@ -6,9 +6,10 @@ interface AdminModuleCardProps {
   title: string
   description: string
   path: string
+  available?: boolean
 }
 
-function AdminModuleCard({ title, description, path }: AdminModuleCardProps) {
+function AdminModuleCard({ title, description, path, available = false }: AdminModuleCardProps) {
   return (
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardActionArea
@@ -21,7 +22,11 @@ function AdminModuleCard({ title, description, path }: AdminModuleCardProps) {
           <Stack spacing={2} alignItems="flex-start">
             <Typography component="h2" variant="h6" fontWeight={700}>{title}</Typography>
             <Typography color="text.secondary">{description}</Typography>
-            <Chip label="Coming Soon" size="small" />
+            <Chip
+              label={available ? 'Available' : 'Coming Soon'}
+              size="small"
+              color={available ? 'success' : 'default'}
+            />
           </Stack>
         </CardContent>
       </CardActionArea>
@@ -68,8 +73,9 @@ export function AdminDashboardPage() {
       <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }}>
         <AdminModuleCard
           title="Lost & Found"
-          description="Manage claim reviews and Lost & Found operations."
+          description="Review report volume, status metrics, and operational records."
           path="/admin/lost-found"
+          available
         />
         <AdminModuleCard
           title="Facilities"

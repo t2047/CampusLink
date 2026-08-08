@@ -59,8 +59,9 @@ Stop the infrastructure without deleting its data with `docker compose stop`. Us
 - Submit ownership proof for an open found item. Users cannot claim their own report or submit a duplicate active claim.
 - Let the found-item reporter approve or reject a claim. Approval marks the report `CLAIMED` and rejects its other pending claims.
 - Keep ownership proof visible only to the claimant and the report publisher.
+- Give `ADMIN` and `SUPER_ADMIN` users a read-only operational overview with report metrics, filters, pagination, and reporter identification.
 
-AI matching, agents, notifications, mobile UI, administrator moderation, report editing, and report deletion are outside this iteration.
+AI matching, agents, notifications, mobile UI, administrator write actions, report editing, and report deletion are outside this iteration.
 
 ## API Reference
 
@@ -84,6 +85,13 @@ All Lost & Found endpoints require `Authorization: Bearer <token>`:
 | `GET` | `/api/lost-found/claims/received` | List claims received by the user |
 | `POST` | `/api/lost-found/claims/{claimId}/approve` | Approve a received claim |
 | `POST` | `/api/lost-found/claims/{claimId}/reject` | Reject a received claim |
+
+Administrator-only Lost & Found endpoints:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/lost-found/overview` | Get report and pending-claim metrics |
+| `GET` | `/api/admin/lost-found/reports` | Filter and page all reports for operations review |
 
 Create a report:
 
@@ -113,7 +121,7 @@ npm test
 npm run build
 ```
 
-CI runs the backend tests and security scans as before, and now also runs `npm ci`, lint, tests, and the production build for the Web app.
+PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking high-severity SpotBugs checks, npm vulnerability auditing, and dependency-change review. The nightly workflow adds deeper SpotBugs analysis, OWASP dependency checking, and ZAP scanning. A deployment target has not been configured, so CD remains intentionally disabled.
 
 ## Project Structure
 

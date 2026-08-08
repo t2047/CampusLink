@@ -1,5 +1,5 @@
 # ─── PR / Push: 增量快速扫描 ─────────────────────────────────
-# 只跑 CodeQL + SpotBugs(Default/High)，跳过 OWASP 和 DAST
+# 执行测试、构建、npm 审计、依赖审查、CodeQL 与 SpotBugs(Default/High)，跳过 OWASP 和 DAST
 # 耗时目标: 5-8 分钟
 
 name: PR - Fast SAST + Build + Test
@@ -27,6 +27,10 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: pr-fast-scan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: backend
@@ -36,6 +40,7 @@ jobs:
   frontend:
     name: Frontend Lint, Test & Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend_web
@@ -52,6 +57,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
       - name: Lint
         run: npm run lint
 
@@ -65,6 +73,7 @@ jobs:
   sast-fast:
     name: SAST - CodeQL & SpotBugs (Fast)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -87,9 +96,8 @@ jobs:
         uses: github/codeql-action/analyze@v4
 
       # SpotBugs fast mode: Default effort, High threshold only
-      # || true prevents build failure; PR authors review the uploaded report
       - name: Run SpotBugs (fast)
-        run: mvn spotbugs:check -Pfast-sast || true
+        run: mvn spotbugs:check -Pfast-sast
 
       - name: Upload SpotBugs Report
         if: always()
@@ -99,10 +107,25 @@ jobs:
           path: backend/target/spotbugsXml.xml
           retention-days: 7
 
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
   # ── Build & Unit Test ──
   build-test:
     name: Build & Unit Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: sast-fast
     services:
       mysql:
