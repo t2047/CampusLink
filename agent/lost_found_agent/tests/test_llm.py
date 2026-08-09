@@ -174,6 +174,7 @@ def test_invalid_json_and_timeout_fall_back_to_rules_when_fallback_enabled() -> 
 
 def test_prompt_injection_and_unauthorized_tool_output_cannot_execute() -> None:
     """未授权工具输出 → 不可执行；fail-closed（默认）显式 failed。"""
+
     def handler(_: httpx.Request) -> httpx.Response:
         return model_response(
             {
@@ -198,6 +199,7 @@ def test_prompt_injection_and_unauthorized_tool_output_cannot_execute() -> None:
 
 def test_prompt_injection_unauthorized_tool_falls_back_when_fallback_enabled() -> None:
     """llm_fail_closed=false：未授权工具输出降级规则引擎，仍不执行任何工具。"""
+
     def handler(_: httpx.Request) -> httpx.Response:
         return model_response(
             {
@@ -223,6 +225,7 @@ def test_prompt_injection_unauthorized_tool_falls_back_when_fallback_enabled() -
 
 def test_model_fields_that_violate_backend_contract_fail_closed() -> None:
     """fail-closed（默认）：LLM 返回违反后端契约的字段 → 显式 failed，不执行。"""
+
     def handler(_: httpx.Request) -> httpx.Response:
         return model_response(
             {
@@ -253,6 +256,7 @@ def test_model_fields_that_violate_backend_contract_fail_closed() -> None:
 
 def test_model_fields_that_violate_backend_contract_fall_back_when_fallback_enabled() -> None:
     """llm_fail_closed=false：契约违反降级规则引擎，仍不执行写操作。"""
+
     def handler(_: httpx.Request) -> httpx.Response:
         return model_response(
             {
