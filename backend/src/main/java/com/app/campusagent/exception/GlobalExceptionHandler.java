@@ -1,5 +1,6 @@
 package com.app.campusagent.exception;
 
+import com.app.campusagent.facilities.exception.FacilityException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,6 +15,16 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(FacilityException.class)
+    public ResponseEntity<Map<String, Object>> handleFacility(FacilityException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", LocalDateTime.now().toString());
+        body.put("status", ex.getStatus().value());
+        body.put("code", ex.getCode().name());
+        body.put("error", ex.getMessage());
+        return ResponseEntity.status(ex.getStatus()).body(body);
+    }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
