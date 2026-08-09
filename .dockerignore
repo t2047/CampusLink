@@ -1,0 +1,12 @@
+# 仓库根 build context（compose 各服务 context: . + dockerfile: <path>）
+# 排除缓存/构建产物/密钥，缩小上下文（COPY 引用的源码不受影响）
+.git
+.env
+**/node_modules
+**/__pycache__
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/target
+**/.mvn/wrapper/maven-wrapper.jar

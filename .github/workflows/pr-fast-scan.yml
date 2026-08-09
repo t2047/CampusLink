@@ -238,7 +238,8 @@ jobs:
 
       - name: Build non-root backend image
         working-directory: ${{ github.workspace }}
-        run: docker build -t campuslink-api-server:${{ github.sha }} backend
+        # backend/Dockerfile 的 COPY 路径（backend/*）以仓库根为 context（与 compose chat-backend 一致）
+        run: docker build -f backend/Dockerfile -t campuslink-api-server:${{ github.sha }} .
 
       - name: Upload Test Report
         if: always()
