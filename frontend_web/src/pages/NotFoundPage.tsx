@@ -4,7 +4,7 @@
 
 import { Link } from 'react-router-dom';
 
-export default function NotFoundPage() {
+export function NotFoundPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 dark:bg-gray-950">
       <div className="text-center">

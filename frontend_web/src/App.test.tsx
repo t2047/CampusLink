@@ -63,7 +63,7 @@ function NavigationProbe() {
 
 function renderApp(path: string) {
   return render(
-    <MemoryRouter initialEntries={['/origin', path]} initialIndex={1}>
+    <MemoryRouter initialEntries={['/lost-found', path]} initialIndex={1}>
       <NavigationProbe />
       <AuthProvider>
         <App />

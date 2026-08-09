@@ -335,7 +335,6 @@ export default function ChatPage() {
       }
     },
     [
-      pendingConfirm,
       sessionId,
       handleEvent,
       appendContent,
@@ -718,7 +717,7 @@ function renderContent(text: string): ReactNode {
 
   const isTableRow = (line: string) =>
     /^\s*\|/.test(line) && line.replace(/\|/g, '').trim() !== '';
-  const isTableSep = (line: string) => /^[\s|:\-]+$/.test(line) && line.includes('-');
+  const isTableSep = (line: string) => /^[\s|:-]+$/.test(line) && line.includes('-');
 
   for (const line of lines) {
     const trimmed = line.trim();

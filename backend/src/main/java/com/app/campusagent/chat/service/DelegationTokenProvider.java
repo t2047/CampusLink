@@ -220,7 +220,7 @@ public class DelegationTokenProvider {
     }
 
     private static String toPem(String label, byte[] der) {
-        String base64 = Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(der);
+        String base64 = Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.UTF_8)).encodeToString(der);
         return "-----BEGIN " + label + "-----\n" + base64 + "\n-----END " + label + "-----\n";
     }
 

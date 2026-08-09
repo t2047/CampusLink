@@ -106,7 +106,7 @@ def create_app(
                         payload.message,
                         payload.conversation_context.shared_data,
                     )
-                except LlmUnavailable as exc:
+                except LlmUnavailable:
                     if active_settings.llm_fail_closed:
                         # fail-closed（默认）：LLM 不可用/输出不可信 → 显式失败，不降级规则
                         event_store.append(
