@@ -1,6 +1,7 @@
 import { Box, Card, CardActionArea, CardContent, Chip, Stack, Typography } from '@mui/material'
 import { Link as RouterLink } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { LostFoundOverviewSection } from './sections/LostFoundOverviewSection'
 
 interface AdminModuleCardProps {
   title: string
@@ -89,21 +90,12 @@ export function AdminDashboardPage() {
         />
       </Box>
 
-      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, minmax(0, 1fr))' } }}>
-        <AdminSectionCard
-          title="Overview Metrics"
-          status="Data source not connected"
-          message="Module metrics will appear here after the corresponding data sources are connected."
-        />
-        <AdminSectionCard
-          title="Action Required"
-          message="No operational data is connected yet."
-        />
-        <AdminSectionCard
-          title="Recent Activity"
-          message="No activity data is connected yet."
-        />
-      </Box>
+      <LostFoundOverviewSection />
+
+      <AdminSectionCard
+        title="Recent Activity"
+        message="Activity data is not available yet."
+      />
     </Box>
   )
 }
