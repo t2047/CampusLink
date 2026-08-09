@@ -5,6 +5,8 @@ import { AdminLayout } from './admin/layout/AdminLayout'
 import { AdminRoute } from './auth/AdminRoute'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { AppShell } from './components/AppShell'
+import ChatProtectedRoute from './components/ProtectedRoute'
+import ChatPage from './pages/ChatPage'
 
 const AdminDashboardPage = lazy(() => import('./admin/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })))
 const AdminFacilitiesPage = lazy(() => import('./admin/facilities/FacilitiesPlaceholderPage').then((module) => ({ default: module.FacilitiesPlaceholderPage })))
@@ -17,7 +19,15 @@ const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ d
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })))
 
+/**
+ * 融合路由（Sprint 4 merge 决议，2026-08-09）：
+ * - 认证统一：组员 AuthProvider（sessionStorage）+ /login /register AuthPage
+ * - Chat：/chat（我们的聊天入口，登录后可用；根路径重定向到 /chat）
+ * - Admin：/admin/*（组员，AdminRoute 角色保护）
+ * - Lost & Found：/lost-found/* /claims/*（组员业务页）
+ */
 export default function App() {
   return (
     <Suspense fallback={<Box sx={{ minHeight: '60vh', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}>
@@ -35,6 +45,8 @@ export default function App() {
           <Route path="/admin/*" element={<AdminNotFoundPage />} />
         </Route>
       </Route>
+      <Route path="/chat" element={<ChatProtectedRoute><ChatPage /></ChatProtectedRoute>} />
+      <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/lost-found" element={<ReportsPage />} />
@@ -45,7 +57,7 @@ export default function App() {
           <Route path="/claims/received" element={<ClaimsPage view="received" />} />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/lost-found" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
   )

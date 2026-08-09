@@ -6,25 +6,22 @@
   "description": "校园失物招领领域 Agent。负责报失、搜索拾获记录、查看详情和提交认领；所有写操作必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
-    "type": "mcp-compatible-http",
-    "protocol": "HTTP + SSE",
-    "baseUrl": "http://localhost:8083",
+    "type": "mcp",
+    "protocol": "streamable HTTP",
+    "baseUrl": "http://localhost:8085",
     "endpoints": {
-      "health": {"method": "GET", "path": "/health", "authenticated": false},
-      "capabilities": {"method": "GET", "path": "/agent/capabilities", "authenticated": false},
-      "invoke": {"method": "POST", "path": "/agent/invoke", "authenticated": true},
-      "stream": {
-        "method": "GET",
-        "path": "/agent/stream",
-        "authenticated": true,
-        "queryParams": {"request_id": {"type": "string", "required": true}}
-      }
+      "mcp": {
+        "method": "POST / GET",
+        "path": "/mcp/",
+        "description": "MCP streamable HTTP 端点（mcp_servers/lost_found_server.py 适配层，端口 8085；8083 为组员自研 REST /agent/invoke）"
+      },
+      "health": {"method": "GET", "path": "/health", "authenticated": false}
     }
   },
   "security": {
-    "requiredHeaders": ["Authorization", "X-Nonce", "X-Timestamp", "X-Signature"],
+    "requiredHeaders": ["Authorization", "X-Timestamp"],
     "delegationTokenAudience": "lost-found-agent",
-    "nonceMustMatchJti": true,
+    "tokenAlgorithm": "RS256 (JWKS)",
     "writeConfirmationRequired": ["report_lost", "claim_item"],
     "confirmationTtlSeconds": 600
   },
@@ -179,6 +176,9 @@
     }
   ],
   "streaming": {
+    "status": "not_implemented",
+    "deprecated": true,
+    "description": "Sprint 3 起不再推送 Agent 内部执行进度（编排层经 MCP 同步调用 invoke）。确认交互由 invoke 返回 status + confirmation_required 承载；以下事件定义保留作历史参考",
     "events": [
       "agent_start",
       "tool_execution",

@@ -95,12 +95,14 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
                     || Duration.between(issuedAt.toInstant(), expiresAt.toInstant())
                     .compareTo(MAX_TOKEN_LIFETIME) > 0
                     || !replayStore.consume(tokenId, expiresAt.toInstant())) {
+                SecurityContextHolder.clearContext();   // 与 catch 分支一致：失败即清理，防残留认证被下游复用
                 reject(response);
                 return;
             }
 
             User user = userRepository.findById(userId).orElse(null);
             if (user == null) {
+                SecurityContextHolder.clearContext();
                 reject(response);
                 return;
             }

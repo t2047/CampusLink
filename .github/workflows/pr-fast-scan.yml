@@ -79,7 +79,9 @@ jobs:
       - name: Python dependency audit
         run: uv run pip-audit
       - name: Build non-root Agent image
-        run: docker build -t campuslink-lost-found-agent:${{ github.sha }} .
+        # Dockerfile 的 COPY 路径（lost_found_agent/*、mcp_servers/）以 agent/ 为 context
+        working-directory: agent
+        run: docker build -f lost_found_agent/Dockerfile -t campuslink-lost-found-agent:${{ github.sha }} .
 
   agent-codeql:
     name: Agent CodeQL
@@ -228,12 +230,16 @@ jobs:
       - name: Verify Docker Compose configuration
         working-directory: ${{ github.workspace }}
         run: |
+          # .env 被 gitignore，CI checkout 后不存在；compose 的 env_file: .env 按
+          # 仓库根解析，先生成一份（默认占位值仅用于配置校验，不用于真实运行）
+          cp .env.example .env
           docker compose config --quiet
           docker compose --profile agent config --quiet
 
       - name: Build non-root backend image
         working-directory: ${{ github.workspace }}
-        run: docker build -t campuslink-api-server:${{ github.sha }} backend
+        # backend/Dockerfile 的 COPY 路径（backend/*）以仓库根为 context（与 compose chat-backend 一致）
+        run: docker build -f backend/Dockerfile -t campuslink-api-server:${{ github.sha }} .
 
       - name: Upload Test Report
         if: always()

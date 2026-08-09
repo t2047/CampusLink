@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "agent": "facility-agent",
+  "version": "1.1.0",
+  "description": "校园设施预约 Agent — 理解用户场地需求，自主完成搜索可用房间/场馆、预订、取消、查询预订记录，并以自然语言返回结果。内部包含 LLM 推理、Tool 选择与执行（ReAct 循环）。",
+  "transport": {
+    "type": "mcp",
+    "protocol": "streamable HTTP",
+    "baseUrl": "http://localhost:8082",
+    "endpoints": {
+      "mcp": {
+        "method": "POST / GET",
+        "path": "/mcp/",
+        "description": "MCP streamable HTTP 端点（Sprint 3 起承载全部调用）。调用工具：invoke（输入/输出契约见下方 invoke 段）"
+      },
+      "health": {
+        "method": "GET",
+        "path": "/health",
+        "description": "健康检查（无鉴权）"
+      }
+    }
+  },
+  "capabilities": {
+    "domains": [
+      "room_booking",
+      "facility_search"
+    ],
+    "description": "可以搜索研讨室、自习室、体育场馆，查看可用时间段、房间设备，预订或取消预订，查看自己的预订记录",
+    "examples": [
+      "明天下午有没有能坐10个人、有投影仪的研讨室",
+      "帮我订一个周三下午3点到5点的自习室",
+      "周六上午篮球场还有空吗",
+      "我有哪些即将到来的预订",
+      "把那个研讨室的预订取消了",
+      "下周一全天有没有带视频会议设备的房间"
+    ],
+    "constraints": {
+      "scope": "校园内所有可预订设施（研讨室、自习室、体育场馆、实验室）",
+      "require_confirmation": [
+        "book_room"
+      ],
+      "max_booking_duration_hours": 4,
+      "max_days_in_advance": 14
+    },
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "actions": [
+      "search_rooms",
+      "book_room",
+      "cancel_booking",
+      "list_my_bookings"
+    ],
+    "privacy": {
+      "exposesPublisherContact": false,
+      "exposesStorageObjectKey": false,
+      "exposesOtherUsersClaimProof": false
+    },
+    "rateLimit": {
+      "perUserPerMinute": 5,
+      "perSession": 20
+    }
+  },
+  "invoke": {
+    "input": {
+      "$ref": "#/$defs/invokeInput"
+    },
+    "output": {
+      "$ref": "#/$defs/invokeOutput"
+    }
+  },
+  "streaming": {
+    "status": "not_implemented",
+    "deprecated": true,
+    "description": "Sprint 3 起不再推送 Agent 内部执行进度（编排层经 MCP 同步调用 invoke）。确认交互由 invoke 返回 status=needs_confirmation + confirmation_required 承载；前端步骤展示改用返回的 actions_taken。以下事件定义保留作历史参考",
+    "events": {
+      "agent_start": {
+        "payload": {
+          "agent": {
+            "type": "string",
+            "const": "facility-agent"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "tool_call_start": {
+        "payload": {
+          "tool": {
+            "type": "string",
+            "enum": [
+              "search_rooms",
+              "book_room",
+              "cancel_booking",
+              "list_my_bookings"
+            ]
+          },
+          "args_summary": {
+            "type": "string"
+          }
+        }
+      },
+      "tool_call_progress": {
+        "payload": {
+          "tool": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "string"
+          }
+        }
+      },
+      "tool_call_end": {
+        "payload": {
+          "tool": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "result_summary": {
+            "type": "string"
+          }
+        }
+      },
+      "token": {
+        "payload": {
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "agent_needs_confirmation": {
+        "payload": {
+          "confirmation_id": {
+            "type": "string"
+          },
+          "booking_preview": {
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "agent_done": {
+        "payload": {
+          "response_summary": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial",
+              "failed"
+            ]
+          },
+          "actions_taken": {
+            "type": "array"
+          }
+        }
+      },
+      "agent_error": {
+        "payload": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "UNAVAILABLE",
+              "TIMEOUT",
+              "AUTH_FAILED",
+              "INTERNAL_ERROR",
+              "RATE_LIMITED"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "internalTools": {
+    "description": "Agent 内部使用的 Tool 列表。编排层不直接调用，仅供 Agent 内部 ReAct 使用。",
+    "tools": [
+      {
+        "name": "search_rooms",
+        "description": "按条件搜索可用房间/场馆：类型、容量、日期时间范围、设备要求。返回可用房间及对应时间段。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "room_type": {
+              "type": "string",
+              "enum": [
+                "study_room",
+                "seminar_room",
+                "sports_venue",
+                "lab",
+                "any"
+              ],
+              "default": "any"
+            },
+            "capacity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "start_time": {
+              "type": "string",
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "end_time": {
+              "type": "string",
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "equipment": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "projector",
+                  "whiteboard",
+                  "video_conf",
+                  "computer",
+                  "microphone"
+                ]
+              }
+            },
+            "building": {
+              "type": "string",
+              "description": "限定建筑物（可选）"
+            }
+          },
+          "required": [
+            "date"
+          ]
+        },
+        "requiresConfirmation": false
+      },
+      {
+        "name": "book_room",
+        "description": "预订指定房间的某个时间段。需经 Agent 内部 guard 确认后执行。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "room_id": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "start_time": {
+              "type": "string",
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "end_time": {
+              "type": "string",
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "title": {
+              "type": "string",
+              "description": "预订用途说明"
+            },
+            "attendees": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "room_id",
+            "date",
+            "start_time",
+            "end_time"
+          ]
+        },
+        "requiresConfirmation": true
+      },
+      {
+        "name": "cancel_booking",
+        "description": "取消已有的房间预订。返回取消确认信息。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "booking_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "booking_id"
+          ]
+        },
+        "requiresConfirmation": false
+      },
+      {
+        "name": "list_my_bookings",
+        "description": "查询当前用户的所有预订记录。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "upcoming",
+                "past",
+                "cancelled",
+                "all"
+              ],
+              "default": "upcoming"
+            }
+          }
+        },
+        "requiresConfirmation": false
+      }
+    ]
+  },
+  "$id": "https://campuslink.local/schemas/facility-agent-1.1.0.json",
+  "agentType": "domain_agent",
+  "security": {
+    "requiredHeaders": [
+      "Authorization",
+      "X-Timestamp"
+    ],
+    "delegationTokenAudience": "facility-agent",
+    "tokenAlgorithm": "RS256 (JWKS)",
+    "writeConfirmationRequired": [
+      "book_room"
+    ],
+    "confirmationTtlSeconds": 600
+  },
+  "$defs": {
+    "invokeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "conversation_context": {
+          "type": "object",
+          "properties": {
+            "previous_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "shared_data": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "confirmed": {
+          "type": "boolean",
+          "default": false
+        },
+        "confirmation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "invokeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "needs_more_info",
+            "needs_confirmation",
+            "failed"
+          ]
+        },
+        "confirmation_required": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "confirmation_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "confirmation_id",
+            "action",
+            "summary",
+            "expires_at"
+          ]
+        },
+        "shared_context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "params_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "result_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failed",
+                  "skipped"
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "status"
+            ]
+          }
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "response",
+        "status",
+        "request_id"
+      ]
+    }
+  },
+  "model": {
+    "modes": [
+      "rules"
+    ],
+    "responsibilities": [
+      "intent_detection",
+      "action_selection"
+    ],
+    "fallbackMode": "rules",
+    "writeConfirmationCannotBeBypassed": true
+  }
+}

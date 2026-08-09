@@ -2,6 +2,7 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
+import './index.css' // Tailwind base（Chat 页面样式）
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 
