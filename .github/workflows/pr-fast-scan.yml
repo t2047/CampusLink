@@ -230,6 +230,9 @@ jobs:
       - name: Verify Docker Compose configuration
         working-directory: ${{ github.workspace }}
         run: |
+          # .env 被 gitignore，CI checkout 后不存在；compose 的 env_file: .env 按
+          # 仓库根解析，先生成一份（默认占位值仅用于配置校验，不用于真实运行）
+          cp .env.example .env
           docker compose config --quiet
           docker compose --profile agent config --quiet
 
