@@ -29,16 +29,20 @@ export interface RegisterRequest {
 }
 
 // ── Auth helpers ─────────────────────────────
+// 登录态统一由 AuthProvider（组员认证体系）管理：token 存 sessionStorage
+// （key: campuslink.token）。兼容旧的 localStorage 'jwt'（历史会话）。
 
 function getToken(): string | null {
-  return localStorage.getItem('jwt');
+  return sessionStorage.getItem('campuslink.token') ?? localStorage.getItem('jwt');
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem('jwt', token);
+  sessionStorage.setItem('campuslink.token', token);
 }
 
 export function clearToken(): void {
+  sessionStorage.removeItem('campuslink.token');
+  sessionStorage.removeItem('campuslink.user');
   localStorage.removeItem('jwt');
 }
 
@@ -117,7 +121,7 @@ export function createChatStream(
   if (!token) throw new Error('Not authenticated');
 
   const params = new URLSearchParams({ message });
-  if (sessionId) params.set('session_id', sessionId);
+  if (sessionId) params.set('sessionId', sessionId);
   const url = `${API_BASE}/api/chat/stream?${params.toString()}`;
 
   const controller = new AbortController();

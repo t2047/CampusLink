@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import {
   createChatStream,
   clearToken,
@@ -53,6 +54,7 @@ const SUGGESTIONS = [
 
 export default function ChatPage() {
   const navigate = useNavigate();
+  const { logout: authLogout } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
@@ -303,11 +305,12 @@ export default function ChatPage() {
   const handleLogout = useCallback(() => {
     closeRef.current?.close();
     clearToken();
+    authLogout(); // 同步清 AuthContext 登录态（sessionStorage user），避免半登出状态
     localStorage.removeItem('sessionId');
     document.documentElement.classList.remove('dark');
     localStorage.removeItem('theme');
     navigate('/login', { replace: true });
-  }, [navigate]);
+  }, [navigate, authLogout]);
 
   // ── 输入框 ──────────────────────────────────
 

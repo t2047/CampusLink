@@ -1,3 +1,25 @@
+# ─────── OS ───────
+.DS_Store
+Thumbs.db
+
+# ─────── Environment ───────
+.env
+.env.local
+.env.*.local
+# *.env 会误杀 .env.example，只精确忽略 .env
+
+# ─────── IDE ───────
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+
+# ─────── Build / Output ───────
+build/
+
 # ─── Java / Maven ───
 target/
 *.class
@@ -8,7 +30,6 @@ target/
 # ─── Node / Frontend ───
 node_modules/
 dist/
-build/
 *.local
 
 # ─── Python ───
@@ -19,18 +40,6 @@ venv/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
-
-# ─── IDE ───
-.idea/
-*.iml
-.vscode/
-*.swp
-.DS_Store
-
-# ─── Environment ───
-.env
-.env.local
-.env.*.local
 
 # ─── RSA 密钥（Delegation Token）───
 keys/

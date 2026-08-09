@@ -4,10 +4,10 @@ FROM eclipse-temurin:21-jdk-alpine AS builder
 WORKDIR /app
 COPY backend/pom.xml backend/mvnw backend/mvnw.cmd ./
 COPY backend/.mvn ./.mvn
-RUN chmod +x mvnw && ./mvnw dependency:go-offline -B
+RUN chmod +x mvnw && ./mvnw -Pfast-sast -DskipTests dependency:go-offline -B
 
 COPY backend/src ./src
-RUN ./mvnw package -DskipTests -B
+RUN ./mvnw -Pfast-sast -DskipTests package -B
 
 # ─── Runtime ───
 FROM eclipse-temurin:21-jre-alpine
