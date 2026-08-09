@@ -17,6 +17,7 @@ const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage'
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
+const MailPage = lazy(() => import('./pages/MailPage').then((module) => ({ default: module.MailPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })))
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/lost-found/:reportId" element={<ReportDetailPage />} />
           <Route path="/claims/mine" element={<ClaimsPage view="mine" />} />
           <Route path="/claims/received" element={<ClaimsPage view="received" />} />
+          <Route path="/mail" element={<MailPage />} />
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />

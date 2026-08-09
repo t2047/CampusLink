@@ -8,6 +8,10 @@ export default defineConfig({
     // Chat Core 前端走同源相对路径（/api → 后端），由 vite 代理避免 CORS；
     // Admin/Lost&Found 的 axios client 使用绝对地址，不受此影响
     proxy: {
+      '/api/mail': {
+        target: 'http://localhost:8091',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
