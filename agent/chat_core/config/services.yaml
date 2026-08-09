@@ -10,30 +10,30 @@
 services:
   domain_agents:
     - name: mail-agent
-      url: ${MAIL_AGENT_URL:http://localhost:8081}
-      mcp_url: ${MAIL_AGENT_MCP_URL:http://localhost:8081/mcp/}
+      url: ${MAIL_AGENT_URL:http://127.0.0.1:8081}
+      mcp_url: ${MAIL_AGENT_MCP_URL:http://127.0.0.1:8081/mcp/}
       timeout_ms: 30000
     - name: facility-agent
-      url: ${FACILITY_AGENT_URL:http://localhost:8082}
-      mcp_url: ${FACILITY_AGENT_MCP_URL:http://localhost:8082/mcp/}
+      url: ${FACILITY_AGENT_URL:http://127.0.0.1:8082}
+      mcp_url: ${FACILITY_AGENT_MCP_URL:http://127.0.0.1:8082/mcp/}
       timeout_ms: 30000
     - name: lost-found-agent
-      url: ${LOSTFOUND_AGENT_URL:http://localhost:8083}
-      mcp_url: ${LOSTFOUND_AGENT_MCP_URL:http://localhost:8083/mcp/}
+      url: ${LOSTFOUND_AGENT_URL:http://127.0.0.1:8083}
+      mcp_url: ${LOSTFOUND_AGENT_MCP_URL:http://127.0.0.1:8085/mcp/}
       timeout_ms: 30000
     - name: skill-agent
-      url: ${SKILL_AGENT_URL:http://localhost:8084}
-      mcp_url: ${SKILL_AGENT_MCP_URL:http://localhost:8084/mcp/}
+      url: ${SKILL_AGENT_URL:http://127.0.0.1:8084}
+      mcp_url: ${SKILL_AGENT_MCP_URL:http://127.0.0.1:8084/mcp/}
       timeout_ms: 30000
 
   utility_tools:
     - name: utility-tools
-      url: ${UTILITY_TOOLS_URL:http://localhost:8090}
-      mcp_url: ${UTILITY_TOOLS_MCP_URL:http://localhost:8090/mcp/}
+      url: ${UTILITY_TOOLS_URL:http://127.0.0.1:8090}
+      mcp_url: ${UTILITY_TOOLS_MCP_URL:http://127.0.0.1:8090/mcp/}
       timeout_ms: 5000
 
   token_service:
-    url: ${TOKEN_SERVICE_URL:http://localhost:8080}
+    url: ${TOKEN_SERVICE_URL:http://127.0.0.1:8080}
     timeout_ms: 3000
 
 # 安全（对齐通信安全说明文档）

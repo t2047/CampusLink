@@ -4,8 +4,8 @@ import com.app.campusagent.chat.config.ChatProperties;
 import com.app.campusagent.chat.service.DelegationTokenProvider;
 import com.app.campusagent.dto.TokenExchangeRequest;
 import com.app.campusagent.dto.TokenExchangeResponse;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -161,8 +161,10 @@ public class TokenExchangeController {
             throw unauthorized("nonce reused — replay detected");
         }
         nonceCache.put(nonce, now);
-        // 惰性清理过期 nonce，防止缓存无限增长
-        nonceCache.entrySet().removeIf(e -> (now - e.getValue()) >= NONCE_TTL_SECONDS);
+        // 惰性清理过期 nonce（读时已判过期；仅当缓存膨胀时全表清扫，避免每请求 O(n)）
+        if (nonceCache.size() > 1024) {
+            nonceCache.entrySet().removeIf(e -> (now - e.getValue()) >= NONCE_TTL_SECONDS);
+        }
     }
 
     private TokenExchangeRequest parseRequest(String rawBody) {

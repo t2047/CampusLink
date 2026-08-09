@@ -54,6 +54,9 @@ class AgentState(TypedDict, total=False):
     requires_approval: bool
     approval_context: dict[str, Any] | None
     approval_agent: str | None
+    # 确认后的重调标记：{"agent_name": ..., "confirmation_id": ...}，
+    # agent_invoker 下次调用该 Agent 时携带 confirmed=True + confirmation_id
+    pending_confirmation: dict[str, Any] | None
 
     # ── 安全上下文 ──
     user_id: str | None
@@ -61,6 +64,7 @@ class AgentState(TypedDict, total=False):
     delegation_tokens: dict[str, str]     # agent_name → delegation token
     nonce: str | None
     trace_id: str | None
+    session_id: str | None                # 会话 ID（传给 Agent 做 per_session 限流/上下文）
 
     # ── 跨 Agent 上下文 ──
     conversation_context: dict[str, Any]

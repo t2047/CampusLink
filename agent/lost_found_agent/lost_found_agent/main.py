@@ -106,7 +106,22 @@ def create_app(
                         payload.message,
                         payload.conversation_context.shared_data,
                     )
-                except LlmUnavailable:
+                except LlmUnavailable as exc:
+                    if active_settings.llm_fail_closed:
+                        # fail-closed（默认）：LLM 不可用/输出不可信 → 显式失败，不降级规则
+                        event_store.append(
+                            request_id,
+                            AgentEvent(
+                                "model_error",
+                                {"reason": "model_unavailable_or_invalid", "mode": "fail_closed"},
+                            ),
+                        )
+                        return InvokeResponse(
+                            response="智能识别服务（llm）暂时不可用，请稍后重试。",
+                            status="failed",
+                            request_id=request_id,
+                        )
+                    # 旧行为（降级规则引擎）：仅当 llm_fail_closed=false 时生效
                     event_store.append(
                         request_id,
                         AgentEvent(

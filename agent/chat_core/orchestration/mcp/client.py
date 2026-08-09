@@ -99,6 +99,7 @@ class AgentClient:
         conversation_context: Optional[dict] = None,
         trace_id: Optional[str] = None,
         confirmed: bool = False,
+        confirmation_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """通过 MCP 调用 Domain Agent 的 ``invoke`` 工具。
 
@@ -129,6 +130,8 @@ class AgentClient:
                 "parent_span_id": str(uuid.uuid4()),
             },
         }
+        if confirmation_id:
+            arguments["confirmation_id"] = confirmation_id
 
         try:
             raw = await self._call_mcp_tool(agent.mcp_url, "invoke", arguments, token)

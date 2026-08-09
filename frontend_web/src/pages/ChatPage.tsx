@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import {
   createChatStream,
+  createChatResumeStream,
   clearToken,
   type SseEvent,
 } from '../services/api';
@@ -79,6 +80,9 @@ export default function ChatPage() {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const closeRef = useRef<{ close: () => void } | null>(null);
   const streamingRef = useRef(false);
+  // HITL 确认框同步 ref：setPendingConfirm 异步生效，双击/连点时闭包仍是旧值，
+  // 用 ref 做同步守卫（防重复 resume 导致写操作重复执行）
+  const pendingConfirmRef = useRef<PendingConfirm | null>(null);
 
   // ── 深色模式：class 策略 + localStorage 持久化 ──
   useEffect(() => {
@@ -148,7 +152,7 @@ export default function ChatPage() {
           appendStep(msgId, {
             agent: String(data.agent ?? 'Agent'),
             status: 'running',
-            label: `🤖 ${String(data.agent ?? 'Agent')} 处理中…`,
+            label: `${String(data.agent ?? 'Agent')} 处理中…`,
           });
           break;
 
@@ -172,7 +176,7 @@ export default function ChatPage() {
           appendStep(msgId, {
             agent: data.agent as string,
             status: 'error',
-            label: `❌ ${String(data.agent ?? 'Agent')} 失败：${String(data.message ?? '未知错误')}`,
+            label: `${String(data.agent ?? 'Agent')} 失败：${String(data.message ?? '未知错误')}`,
           });
           finish();
           break;
@@ -181,7 +185,7 @@ export default function ChatPage() {
           appendStep(msgId, {
             tool: data.tool as string,
             status: 'running',
-            label: `🔧 ${String(data.tool ?? '工具')} 执行中…`,
+            label: `${String(data.tool ?? '工具')} 执行中…`,
           });
           break;
 
@@ -190,11 +194,13 @@ export default function ChatPage() {
           break;
 
         case 'confirm_required': {
-          setPendingConfirm({
+          const confirmData: PendingConfirm = {
             msgId,
             agent: String(data.agent ?? ''),
             details: (data.details as Record<string, unknown>) ?? {},
-          });
+          };
+          pendingConfirmRef.current = confirmData;
+          setPendingConfirm(confirmData);
           appendStep(msgId, { status: 'running', label: '⏳ 需要确认' });
           break;
         }
@@ -230,7 +236,8 @@ export default function ChatPage() {
   const send = useCallback(
     (text?: string) => {
       const msg = (text ?? input).trim();
-      if (!msg || streamingRef.current) return;
+      // 有挂起的确认框时禁发新消息（确认框对应旧 thread，新消息会换 thread 并行执行）
+      if (!msg || streamingRef.current || pendingConfirmRef.current) return;
 
       const userMsg: ChatMessage = {
         id: `msg-${++msgCounter}`,
@@ -285,19 +292,56 @@ export default function ChatPage() {
     finish();
   }, [finish]);
 
-  // ── 确认操作（HITL 本地响应）────────────────
+  // ── 确认操作（HITL）────────────────────────────
 
   const resolveConfirmation = useCallback(
     (approved: boolean) => {
-      if (!pendingConfirm) return;
+      // 防双击/防过期确认：ref 同步守卫（setPendingConfirm 异步生效）
+      if (!pendingConfirmRef.current) return;
+      const { msgId } = pendingConfirmRef.current;
+      pendingConfirmRef.current = null;
+      setPendingConfirm(null);
+      // 本地提示 + 标记确认步骤
       appendContent(
-        pendingConfirm.msgId,
+        msgId,
         `\n${approved ? '✅ 操作已确认。' : '❌ 操作已取消。'}`,
       );
-      markLastStepOk(pendingConfirm.msgId);
-      setPendingConfirm(null);
+      markLastStepOk(msgId);
+
+      // 关闭挂起的旧流（interrupt 时编排层 SSE 连接仍保持），再开 resume 流
+      closeRef.current?.close();
+      closeRef.current = null;
+
+      // 恢复编排层挂起的 LangGraph（确认/取消都触发 resume）：
+      // 确认 → 编排层以 confirmed=true 重调子 Agent，写操作执行结果流式追加到本条消息
+      // 取消 → 编排层跳过该 Agent（index 前进）
+      streamingRef.current = true;
+      setStreaming(true);
+      setConnected(true);
+      try {
+        const stream = createChatResumeStream(
+          sessionId,
+          approved,
+          (evt) => handleEvent(evt, msgId),
+          () => finish(),
+        );
+        closeRef.current = stream;
+      } catch (err) {
+        appendContent(
+          msgId,
+          `\n[错误] ${err instanceof Error ? err.message : '未知错误'}`,
+        );
+        finish();
+      }
     },
-    [pendingConfirm, appendContent, markLastStepOk],
+    [
+      pendingConfirm,
+      sessionId,
+      handleEvent,
+      appendContent,
+      finish,
+      markLastStepOk,
+    ],
   );
 
   // ── 退出 ────────────────────────────────────

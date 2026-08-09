@@ -1,8 +1,8 @@
 package com.app.campusagent.chat.service;
 
 import com.app.campusagent.chat.config.ChatProperties;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -76,14 +76,13 @@ public class OrchestrationClient {
     /**
      * 转发用户消息到编排层，返回<strong>增量解码</strong>后的 SSE 事件流。
      *
-     * @param userJwt 原始用户 JWT（仅用于解析身份，不转发给 Agent）
      * @param userId  用户 ID（来自 SecurityContext）
-     * @param role    用户角色
+     * @param role    用户角色（无 ROLE_ 前缀）
      * @param message 用户消息
      * @param sessionId 会话 ID（多轮上下文，透传给编排层作为 thread_id）
      * @param traceId 分布式追踪 ID（不存在则生成）
      */
-    public Flux<ServerSentEvent<String>> streamChat(String userJwt, String userId, String role,
+    public Flux<ServerSentEvent<String>> streamChat(String userId, String role,
                                                     String message, String sessionId,
                                                     String traceId) {
         String resolvedTraceId = (traceId == null || traceId.isBlank())
@@ -97,7 +96,40 @@ public class OrchestrationClient {
 
         log.info("Forwarding chat to orchestration: userId={}, traceId={}", userId, resolvedTraceId);
 
-        // Flux.defer：每次订阅创建独立解析器与解码器，避免并发订阅共享可变状态
+        return relayOrchestrationSse("/chat/stream", requestBody, headers, resolvedTraceId);
+    }
+
+    /**
+     * HITL 确认恢复：以 {@code Command(resume=...)} 恢复编排层挂起的 LangGraph，
+     * 返回增量解码后的 SSE 事件流（确认重调子 Agent 的操作结果）。
+     *
+     * @param userId  用户 ID
+     * @param role    用户角色（无 ROLE_ 前缀）
+     * @param sessionId 会话 ID（必须与原始 streamChat 一致，编排层据此恢复 checkpoint）
+     * @param approved  用户确认结果
+     * @param traceId 分布式追踪 ID（不存在则生成）
+     */
+    public Flux<ServerSentEvent<String>> resumeChat(String userId, String role,
+                                                    String sessionId, boolean approved,
+                                                    String traceId) {
+        String resolvedTraceId = (traceId == null || traceId.isBlank())
+                ? UUID.randomUUID().toString() : traceId;
+
+        String requestBody = buildResumeRequestBody(userId, role, sessionId, approved, resolvedTraceId);
+        HttpHeaders headers = buildSecureHeaders(requestBody, resolvedTraceId);
+
+        log.info("Resuming chat after HITL: userId={}, sessionId={}, approved={}, traceId={}",
+                userId, sessionId, approved, resolvedTraceId);
+
+        return relayOrchestrationSse("/chat/resume", requestBody, headers, resolvedTraceId);
+    }
+
+    /**
+     * 通用编排层 SSE 转发：增量解析，事件随到随发（streamChat / resumeChat 共用）。
+     * Flux.defer：每次订阅创建独立解析器与解码器，避免并发订阅共享可变状态。
+     */
+    private Flux<ServerSentEvent<String>> relayOrchestrationSse(
+            String path, String requestBody, HttpHeaders headers, String traceId) {
         return Flux.defer(() -> {
             SseIncrementalParser parser = new SseIncrementalParser();
             // 有状态 UTF-8 解码器：跨网络分片保留不完整的多字节序列。
@@ -107,7 +139,7 @@ public class OrchestrationClient {
                     .onMalformedInput(CodingErrorAction.REPLACE);
 
             return webClient.post()
-                    .uri(properties.getOrchestrationBaseUrl() + "/chat/stream")
+                    .uri(properties.getOrchestrationBaseUrl() + path)
                     .headers(h -> h.addAll(headers))
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.TEXT_EVENT_STREAM)
@@ -135,7 +167,7 @@ public class OrchestrationClient {
                     .defaultIfEmpty(errorEvent("empty stream"))
                     .onErrorResume(e -> {
                         log.error("Orchestration call failed: traceId={}, err={}",
-                                resolvedTraceId, e.getMessage());
+                                traceId, e.getMessage());
                         return Flux.just(errorEvent("编排层暂时不可用"));
                     });
         });
@@ -277,7 +309,7 @@ public class OrchestrationClient {
 
     private String buildRequestBody(String userId, String role, String message, String sessionId, String traceId) {
         try {
-            com.fasterxml.jackson.databind.node.ObjectNode body = (com.fasterxml.jackson.databind.node.ObjectNode)
+            tools.jackson.databind.node.ObjectNode body = (tools.jackson.databind.node.ObjectNode)
                     objectMapper.createObjectNode()
                     .put("userId", userId)
                     .put("role", role)
@@ -289,6 +321,23 @@ public class OrchestrationClient {
             return objectMapper.writeValueAsString(body);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build request body", e);
+        }
+    }
+
+    /** HITL 确认恢复请求体（无 message，含 approved）。 */
+    private String buildResumeRequestBody(String userId, String role, String sessionId,
+                                          boolean approved, String traceId) {
+        try {
+            tools.jackson.databind.node.ObjectNode body = (tools.jackson.databind.node.ObjectNode)
+                    objectMapper.createObjectNode()
+                    .put("userId", userId)
+                    .put("role", role)
+                    .put("sessionId", sessionId)
+                    .put("approved", approved)
+                    .put("traceId", traceId);
+            return objectMapper.writeValueAsString(body);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build resume request body", e);
         }
     }
 

@@ -25,7 +25,10 @@ TOKEN_SERVICE_JWKS_URL 等已配置）。
 
 ```bash
 cd agent/chat_core
-uvicorn orchestration.main:app --port 8000   # 自动加载仓库根 .env，无需手动 source
+# 开发模式（热重载）：改代码自动重启；自动加载仓库根 .env，无需手动 source
+uvicorn orchestration.main:app --host 0.0.0.0 --port 8000 --reload
+# 生产模式：去掉 --reload；--host 0.0.0.0 按部署需要（本机调试可省略，默认 127.0.0.1）
+# uvicorn orchestration.main:app --port 8000
 ```
 
 > 无需 `source .env`：`orchestration/main.py` 启动时自动 `load_dotenv(find_dotenv())`。
@@ -41,14 +44,21 @@ uvicorn orchestration.main:app --port 8000   # 自动加载仓库根 .env，无�
 
 ```bash
 # 终端 1：Mail Agent MCP Server（端口 8081）
-# 必须在 agent/ 目录下运行（mcp_servers 包位于 agent/）
+# 必须在 agent/ 目录下运行（mcp_servers 包位于 agent/）；开发模式追加 --reload
 cd agent
-MCP_AGENT_NAME=mail-agent uvicorn mcp_servers.domain_server:app --port 8081
+MCP_AGENT_NAME=mail-agent uvicorn mcp_servers.domain_server:app --host 0.0.0.0 --port 8081 --reload
 
-# 终端 2：Facility Agent（8082）— 同理换 MCP_AGENT_NAME=facility-agent
-# 终端 3：Utility Tools MCP Server（8090）
-uvicorn mcp_servers.utility_server:app --port 8090
+# 终端 2：Facility Agent（8082）
+MCP_AGENT_NAME=facility-agent uvicorn mcp_servers.domain_server:app --host 0.0.0.0 --port 8082 --reload
+
+# 终端 3：Skill Agent（8084）
+MCP_AGENT_NAME=skill-market-agent uvicorn mcp_servers.domain_server:app --host 0.0.0.0 --port 8084 --reload
+
+# 终端 4：Utility Tools MCP Server（8090）
+uvicorn mcp_servers.utility_server:app --host 0.0.0.0 --port 8090 --reload
 ```
+
+> 生产模式去掉 `--reload`（`--host 0.0.0.0` 按部署需要，本机调试可省略）。
 
 > Windows PowerShell 注意：`$env:MCP_AGENT_NAME = "mail-agent"` 设置 Agent 名；
 > .env 自动加载，无需额外命令。RS256 验签必需 `TOKEN_SERVICE_JWKS_URL`（.env 已含），
@@ -56,6 +66,24 @@ uvicorn mcp_servers.utility_server:app --port 8090
 
 MCP 端点均为 `http://localhost:<port>/mcp/`（`services.yaml` 的 `*_MCP_URL` 默认值）。
 编排层通过 MCP streamable HTTP 调用（`Authorization: Bearer <Delegation Token>`）。
+
+### Lost & Found 业务经 MCP 适配层接入
+
+L&F 不是脚手架 mock，而是自研 Agent（规则引擎 + LLM 意图解析 + 确认流）通过
+**MCP 适配层**暴露给编排层（`mcp_servers/lost_found_server.py`，与 domain/utility
+同目录统一）：
+
+```bash
+# 终端：L&F MCP 适配层（端口 8085；REST /agent/invoke 仍为 8083）
+cd agent
+uvicorn mcp_servers.lost_found_server:app --host 0.0.0.0 --port 8085 --reload
+```
+
+- 编排层 `LOSTFOUND_AGENT_MCP_URL` 指向 `http://localhost:8085/mcp/`
+- 验签与其他 Agent 一致：RS256 Delegation Token（aud=lost-found-agent，JWKS）
+- 工具 `invoke` 输出与原 `/agent/invoke` 契约一致（含 `needs_confirmation` /
+  `confirmation_required`，编排层 HITL 确认流可直接复用）
+- REST 通道（8083，HS256 直连后端）保持不变，互不影响
 
 ## 端到端调用编排层（含安全 Headers）
 
@@ -80,6 +108,34 @@ curl -X POST http://localhost:8000/chat/stream \
   -H "X-Nonce: <nonce>" -H "X-Timestamp: <ts>" -H "X-Signature: <sig>" \
   -H "Content-Type: application/json" \
   -d '{"userId":"u1","role":"STUDENT","message":"帮我找张三的邮件","traceId":"t1"}'
+```
+
+### HITL 确认恢复（`POST /chat/resume`）
+
+子 Agent 需要人工确认（`needs_confirmation`）时，前端确认/取消后调用该端点，
+以 `Command(resume={"approved": ...})` 恢复挂起的 LangGraph，确认后以
+`confirmed=true + confirmation_id` 重调同一子 Agent 执行写操作，结果经 SSE 流式返回。
+
+```bash
+curl -X POST http://localhost:8000/chat/resume \
+  -H "X-Nonce: <nonce>" -H "X-Timestamp: <ts>" -H "X-Signature: <sig>" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"u1","role":"STUDENT","sessionId":"<会话ID>","approved":true,"traceId":"t1"}'
+```
+
+安全校验（入站 HMAC 之外）：
+- **所有权**：checkpoint 内 `user_id` 必须与调用者一致，否则 `403`（防 sessionId 横向越权）
+- **中断态**：thread 必须确实停在 `human_approval` 中断，否则 `409`（防双重提交导致写操作重复执行）
+- `sessionId` 必须与原始 `/chat/stream` 一致（resume 按原始 thread_id 恢复 checkpoint）
+
+### 查看 L&F 原始输出（开发探针）
+
+`agent/chat_core/_probe_lf.py` 直连 L&F MCP 网关（绕过编排层进程），打印网关原始响应
+（`response` / `status` / `shared_context` / 缺失字段），用于排查"回复内容不符预期"：
+
+```bash
+cd agent/chat_core
+& "D:/Programing/Anaconda3/envs/RAG/python.exe" _probe_lf.py "我掉了一个黑色手机"
 ```
 
 ## 运行测试

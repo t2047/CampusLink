@@ -101,7 +101,7 @@ export interface SseEvent {
 }
 
 /**
- * 打开到聊天端点的 SSE 流（fetch + ReadableStream，支持 Authorization 头）。
+ * 通用 SSE 流读取（fetch + ReadableStream，支持 Authorization 头）。
  *
  * 解析器健壮性：
  * - 统一 CRLF → LF，按空行切分事件块
@@ -111,30 +111,21 @@ export interface SseEvent {
  * - 流自然结束（未收到显式 done/error）时补发 `done`，确保 UI 状态复位，
  *   避免 streaming 卡死导致后续消息被 `send()` 拦截（必须刷新才能再发）
  */
-export function createChatStream(
-  message: string,
-  sessionId: string,
+export function readEventStream(
+  url: string,
+  init: RequestInit,
   onEvent: (evt: SseEvent) => void,
   onError: (err: unknown) => void,
 ): { close: () => void } {
-  const token = getToken();
-  if (!token) throw new Error('Not authenticated');
-
-  const params = new URLSearchParams({ message });
-  if (sessionId) params.set('sessionId', sessionId);
-  const url = `${API_BASE}/api/chat/stream?${params.toString()}`;
-
   const controller = new AbortController();
   let closed = false;
 
   void (async () => {
     try {
       const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'text/event-stream',
-        },
+        ...init,
         signal: controller.signal,
+        headers: { Accept: 'text/event-stream', ...init.headers },
       });
 
       if (!res.ok) {
@@ -185,6 +176,57 @@ export function createChatStream(
       controller.abort();
     },
   };
+}
+
+/** 打开聊天流（GET /api/chat/stream）。 */
+export function createChatStream(
+  message: string,
+  sessionId: string,
+  onEvent: (evt: SseEvent) => void,
+  onError: (err: unknown) => void,
+): { close: () => void } {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+
+  const params = new URLSearchParams({ message });
+  if (sessionId) params.set('sessionId', sessionId);
+  const url = `${API_BASE}/api/chat/stream?${params.toString()}`;
+
+  return readEventStream(
+    url,
+    { headers: { Authorization: `Bearer ${token}` } },
+    onEvent,
+    onError,
+  );
+}
+
+/**
+ * HITL 确认恢复流（POST /api/chat/resume）：
+ * 前端确认/取消后调用，编排层以 Command(resume=...) 恢复挂起的 LangGraph，
+ * 确认重调子 Agent 的操作结果通过 SSE 流式返回（复用 createChatStream 的事件协议）。
+ */
+export function createChatResumeStream(
+  sessionId: string,
+  approved: boolean,
+  onEvent: (evt: SseEvent) => void,
+  onError: (err: unknown) => void,
+): { close: () => void } {
+  const token = getToken();
+  if (!token) throw new Error('Not authenticated');
+
+  return readEventStream(
+    `${API_BASE}/api/chat/resume`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sessionId, approved }),
+    },
+    onEvent,
+    onError,
+  );
 }
 
 /** 解析单个 SSE 块（可能含多个事件行），返回第一个有效事件。 */

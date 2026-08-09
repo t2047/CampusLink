@@ -2,7 +2,14 @@
 
 [![English](https://img.shields.io/badge/English-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
 
-CampusLink is a campus-service platform. The current vertical slice provides authentication and a Web-based Lost & Found workflow: publish lost/found reports, upload images, search, submit ownership claims, and review received claims.
+CampusLink is a campus **AI Agent platform**: the `agent/chat_core` orchestration layer (FastAPI + LangGraph)
+is the core, driving multi-domain Agents (mail / facility / lost-found / skill / utility-tools) over the
+MCP protocol for chat Q&A and business operations, with SSE streaming and HITL human approval.
+
+**Lost & Found is the first fully shipped vertical slice of the platform**: a complete Web workflow
+(publish/search/claim/admin) plus Agent integration through `agent/mcp_servers/lost_found_server.py` —
+users can report/find/claim in natural language, and write operations are persisted only after
+explicit user confirmation.
 
 Lost & Found Agent development status and future work are maintained in the [Chinese technical roadmap](docs/lost-found/TECHNICAL_ROADMAP_cn.md).
 
@@ -10,11 +17,12 @@ Lost & Found Agent development status and future work are maintained in the [Chi
 
 | Module | Technology |
 |---|---|
+| Orchestration (core) | Python 3.12, FastAPI, LangGraph, MCP SDK |
 | Backend | Java 21, Spring Boot 4.1, Spring Security, JWT |
 | Web | React 19, TypeScript, Vite, MUI, Axios |
 | Data | MySQL 8 |
 | Images | Private MinIO bucket with 15-minute presigned URLs |
-| Testing | JUnit 5, Mockito, H2, Vitest, Testing Library |
+| Testing | JUnit 5, Mockito, H2, Vitest, Testing Library, pytest |
 
 ## Local Setup
 
@@ -48,6 +56,13 @@ cd backend
 ./mvnw spring-boot:run
 ```
 
+Start the Chat Core orchestration layer in another terminal (dev mode with hot reload; full setup in [agent/chat_core/README.md](agent/chat_core/README.md)):
+
+```bash
+cd agent/chat_core
+uvicorn orchestration.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
 Start the React app in a third terminal:
 
 ```bash
@@ -61,18 +76,21 @@ Open [http://localhost:5173](http://localhost:5173). MinIO Console is available 
 
 Stop the infrastructure without deleting its data with `docker compose stop`. Use `docker compose down` to remove the containers while retaining the named volumes.
 
-## Chat Core (AI Assistant)
+## Agent Platform (Core)
 
-Beyond the Lost & Found vertical slice, the platform includes a campus **AI assistant** (chat + domain Agents):
+The platform core is a campus **AI assistant** (natural-language chat + multi-domain Agent orchestration):
 
-- **Frontend**: chat entry at the React app home page (typing/SSE streaming, intent display, HITL confirmations)
-- **Orchestration**: `agent/chat_core` (FastAPI + LangGraph; intent routing, agent invocation, LLM fallback)
-- **Agents**: MCP servers under `agent/mcp_servers/` (mail / facility / lost-found / skill / utility-tools)
+- **Orchestration**: `agent/chat_core` (FastAPI + LangGraph; intent routing, agent invocation, HITL human approval, LLM fallback)
+- **Agents**: MCP servers under `agent/mcp_servers/` (mail / facility / lost-found / skill / utility-tools),
+  exposed over streamable HTTP and registered via capability declarations in `agent/schemas/*.json`
+- **Frontend**: chat entry at the React app home page (typing/SSE streaming, intent display, HITL confirmations — confirming resumes the suspended graph via `POST /api/chat/resume` and re-invokes the sub-agent with `confirmed=true` so the write actually happens; lost-report / claim confirmation flows are live)
 - **Security**: RS256 Delegation Token chain — see [docs/communication-security.md](docs/communication-security.md)
 - **Local dev**: [agent/chat_core/README.md](agent/chat_core/README.md) (start orchestration + MCP servers)
 - **Agent interface contract** (for implementers): [docs/AGENT_INTERFACE_NOTICE.md](docs/AGENT_INTERFACE_NOTICE.md)
 
-## Lost & Found Features
+## Lost & Found Features (first vertical slice)
+
+Web workflow of the L&F sub-module (Agent integration is covered in “Agent Platform (Core)” above):
 
 - Publish `LOST` and `FOUND` reports with zero to five JPEG, PNG, or WebP images (10 MB maximum per image).
 - Search reports by keyword, category, colour, location, date range, type, and status.
@@ -82,7 +100,7 @@ Beyond the Lost & Found vertical slice, the platform includes a campus **AI assi
 - Keep ownership proof visible only to the claimant and the report publisher.
 - Give `ADMIN` and `SUPER_ADMIN` users a read-only operational overview with report metrics, filters, pagination, and reporter identification.
 
-AI matching, agents, notifications, mobile UI, administrator write actions, report editing, and report deletion are outside this iteration.
+AI matching, notifications, mobile UI, administrator write actions, report editing, and report deletion are outside this iteration (L&F is already Agent-integrated — see “Agent Platform (Core)”).
 
 ## API Reference
 
@@ -148,11 +166,16 @@ PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking
 
 ```text
 project/
+├── agent/                   Agent system (platform core)
+│   ├── chat_core/           Orchestration (FastAPI + LangGraph; intent routing / HITL / LLM fallback)
+│   ├── mcp_servers/         MCP server adapters (mail/facility/lost-found/skill/utility)
+│   ├── lost_found_agent/    L&F business engine (rules + LLM intent parsing)
+│   └── schemas/             Agent capability declarations (JSON Schema)
 ├── backend/
-│   └── src/main/java/com/app/campusagent/lostfound/
-│       ├── controller/  dto/  domain/  exception/
-│       ├── repository/  service/  storage/
-├── frontend_web/        React Web app and public/admin-test.html
+│   └── src/main/java/com/app/campusagent/
+│       ├── chat/            Chat relay (SSE) + Token Service endpoints
+│       └── lostfound/       L&F web business (controller/ dto/ domain/ exception/ …)
+├── frontend_web/        React Web app (chat + L&F pages) and public/admin-test.html
 ├── frontend_mobile/     Future mobile client
 ├── ml-service/          Future matching/analytics services
 ├── docker-compose.yml   MySQL and MinIO

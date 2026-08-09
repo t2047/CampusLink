@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Optional
 
@@ -33,6 +34,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..llm import chat_llm, intent_llm, summary_llm
 from .state import AgentInvocation, AgentState
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 意图分类能力注册表（与 agent/schemas/*.json 对齐）
@@ -196,7 +199,12 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     user_msg = state["messages"][-1].content
     user_id = state.get("user_id", "")
 
-    # Delegation Token 由 client 内部获取：RS256（Token Service）优先，
+    # HITL 确认重调：用户确认后回到本节点，对同一 Agent 携带 confirmed + confirmation_id
+    # （首轮 needs_confirmation 时 index 不前进，确认后由 human_approval 设 pending_confirmation）
+    pending = state.get("pending_confirmation") or {}
+    is_confirmation_call = pending.get("agent_name") == agent_name
+    confirmation_id = pending.get("confirmation_id") if is_confirmation_call else None
+
     # Delegation Token 由 client 内部获取：RS256（Token Service），不可用时 fail-closed
     result = await client.invoke_agent(
         agent_name=agent_name,
@@ -205,6 +213,8 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         user_role=state.get("user_role", ""),
         conversation_context=_build_conversation_context(state),
         trace_id=state.get("trace_id"),
+        confirmed=is_confirmation_call,
+        confirmation_id=confirmation_id,
     )
 
     invocation: AgentInvocation = {
@@ -221,13 +231,34 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     update: dict[str, Any] = {
         # 追加而非覆盖：agent_plan 含多 Agent 时保留全部调用记录（聚合器依赖）
         "agent_invocations": list(state.get("agent_invocations") or []) + [invocation],
-        "current_agent_index": index + 1,
+        # 首轮 needs_confirmation 保持 index（确认后由 human_approval 设 pending 回到本
+        # Agent 重调）；其余情况（成功/失败/确认重调完成）一律前进，避免死循环。
+        # 注意：确认重调（is_confirmation_call）仍返回 needs_confirmation 时也必须前进
+        # （见下方 needs_confirmation 分支的活锁防御）
+        "current_agent_index": (
+            index if result.get("status") == "needs_confirmation" and not is_confirmation_call
+            else index + 1
+        ),
+        # 消费确认标记（确认重调只执行一次）
+        "pending_confirmation": None,
     }
 
     if result.get("status") == "needs_confirmation":
-        update["requires_approval"] = True
-        update["approval_context"] = result.get("confirmation_required") or {}
-        update["approval_agent"] = agent_name
+        if is_confirmation_call:
+            # 确认重调仍返回 needs_confirmation = Agent 端 confirmed/confirmation_id
+            # 契约未生效：标记失败并前进（防"确认-确认"活锁），记录日志便于排查
+            logger.error(
+                "confirmed re-invoke still needs_confirmation: agent=%s confirmation_id=%s",
+                agent_name, confirmation_id,
+            )
+            failed = list(state.get("failed_agents") or [])
+            if agent_name not in failed:
+                failed.append(agent_name)
+            update["failed_agents"] = failed
+        else:
+            update["requires_approval"] = True
+            update["approval_context"] = result.get("confirmation_required") or {}
+            update["approval_agent"] = agent_name
     elif result.get("status") == "failed" or result.get("error"):
         # 追加而非覆盖：多 Agent 连续失败时保留全部失败名单
         failed = list(state.get("failed_agents") or [])
@@ -252,11 +283,15 @@ def _default_client():
 
 
 def _build_conversation_context(state: AgentState) -> dict[str, Any]:
-    """构造传给 Agent 的跨 Agent 上下文（前置 Agent 的 shared_context 聚合）。"""
+    """构造传给 Agent 的跨 Agent 上下文（前置 Agent 的 shared_context 聚合）。
+
+    含 session_id：L&F 等 Agent 用它做 per_session 限流与多轮字段累积
+    （ConversationContext.session_id），否则每轮回退 request_id 导致限流失效。
+    """
     shared: dict[str, Any] = {}
     for inv in state.get("agent_invocations", []):
         shared.update(inv.get("shared_context") or {})
-    return {"shared_data": shared}
+    return {"session_id": state.get("session_id") or "", "shared_data": shared}
 
 
 # ---------------------------------------------------------------------------
@@ -323,8 +358,11 @@ async def chat_responder(state: AgentState) -> AgentState:
         try:
             response = await llm.ainvoke([
                 SystemMessage(content=(
-                    "你是校园助手。部分服务当前不可用，请用自然、友好的语气向用户说明情况，"
+                    "你是校园助手。部分服务当前不可用时，请用自然、友好的语气向用户说明情况，"
                     "给出替代建议或请其稍后重试。不要提及内部技术细节。"
+                    "重要：你只知道自己列出的不可用服务名称，不具备任何额外业务信息——"
+                    "绝对不要编造需要用户提供的具体字段（如物品名称、地点、日期等），"
+                    "也不要让用户以为系统还在正常工作；如实告知服务暂时无法处理即可。"
                 )),
                 HumanMessage(content=f"用户请求：{user_msg}\n不可用的服务：{'; '.join(failures)}"),
             ])
@@ -393,6 +431,9 @@ def response_aggregator(state: AgentState) -> AgentState:
     parts: list[str] = []
 
     for inv in agent_invocations:
+        if inv.get("output_status") == "needs_confirmation":
+            # 确认提示由 HITL 确认框呈现，不进最终回复；确认后的操作结果由重调记录输出
+            continue
         parts.append(inv.get("output_response", ""))
 
     for tool_name, result in utility_results.items():
@@ -460,12 +501,19 @@ def human_approval(state: AgentState) -> AgentState:
         invocations = list(state["agent_invocations"])
         if isinstance(decision, dict) and decision.get("approved"):
             invocations[-1] = {**invocations[-1], "output_status": "confirmed"}
+            # 确认重调标记：agent_invoker 下次调用该 Agent 时携带 confirmed + confirmation_id
+            update["pending_confirmation"] = {
+                "agent_name": approval_agent,
+                "confirmation_id": (state.get("approval_context") or {}).get("confirmation_id"),
+            }
         else:
             invocations[-1] = {
                 **invocations[-1],
                 "output_response": "操作已取消。",
                 "output_status": "cancelled",
             }
+            # 用户取消：跳过该 Agent（不再重调），index 前进到下一个
+            update["current_agent_index"] = (state.get("current_agent_index") or 0) + 1
         update["agent_invocations"] = invocations
 
     return update

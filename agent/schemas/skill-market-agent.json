@@ -1,9 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "agent": "skill-market-agent",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "校园技能市场 Agent — 理解用户技能需求（学习/求助/提供服务），自主完成技能搜索、技能详情查看、技能发布、联系技能提供者，并以自然语言返回结果。内部包含 LLM 推理、Tool 选择与执行（ReAct 循环）。",
-  "type": "domain_agent",
   "transport": {
     "type": "mcp",
     "protocol": "streamable HTTP",
@@ -21,9 +20,12 @@
       }
     }
   },
-
   "capabilities": {
-    "domains": ["skill_market", "peer_learning", "talent_discovery"],
+    "domains": [
+      "skill_market",
+      "peer_learning",
+      "talent_discovery"
+    ],
     "description": "可以搜索校园内的技能提供者（编程、语言、音乐、运动、辅导等），查看技能详情和评价，发布自己的技能，向技能达人发送联系请求",
     "examples": [
       "有没有同学可以教我 Python 数据分析",
@@ -37,120 +39,37 @@
       "scope": "校园内注册用户的技能信息",
       "privacy_sensitive": true,
       "contact_requires_consent": true,
-      "max_skills_per_user": 10,
-      "rate_limit": {
-        "max_requests_per_minute": 5,
-        "max_requests_per_session": 20
-      }
+      "max_skills_per_user": 10
+    },
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "actions": [
+      "search_skills",
+      "get_skill_detail",
+      "publish_skill",
+      "contact_provider",
+      "list_my_skills"
+    ],
+    "privacy": {
+      "exposesPublisherContact": false,
+      "exposesStorageObjectKey": false,
+      "exposesOtherUsersClaimProof": false
+    },
+    "rateLimit": {
+      "perUserPerMinute": 5,
+      "perSession": 20
     }
   },
-
   "invoke": {
     "input": {
-      "type": "object",
-      "properties": {
-        "message": {
-          "type": "string",
-          "description": "用户对技能市场 Agent 的自然语言请求。如搜索技能、发布技能、联系达人等"
-        },
-        "conversation_context": {
-          "type": "object",
-          "description": "编排层传递的跨 Agent 上下文",
-          "properties": {
-            "previous_agent": { "type": "string" },
-            "shared_data": {
-              "type": "object",
-              "description": "跨 Agent 共享数据。如上游 Agent 提取的技能关键词、用户偏好等"
-            }
-          }
-        },
-        "confirmed": {
-          "type": "boolean",
-          "default": false,
-          "description": "用户确认发布或联系后重新调用时设为 true"
-        },
-        "confirmation_id": {
-          "type": "string",
-          "description": "确认操作对应的 ID"
-        },
-        "trace_parent": {
-          "type": "object",
-          "properties": {
-            "trace_id": { "type": "string" },
-            "parent_span_id": { "type": "string" }
-          }
-        }
-      },
-      "required": ["message"]
+      "$ref": "#/$defs/invokeInput"
     },
     "output": {
-      "type": "object",
-      "properties": {
-        "response": {
-          "type": "string",
-          "description": "Agent 对用户请求的自然语言回复"
-        },
-        "status": {
-          "type": "string",
-          "enum": ["completed", "needs_more_info", "no_match", "needs_confirmation", "failed"],
-          "description": "completed: 搜索/发布完成; needs_more_info: 需要用户补充信息（如技能详情）; no_match: 未找到匹配; needs_confirmation: 发布或联系需确认; failed: 执行失败"
-        },
-        "search_results": {
-          "type": "array",
-          "description": "搜索到的技能列表",
-          "items": {
-            "type": "object",
-            "properties": {
-              "skill_id": { "type": "string" },
-              "title": { "type": "string" },
-              "category": { "type": "string" },
-              "level": { "type": "string", "enum": ["beginner", "intermediate", "advanced", "expert"] },
-              "description": { "type": "string" },
-              "provider_name": { "type": "string" },
-              "provider_department": { "type": "string", "description": "提供者院系（脱敏后）" },
-              "rating": { "type": "number", "minimum": 0, "maximum": 5 },
-              "review_count": { "type": "integer" },
-              "availability": { "type": "string" }
-            }
-          }
-        },
-        "confirmation_required": {
-          "type": "object",
-          "description": "操作确认详情。仅 status=needs_confirmation 时有值",
-          "properties": {
-            "confirmation_id": { "type": "string" },
-            "action": {
-              "type": "string",
-              "enum": ["publish_skill", "contact_provider"],
-              "description": "待确认的操作"
-            },
-            "preview": { "type": "object", "description": "操作预览（如即将发布的技能内容或即将发送的联系消息）" },
-            "message": { "type": "string" }
-          }
-        },
-        "shared_context": {
-          "type": "object",
-          "description": "本 Agent 产出的结构化上下文。如搜索到的技能信息、联系状态等",
-          "additionalProperties": true
-        },
-        "actions_taken": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "action": { "type": "string", "enum": ["search_skills", "get_skill_detail", "publish_skill", "contact_provider", "list_my_skills"] },
-              "params_summary": { "type": "string" },
-              "result_summary": { "type": "string" },
-              "status": { "type": "string", "enum": ["success", "failed", "skipped"] }
-            },
-            "required": ["action", "status"]
-          }
-        }
-      },
-      "required": ["response", "status"]
+      "$ref": "#/$defs/invokeOutput"
     }
   },
-
   "streaming": {
     "status": "not_implemented",
     "deprecated": true,
@@ -158,60 +77,134 @@
     "events": {
       "agent_start": {
         "payload": {
-          "agent": { "type": "string", "const": "skill-market-agent" },
-          "message": { "type": "string" }
+          "agent": {
+            "type": "string",
+            "const": "skill-market-agent"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       },
       "tool_call_start": {
         "payload": {
-          "tool": { "type": "string", "enum": ["search_skills", "get_skill_detail", "publish_skill", "contact_provider", "list_my_skills"] },
-          "args_summary": { "type": "string" }
+          "tool": {
+            "type": "string",
+            "enum": [
+              "search_skills",
+              "get_skill_detail",
+              "publish_skill",
+              "contact_provider",
+              "list_my_skills"
+            ]
+          },
+          "args_summary": {
+            "type": "string"
+          }
         }
       },
       "tool_call_progress": {
-        "payload": { "tool": { "type": "string" }, "progress": { "type": "string" } }
+        "payload": {
+          "tool": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "string"
+          }
+        }
       },
       "tool_call_end": {
         "payload": {
-          "tool": { "type": "string" },
-          "status": { "type": "string", "enum": ["success", "failed"] },
-          "result_summary": { "type": "string" }
+          "tool": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "result_summary": {
+            "type": "string"
+          }
         }
       },
       "token": {
-        "payload": { "content": { "type": "string" } }
+        "payload": {
+          "content": {
+            "type": "string"
+          }
+        }
       },
       "agent_needs_more_info": {
         "description": "发布技能时需要用户补充更多信息",
         "payload": {
-          "field": { "type": "string", "description": "需要补充的字段" },
-          "message": { "type": "string" }
+          "field": {
+            "type": "string",
+            "description": "需要补充的字段"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       },
       "agent_needs_confirmation": {
         "description": "发布或联系操作需要用户确认",
         "payload": {
-          "confirmation_id": { "type": "string" },
-          "action": { "type": "string", "enum": ["publish_skill", "contact_provider"] },
-          "message": { "type": "string" }
+          "confirmation_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "publish_skill",
+              "contact_provider"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
         }
       },
       "agent_done": {
         "payload": {
-          "response_summary": { "type": "string" },
-          "status": { "type": "string", "enum": ["completed", "no_match", "partial", "failed"] },
-          "actions_taken": { "type": "array" }
+          "response_summary": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "no_match",
+              "partial",
+              "failed"
+            ]
+          },
+          "actions_taken": {
+            "type": "array"
+          }
         }
       },
       "agent_error": {
         "payload": {
-          "code": { "type": "string", "enum": ["UNAVAILABLE", "TIMEOUT", "AUTH_FAILED", "INTERNAL_ERROR", "RATE_LIMITED"] },
-          "message": { "type": "string" }
+          "code": {
+            "type": "string",
+            "enum": [
+              "UNAVAILABLE",
+              "TIMEOUT",
+              "AUTH_FAILED",
+              "INTERNAL_ERROR",
+              "RATE_LIMITED"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
         }
       }
     }
   },
-
   "internalTools": {
     "description": "Agent 内部使用的 Tool 列表。编排层不直接调用，仅供 Agent 内部 ReAct 使用。",
     "tools": [
@@ -221,25 +214,55 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "keyword": { "type": "string", "description": "技能关键词，如 Python、吉他、日语、高数" },
+            "keyword": {
+              "type": "string",
+              "description": "技能关键词，如 Python、吉他、日语、高数"
+            },
             "category": {
               "type": "string",
-              "enum": ["programming", "language", "music", "art_design", "sports_fitness", "tutoring", "career", "other"]
+              "enum": [
+                "programming",
+                "language",
+                "music",
+                "art_design",
+                "sports_fitness",
+                "tutoring",
+                "career",
+                "other"
+              ]
             },
             "level": {
               "type": "string",
-              "enum": ["beginner", "intermediate", "advanced", "expert", "any"],
+              "enum": [
+                "beginner",
+                "intermediate",
+                "advanced",
+                "expert",
+                "any"
+              ],
               "default": "any"
             },
             "sort_by": {
               "type": "string",
-              "enum": ["rating", "newest", "relevance"],
+              "enum": [
+                "rating",
+                "newest",
+                "relevance"
+              ],
               "default": "relevance"
             },
-            "max_results": { "type": "integer", "default": 10, "minimum": 1, "maximum": 20 }
+            "max_results": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 20
+            }
           },
-          "required": ["keyword"]
-        }
+          "required": [
+            "keyword"
+          ]
+        },
+        "requiresConfirmation": false
       },
       {
         "name": "get_skill_detail",
@@ -247,10 +270,15 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "skill_id": { "type": "string" }
+            "skill_id": {
+              "type": "string"
+            }
           },
-          "required": ["skill_id"]
-        }
+          "required": [
+            "skill_id"
+          ]
+        },
+        "requiresConfirmation": false
       },
       {
         "name": "publish_skill",
@@ -258,25 +286,56 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "title": { "type": "string", "description": "技能标题，如「Python 数据分析入门辅导」" },
+            "title": {
+              "type": "string",
+              "description": "技能标题，如「Python 数据分析入门辅导」"
+            },
             "category": {
               "type": "string",
-              "enum": ["programming", "language", "music", "art_design", "sports_fitness", "tutoring", "career", "other"]
+              "enum": [
+                "programming",
+                "language",
+                "music",
+                "art_design",
+                "sports_fitness",
+                "tutoring",
+                "career",
+                "other"
+              ]
             },
             "level": {
               "type": "string",
-              "enum": ["beginner", "intermediate", "advanced", "expert"]
+              "enum": [
+                "beginner",
+                "intermediate",
+                "advanced",
+                "expert"
+              ]
             },
-            "description": { "type": "string", "description": "技能详细描述（擅长的具体内容、教学方式等）" },
-            "availability": { "type": "string", "description": "可提供服务的时间说明" },
+            "description": {
+              "type": "string",
+              "description": "技能详细描述（擅长的具体内容、教学方式等）"
+            },
+            "availability": {
+              "type": "string",
+              "description": "可提供服务的时间说明"
+            },
             "tags": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "技能标签，便于搜索"
             }
           },
-          "required": ["title", "category", "level", "description"]
-        }
+          "required": [
+            "title",
+            "category",
+            "level",
+            "description"
+          ]
+        },
+        "requiresConfirmation": true
       },
       {
         "name": "contact_provider",
@@ -284,11 +343,20 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "skill_id": { "type": "string" },
-            "message": { "type": "string", "description": "联系内容（学习目的、时间安排等）" }
+            "skill_id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string",
+              "description": "联系内容（学习目的、时间安排等）"
+            }
           },
-          "required": ["skill_id", "message"]
-        }
+          "required": [
+            "skill_id",
+            "message"
+          ]
+        },
+        "requiresConfirmation": true
       },
       {
         "name": "list_my_skills",
@@ -298,12 +366,201 @@
           "properties": {
             "status": {
               "type": "string",
-              "enum": ["active", "inactive", "all"],
+              "enum": [
+                "active",
+                "inactive",
+                "all"
+              ],
               "default": "active"
             }
           }
-        }
+        },
+        "requiresConfirmation": false
       }
     ]
+  },
+  "$id": "https://campuslink.local/schemas/skill-market-agent-1.1.0.json",
+  "agentType": "domain_agent",
+  "security": {
+    "requiredHeaders": [
+      "Authorization",
+      "X-Timestamp"
+    ],
+    "delegationTokenAudience": "skill-market-agent",
+    "tokenAlgorithm": "RS256 (JWKS)",
+    "writeConfirmationRequired": [
+      "publish_skill",
+      "contact_provider"
+    ],
+    "confirmationTtlSeconds": 600
+  },
+  "$defs": {
+    "invokeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "conversation_context": {
+          "type": "object",
+          "properties": {
+            "previous_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "shared_data": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "confirmed": {
+          "type": "boolean",
+          "default": false
+        },
+        "confirmation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "invokeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "needs_more_info",
+            "needs_confirmation",
+            "failed"
+          ]
+        },
+        "confirmation_required": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "confirmation_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "confirmation_id",
+            "action",
+            "summary",
+            "expires_at"
+          ]
+        },
+        "shared_context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "params_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "result_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failed",
+                  "skipped"
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "status"
+            ]
+          }
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "response",
+        "status",
+        "request_id"
+      ]
+    }
+  },
+  "model": {
+    "modes": [
+      "rules"
+    ],
+    "responsibilities": [
+      "intent_detection",
+      "action_selection"
+    ],
+    "fallbackMode": "rules",
+    "writeConfirmationCannotBeBypassed": true
   }
 }

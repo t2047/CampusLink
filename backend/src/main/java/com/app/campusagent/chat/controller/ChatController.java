@@ -1,5 +1,6 @@
 package com.app.campusagent.chat.controller;
 
+import com.app.campusagent.chat.dto.ResumeRequest;
 import com.app.campusagent.chat.service.OrchestrationClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,15 +60,13 @@ public class ChatController {
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> streamChat(
             @RequestParam String message,
-            @RequestParam(value = "session_id", required = false) String sessionId,
+            @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestParam(required = false) String traceId) {
 
         // 从 SecurityContext 提取身份（由 JwtAuthFilter 填充）
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String userId = resolveUserId(auth);
         String role = resolveRole(auth);
-        String rawJwt = (auth != null && auth.getCredentials() != null)
-                ? auth.getCredentials().toString() : "";
 
         String resolvedTraceId = (traceId == null || traceId.isBlank())
                 ? UUID.randomUUID().toString() : traceId;
@@ -74,9 +75,41 @@ public class ChatController {
 
         // 直接返回编排层事件流，由 Spring MVC SSE writer 序列化；
         // 异常时降级为 error 事件，保证流不中断。
-        return orchestrationClient.streamChat(rawJwt, userId, role, message, sessionId, resolvedTraceId)
+        return orchestrationClient.streamChat(userId, role, message, sessionId, resolvedTraceId)
                 .onErrorResume(e -> {
                     log.error("Chat stream failed: userId={}, err={}", userId, e.getMessage());
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("error")
+                            .data("{\"message\":\"服务器内部错误\"}")
+                            .build());
+                });
+    }
+
+    /**
+     * HITL 确认恢复（SSE 流）：前端确认/取消后调用，编排层以
+     * {@code Command(resume=...)} 恢复挂起的 LangGraph 并重调子 Agent。
+     *
+     * @param request 恢复请求（sessionId 必须与原始 stream 一致 + approved）
+     * @param traceId 可选追踪 ID
+     */
+    @PostMapping(value = "/resume", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> resumeChat(
+            @RequestBody ResumeRequest request,
+            @RequestParam(required = false) String traceId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String userId = resolveUserId(auth);
+        String role = resolveRole(auth);
+
+        String resolvedTraceId = (traceId == null || traceId.isBlank())
+                ? UUID.randomUUID().toString() : traceId;
+
+        log.info("Chat resume request: userId={}, sessionId={}, approved={}, traceId={}",
+                userId, request.sessionId(), request.approved(), resolvedTraceId);
+
+        return orchestrationClient.resumeChat(
+                        userId, role, request.sessionId(), request.approved(), resolvedTraceId)
+                .onErrorResume(e -> {
+                    log.error("Chat resume failed: userId={}, err={}", userId, e.getMessage());
                     return Flux.just(ServerSentEvent.<String>builder()
                             .event("error")
                             .data("{\"message\":\"服务器内部错误\"}")
@@ -93,6 +126,10 @@ public class ChatController {
             return "anonymous";
         }
         Object principal = auth.getPrincipal();
+        // JwtAuthFilter 现在注入 domain.User 实体（merge 回归修复后）
+        if (principal instanceof com.app.campusagent.domain.User user) {
+            return String.valueOf(user.getId());
+        }
         if (principal instanceof UserDetails ud) {
             return ud.getUsername();
         }
@@ -103,6 +140,9 @@ public class ChatController {
         if (auth == null || auth.getAuthorities() == null || auth.getAuthorities().isEmpty()) {
             return "UNKNOWN";
         }
-        return auth.getAuthorities().iterator().next().getAuthority();
+        String authority = auth.getAuthorities().iterator().next().getAuthority();
+        // 去掉 ROLE_ 前缀：用户 JWT 的 role claim 无前缀（STUDENT/ADMIN/SUPER_ADMIN），
+        // 内部契约（Delegation Token / Agent 通道）统一使用无前缀 role
+        return authority.startsWith("ROLE_") ? authority.substring("ROLE_".length()) : authority;
     }
 }

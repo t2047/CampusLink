@@ -8,12 +8,12 @@
   "transport": {
     "type": "mcp",
     "protocol": "streamable HTTP",
-    "baseUrl": "http://localhost:8083",
+    "baseUrl": "http://localhost:8085",
     "endpoints": {
       "mcp": {
         "method": "POST / GET",
         "path": "/mcp/",
-        "description": "MCP streamable HTTP 端点（Sprint 3 起承载全部调用）。调用工具：invoke（输入/输出契约见下方 invoke 段）"
+        "description": "MCP streamable HTTP 端点（mcp_servers/lost_found_server.py 适配层，端口 8085；8083 为组员自研 REST /agent/invoke）"
       },
       "health": {"method": "GET", "path": "/health", "authenticated": false}
     }

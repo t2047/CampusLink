@@ -16,6 +16,7 @@
 | 8 | SSE Streaming Handler | ✅ 同步模式；流式逐 token Sprint 3 |
 | 9 | Chat API 端点 | ✅ |
 | 10 | 集成测试 + Mock Agent | ✅ Mock agent/mock utility + 单元测试 |
+| 11 | HITL 人工确认（Sprint 4） | ✅ 三端接线完成：前端确认 → 后端 /api/chat/resume → 编排层 /chat/resume（Command resume 恢复挂起图）→ confirmed+confirmation_id 重调子 Agent 执行写操作；取消则跳过；含 resume 所有权/中断态校验（防越权+幂等）与前端防双击 |
 
 ## 决策记录
 
@@ -99,11 +100,12 @@
 - 多轮对话：前端 session_id（localStorage 持久化）→ 后端 → 编排层 thread_id，
   MemorySaver checkpoint 累积消息上下文；上次停在中断（HITL）时换新 thread 防挂起
 - HITL：`interrupt()` 暂停等待审批，`Command(resume=...)` 恢复
+- L&F 降级策略（2026-08-09）：LLM 调用失败/输出不可信 → **fail-closed 显式失败**
+  （`LOST_FOUND_LLM_FAIL_CLOSED=true` 默认），不静默降级规则引擎；false 恢复旧行为
 
 ## 待办（Sprint 3+）
 
 - [ ] Token Service 独立部署（RS256 + JWKS 端点；当前由 Chat Backend 内嵌提供，接口形态已对齐）
 - [ ] 编排层 Agent 路径流式逐 token 推送（chat 路径已 astream；Agent 路径当前同步返回完整 response）
-- [ ] HITL 确认后重新调用 Agent（当前仅标记 confirmed/cancelled）
-- [ ] 真实 Agent 组接入（替换 Mock）
+- [ ] 真实 Agent 组接入（替换 Mock）：Lost & Found ✅（Sprint 4 经 mcp_servers/lost_found_server.py 适配层接入其他业务）；mail / facility / skill 仍为脚手架 mock
 - [ ] 分布式追踪（LangFuse）接入

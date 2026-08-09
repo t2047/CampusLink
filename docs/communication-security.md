@@ -87,8 +87,31 @@ Domain Agent / Utility Tool（独立 MCP Server，:8081~8090）
 | `GET /.well-known/jwks.json` | 公开 | RS256 验签公钥（仅含公钥） |
 | `POST /internal/token/exchange` | HMAC（仅编排层） | 兑换 Delegation Token |
 | `POST /api/chat/stream` | 用户 JWT | 聊天 SSE |
+| `POST /api/chat/resume` | 用户 JWT | HITL 确认恢复（SSE，转发编排层 /chat/resume） |
 
-## 五、演进路径（Sprint 3+）
+## 五、HITL 确认恢复链路（Sprint 4）
+
+子 Agent 返回 `needs_confirmation` 时编排层 `interrupt()` 挂起图，等待用户确认：
+
+```
+前端确认/取消 ──POST /api/chat/resume {sessionId, approved}──▶ 后端
+                                                              │ 转发（HMAC）
+                                                              ▼
+                                            编排层 /chat/resume：Command(resume=...) 恢复挂起图
+                                                              │ 确认→confirmed+confirmation_id 重调子 Agent
+                                                              ▼ 取消→跳过该 Agent
+                                                    结果经 SSE 流式返回
+```
+
+安全控制（编排层 `chat_resume`）：
+- **所有权校验**：resume 前 `graph.get_state` 读 checkpoint，`user_id` 与调用者不一致 → `403`。
+  前端 `sessionId` 是会话级随机 UUID（存 localStorage），是恢复挂起图的唯一凭证，
+  校验防止拿到他人 sessionId 时批准/取消对方的待确认写操作
+- **中断态校验（幂等）**：thread 必须停在 `human_approval` 中断；已消费/非中断态 → `409`，
+  防双重提交导致写操作重复执行（前端另以 ref 防双击）
+- 入站仍走共享密钥 HMAC（`X-Signature` / `X-Nonce` / `X-Timestamp`）
+
+## 六、演进路径（Sprint 3+）
 
 - **Token Service 独立部署**：`DelegationTokenProvider` 与 `TokenExchangeController` 的
   接口形态已按独立服务对齐。独立部署后仅需切换环境变量：

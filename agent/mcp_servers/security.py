@@ -8,7 +8,10 @@ Sprint 3 安全模型（MCP 化后，对齐 docs/communication-security.md）：
 - **传输完整性**：生产由 TLS 保证。自研 REST 时代的 body HMAC 签名与
   `jti == X-Nonce` 绑定在 MCP 层取消——MCP 请求体由 SDK 序列化为标准 JSON-RPC，
   无法按 body 动态签名，且 token 短时有效已覆盖重放风险
-- 校验通过后身份写入 `request.state`（user_id / user_role），供工具实现使用
+- 校验通过后身份写入 `request.state`（user_id / user_role），供工具实现使用。
+  注意：FastMCP 工具函数无法访问 Starlette `request.state`，工具内需用
+  `identity_from_context(context, agent_name)` 从当前请求头二次解析身份
+  （中间件已放行，此处仅取 claims；带 TokenVerifier 单例缓存避免重复拉 JWKS）
 """
 
 from __future__ import annotations
@@ -25,7 +28,42 @@ from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["McpSecurityMiddleware", "TokenVerifier"]
+__all__ = ["McpSecurityMiddleware", "TokenVerifier", "identity_from_context"]
+
+# TokenVerifier 单例缓存（agent_name → verifier）：避免每个请求重复构造
+# PyJWKClient（会丢失 JWKS 缓存，导致每请求重新拉取公钥）
+_VERIFIERS: dict[str, "TokenVerifier"] = {}
+
+
+def identity_from_context(context: Any, agent_name: str) -> dict[str, Any]:
+    """从 FastMCP 工具上下文（Context）的当前请求 Authorization 头解析身份。
+
+    ``McpSecurityMiddleware`` 已对请求完成 RS256 验签 + aud 匹配放行，工具能执行
+    说明请求已通过校验；此处二次验签仅用于获取身份（sub / role / intended_action），
+    并防止工具被绕过中间件直接调用。
+
+    Args:
+        context: FastMCP 工具注入的 ``Context``（mcp>=1.9 提供 request_context）
+        agent_name: 本 Agent 名（用于 TokenVerifier 的 aud 匹配与单例缓存）
+
+    Returns:
+        Delegation Token 的 claims（含 sub / role / intended_action）
+
+    Raises:
+        ValueError: 缺少 Authorization 头或验签失败
+    """
+    verifier = _VERIFIERS.get(agent_name)
+    if verifier is None:
+        verifier = TokenVerifier(agent_name)
+        _VERIFIERS[agent_name] = verifier
+
+    request = getattr(getattr(context, "request_context", None), "request", None)
+    headers = getattr(request, "headers", None)
+    authorization = headers.get("Authorization", "") if headers else ""
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token or authorization == token:
+        raise ValueError("missing bearer token")
+    return verifier.verify_token(token)
 
 
 class TokenVerifier:

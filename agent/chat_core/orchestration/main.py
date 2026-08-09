@@ -44,6 +44,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from dotenv import find_dotenv, load_dotenv
 from langchain_core.messages import HumanMessage
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 # 自动加载仓库根目录 .env（向上查找；不覆盖已设置的变量）
@@ -130,6 +131,16 @@ class ChatRequest(BaseModel):
     sessionId: str = Field(default="", description="会话 ID（多轮上下文复用 thread_id）")
 
 
+class ResumeRequest(BaseModel):
+    """Chat Backend 转发的 HITL 确认恢复请求。"""
+
+    userId: str = Field(..., description="用户 ID")
+    role: str = Field("STUDENT", description="用户角色")
+    sessionId: str = Field(..., description="会话 ID（必须与原始 thread_id 一致）")
+    approved: bool = Field(True, description="用户确认结果（true=确认，false=取消）")
+    traceId: str = Field(default="", description="分布式追踪 ID")
+
+
 # ──────────────────────────────────────────────────────────────────────
 # 健康检查
 # ──────────────────────────────────────────────────────────────────────
@@ -177,8 +188,12 @@ async def chat_stream(request: Request):
         "user_id": payload.userId,
         "user_role": payload.role,
         "trace_id": trace_id,
+        "session_id": session_id,
         "conversation_context": payload.conversationContext,
         "requires_approval": False,
+        "approval_context": None,
+        "approval_agent": None,
+        "pending_confirmation": None,
         "error": None,
         "failed_agents": [],
         "service_failures": [],   # 失败兜底上下文，每轮重置（防跨轮残留误触发）
@@ -200,8 +215,72 @@ async def chat_stream(request: Request):
     )
 
 
+@app.post("/chat/resume")
+async def chat_resume(request: Request):
+    """HITL 确认恢复：以 Command(resume=...) 恢复挂起的 LangGraph，返回 SSE 事件流。
+
+    安全：与 /chat/stream 一致（入站 HMAC + Nonce + Timestamp）。
+    resume 必须使用与原始运行一致的 thread_id（sessionId），否则无法找到挂起 checkpoint。
+    """
+    verified = await _get_inbound_security().verify(request)
+
+    try:
+        body = await request.json()
+        payload = ResumeRequest(**body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid request body")
+
+    trace_id = payload.traceId or verified.trace_id or str(uuid.uuid4())
+    session_id = _sanitize_thread_id(payload.sessionId)
+    if not session_id:
+        raise HTTPException(status_code=400, detail="sessionId is required for resume")
+
+    logger.info(
+        "chat_resume: userId=%s, sessionId=%s, approved=%s, traceId=%s",
+        payload.userId, session_id, payload.approved, trace_id,
+    )
+
+    graph = _get_graph()
+    thread_id = _sanitize_thread_id(payload.sessionId)
+
+    # ── 所有权 + 中断态校验（兼作 resume 幂等保护）──
+    # 1) checkpoint 内 user_id 必须与调用者一致（防 sessionId 横向越权）
+    # 2) thread 必须确实停在 human_approval 中断（非中断态/已消费的 resume 一律 409，
+    #    杜绝双重提交导致写操作重复执行）
+    try:
+        snapshot = graph.get_state({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        snapshot = None
+    if not snapshot or not snapshot.next or "human_approval" not in snapshot.next:
+        raise HTTPException(status_code=409, detail="session is not awaiting approval")
+    state_user = (snapshot.values or {}).get("user_id")
+    if state_user is not None and str(state_user) != str(payload.userId):
+        logger.warning(
+            "chat_resume owner mismatch: session=%s state_user=%s caller=%s",
+            thread_id, state_user, payload.userId,
+        )
+        raise HTTPException(status_code=403, detail="session owner mismatch")
+
+    return StreamingResponse(
+        _sse_stream(
+            graph,
+            {},   # resume 分支不使用 initial_state（图从 checkpoint 恢复）
+            payload.userId,
+            trace_id,
+            session_id,
+            resume={"approved": payload.approved},
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Trace-Id": trace_id,
+        },
+    )
+
+
 async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_id: str,
-                      session_id: str = "") -> AsyncGenerator[str, None]:
+                      session_id: str = "", resume: dict | None = None) -> AsyncGenerator[str, None]:
     """流式执行 LangGraph 并逐事件生成 SSE 文本。
 
     stream_mode=["messages", "updates"]：
@@ -226,13 +305,21 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
     stream_failed = False     # 图执行异常（异常路径已由 _direct_llm_reply 兜底，跳过补发）
 
     try:
-        async for mode, chunk in graph.astream(
-            initial_state,
-            # 多轮上下文：同一会话复用 thread_id（MemorySaver checkpoint 累积 messages）；
-            # 若上次运行停在中断（HITL）则由 _thread_config 换新 thread 避免恢复挂起
-            config=_thread_config(graph, session_id),
-            stream_mode=["messages", "updates"],
-        ):
+        if resume is not None:
+            # HITL 确认恢复：必须用原始 thread_id 恢复挂起的图
+            # （不能走 _thread_config —— 它会在 thread 停在中断时换新 thread）
+            stream = graph.astream(
+                Command(resume=resume),
+                config={"configurable": {"thread_id": _sanitize_thread_id(session_id)}},
+                stream_mode=["messages", "updates"],
+            )
+        else:
+            stream = graph.astream(
+                initial_state,
+                config=_thread_config(graph, session_id),
+                stream_mode=["messages", "updates"],
+            )
+        async for mode, chunk in stream:
             if mode == "messages":
                 # chunk: (message_chunk, metadata)
                 message_chunk = chunk[0] if isinstance(chunk, tuple) else chunk
@@ -272,6 +359,9 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
                                 "agent": value.get("agent", ""),
                                 "details": value.get("details", {}),
                             }))
+                            # 中断是正常暂停而非"无输出"：置位以抑制流末 LLM 抢答
+                            # （否则用户同时看到确认框和一条 LLM 即时回复）
+                            emitted_content = True
                         continue
 
                     # 防御：LangGraph 对返回空 dict 的节点可能产出 None 更新，
@@ -303,8 +393,12 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
     except Exception as e:
         logger.error("chat_stream failed: userId=%s, traceId=%s, err=%s", user_id, trace_id, e)
         stream_failed = True
-        # 异常兜底：未产出任何内容时直接用 LLM 回复，保证"永远有回复"
-        if not emitted_content and not emitted_error:
+        if resume is not None:
+            # resume 分支异常：不兜底 LLM（initial_state 为空，会输出"你好"），直接发错误事件
+            if not emitted_error:
+                yield _format_sse(SSEEvent("error", {"message": "恢复会话失败，请重新发起请求"}))
+        elif not emitted_content and not emitted_error:
+            # 异常兜底：未产出任何内容时直接用 LLM 回复，保证"永远有回复"
             async for evt in _direct_llm_reply(initial_state):
                 emitted_content = True
                 yield _format_sse(evt)
@@ -318,10 +412,14 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
             emitted_content = True
             yield _format_sse(SSEEvent("token", {"content": pending_chat_reply}))
 
-        # 图正常结束但没有任何输出（无节点处理 / 空回复）→ 直接用 LLM 回复
+        # 图正常结束但没有任何输出（无节点处理 / 空回复）→ 直接用 LLM 回复；
+        # resume 分支例外：无输出即发错误事件（避免用空上下文输出"你好"）
         if not emitted_content and not emitted_error:
-            async for evt in _direct_llm_reply(initial_state):
-                yield _format_sse(evt)
+            if resume is not None:
+                yield _format_sse(SSEEvent("error", {"message": "恢复会话失败，请重新发起请求"}))
+            else:
+                async for evt in _direct_llm_reply(initial_state):
+                    yield _format_sse(evt)
 
     # 结束事件
     yield _format_sse(SSEEvent("done", {}))
