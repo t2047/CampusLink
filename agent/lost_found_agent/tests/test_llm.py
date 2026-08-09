@@ -216,3 +216,34 @@ def test_model_cannot_bypass_claim_confirmation() -> None:
     assert result["status"] == "needs_confirmation"
     assert result["confirmation_required"]["action"] == "claim_item"
     assert fake_api.calls == []
+
+
+def test_explicit_search_wording_overrides_model_report_misclassification() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "report_lost",
+                "language": "zh",
+                "fields": {
+                    "item_name": "蓝色雨伞",
+                    "category": "UMBRELLA",
+                    "description": "用户想查找一把在工程学院丢失的蓝色雨伞",
+                    "location": "工程学院一号楼大厅",
+                    "event_date": "2026-08-09",
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    with client:
+        result = invoke(
+            client,
+            settings,
+            "帮我找一把2026-08-09在工程学院一号楼大厅丢失的蓝色雨伞",
+            trace_id="llm-search-priority",
+        )
+
+    assert result["status"] == "no_match"
+    assert result["confirmation_required"] is None
+    assert [call[0] for call in fake_api.calls] == ["search_found_items"]

@@ -129,7 +129,13 @@ class RuleEngine:
             return await self._handle_confirmation(payload, verified, request_id, language, emit)
 
         context = safe_context(payload.conversation_context.shared_data)
-        intent = interpreted_intent or detect_intent(payload.message, context.get("intent"))
+        previous_intent = context.get("intent")
+        intent = (
+            detect_explicit_intent(payload.message)
+            or (previous_intent if previous_intent in ALLOWED_INTENTS else None)
+            or interpreted_intent
+            or "search_found_items"
+        )
         context["intent"] = intent
         context.update(extract_fields(payload.message, intent))
         if interpreted_fields:
@@ -466,6 +472,14 @@ def detect_language(message: str) -> str:
 
 
 def detect_intent(message: str, previous: Any = None) -> Intent:
+    explicit = detect_explicit_intent(message)
+    if explicit:
+        return explicit
+    return previous if previous in ALLOWED_INTENTS else "search_found_items"
+
+
+def detect_explicit_intent(message: str) -> Intent | None:
+    """识别用户本轮明确表达的意图；检索措辞优先于物品丢失背景。"""
     lowered = message.lower()
     if re.search(r"\bclaim\b|\bownership\b", lowered) or "认领" in message:
         return "claim_item"
@@ -473,15 +487,15 @@ def detect_intent(message: str, previous: Any = None) -> Intent:
         keyword in message for keyword in ("详情", "查看记录")
     ):
         return "get_item_detail"
+    if re.search(r"\bsearch\b|\bfind\b|\bfound item", lowered) or any(
+        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
+    ):
+        return "search_found_items"
     if re.search(r"\bi lost\b|\breport(?:ed)? lost\b|\blost my\b", lowered) or any(
         keyword in message for keyword in ("我丢了", "丢了", "丢失", "遗失", "报失")
     ):
         return "report_lost"
-    if re.search(r"\bsearch\b|\bfind\b|\bfound item", lowered) or any(
-        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配")
-    ):
-        return "search_found_items"
-    return previous if previous in ALLOWED_INTENTS else "search_found_items"
+    return None
 
 
 ALLOWED_INTENTS = {
@@ -703,6 +717,18 @@ def backend_error_response(
     language: str,
     emit: Emit,
 ) -> InvokeResponse:
-    message = error.args[0] if language == "zh" else f"Campus API error ({error.code})"
+    chinese_messages = {
+        "CLAIM_ALREADY_EXISTS": "你已经提交过该物品的待处理或已批准认领申请，不能重复认领。",
+        "CANNOT_CLAIM_OWN_REPORT": "不能认领自己发布的拾获记录。",
+        "ONLY_FOUND_REPORTS_CAN_BE_CLAIMED": "只有拾获记录可以提交认领。",
+        "REPORT_NOT_OPEN": "该记录当前不是开放状态，不能继续认领。",
+        "LOST_FOUND_REPORT_NOT_FOUND": "没有找到指定的失物招领记录。",
+        "CLAIM_NOT_FOUND": "没有找到指定的认领申请。",
+    }
+    message = (
+        chinese_messages.get(error.code, str(error))
+        if language == "zh"
+        else f"Campus API error ({error.code}): {error}"
+    )
     emit(AgentEvent("agent_error", {"code": error.code, "message": message}))
     return response_with_token(message, "failed", request_id, emit)

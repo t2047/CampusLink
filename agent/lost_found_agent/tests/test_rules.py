@@ -166,6 +166,35 @@ def test_search_returns_explainable_top_five_in_score_order(
     assert [call[0] for call in fake_api.calls] == ["search_found_items"]
 
 
+def test_explicit_chinese_search_wins_over_lost_item_background(
+    client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    fake_api.candidates = [
+        {
+            "id": 6,
+            "itemName": "测试用蓝色雨伞",
+            "category": "UMBRELLA",
+            "description": "一把蓝色长柄测试雨伞，伞柄上贴有测试标签",
+            "colour": "蓝色",
+            "location": "工程学院一号楼大厅",
+            "eventDate": "2026-08-09",
+            "status": "OPEN",
+        }
+    ]
+
+    result = invoke(
+        client,
+        settings,
+        "帮我找一把2026-08-09在工程学院一号楼大厅丢失的蓝色雨伞",
+        trace_id="chinese-search-priority",
+    )
+
+    assert result["status"] == "match_found"
+    assert result["confirmation_required"] is None
+    assert result["match_results"][0]["item_id"] == "6"
+    assert [call[0] for call in fake_api.calls] == ["search_found_items"]
+
+
 def test_chinese_detail_response_and_sse_events(
     client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
 ) -> None:

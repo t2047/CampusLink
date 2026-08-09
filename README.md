@@ -70,8 +70,9 @@ Stop the infrastructure without deleting its data with `docker compose stop`. Us
 - Let the found-item reporter approve or reject a claim. Approval marks the report `CLAIMED` and rejects its other pending claims.
 - Keep ownership proof visible only to the claimant and the report publisher.
 - Give `ADMIN` and `SUPER_ADMIN` users a read-only operational overview with report metrics, filters, pagination, and reporter identification.
+- Let authenticated users try the real Lost & Found Agent from the main page with multi-turn input, write confirmation, search, and candidate links. Agent secrets remain server-side.
 
-AI matching, agents, notifications, mobile UI, administrator write actions, report editing, and report deletion are outside this iteration.
+Embedding and multimodal image matching, notifications, mobile UI, administrator write actions, report editing, and report deletion remain outside this iteration.
 
 ## API Reference
 
