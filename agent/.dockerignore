@@ -1,0 +1,13 @@
+# Build context = ./agent（Dockerfile: lost_found_agent/Dockerfile）
+# 镜像只需要 lost_found_agent/（业务代码）与 mcp_servers/（MCP 适配层），
+# 其余目录排除以缩小上下文、加快构建。
+chat_core/
+schemas/
+shared/
+**/tests/
+**/__pycache__/
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/*.pyc

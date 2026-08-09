@@ -79,7 +79,9 @@ jobs:
       - name: Python dependency audit
         run: uv run pip-audit
       - name: Build non-root Agent image
-        run: docker build -t campuslink-lost-found-agent:${{ github.sha }} .
+        # Dockerfile 的 COPY 路径（lost_found_agent/*、mcp_servers/）以 agent/ 为 context
+        working-directory: agent
+        run: docker build -f lost_found_agent/Dockerfile -t campuslink-lost-found-agent:${{ github.sha }} .
 
   agent-codeql:
     name: Agent CodeQL
