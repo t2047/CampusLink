@@ -47,13 +47,19 @@ class MatchResult(BaseModel):
 
 class ConfirmationRequired(BaseModel):
     confirmation_id: str
-    action: Literal["report_lost", "claim_item"]
+    action: Literal["report_lost", "report_found", "claim_item"]
     summary: str
     expires_at: str
 
 
 class ActionTaken(BaseModel):
-    action: Literal["report_lost", "search_found_items", "get_item_detail", "claim_item"]
+    action: Literal[
+        "report_lost",
+        "report_found",
+        "search_found_items",
+        "get_item_detail",
+        "claim_item",
+    ]
     params_summary: str | None = None
     result_summary: str | None = None
     status: Literal["success", "failed", "skipped"]

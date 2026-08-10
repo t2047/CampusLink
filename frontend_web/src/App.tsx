@@ -16,7 +16,7 @@ const MaintenanceDetailPage = lazy(() => import('./admin/facilities/FacilitiesPa
 const AdminLostFoundPage = lazy(() => import('./admin/lostFound/AdminLostFoundPage').then((module) => ({ default: module.AdminLostFoundPage })))
 const AdminClaimDetailPage = lazy(() => import('./admin/lostFound/AdminClaimDetailPage').then((module) => ({ default: module.AdminClaimDetailPage })))
 const AdminNotFoundPage = lazy(() => import('./admin/shared/AdminNotFoundPage').then((module) => ({ default: module.AdminNotFoundPage })))
-const AdminUserManagementPage = lazy(() => import('./admin/users/UserManagementPlaceholderPage').then((module) => ({ default: module.UserManagementPlaceholderPage })))
+const AdminUserManagementPage = lazy(() => import('./admin/users/AdminUserManagementPage').then((module) => ({ default: module.AdminUserManagementPage })))
 const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage').then((module) => ({ default: module.AdminForbiddenPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))

@@ -68,6 +68,9 @@ def settings() -> Settings:
         lost_found_confirmation_secret="c" * 64,
         agent_rate_limit_per_minute=20,
         agent_rate_limit_per_session=20,
+        # 规则引擎测试必须锁定 rules 模式：auto 会依赖环境里的 LLM key，
+        # 一旦 CI/本地注入了 LOST_FOUND_LLM_API_KEY 就变 llm 模式导致行为漂移
+        lost_found_agent_mode="rules",
     )
 
 

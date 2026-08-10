@@ -95,6 +95,38 @@ class FacilitiesDateTimeParserTest(unittest.TestCase):
         self.assertTrue(parsed.needs_clarification)
         self.assertIn("valid time", parsed.clarification)
 
+    def test_chinese_duration_hour(self):
+        parsed = self.parser.parse("明天早上9点1小时")
+        self.assertEqual("2026-08-10T09:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T10:00:00", parsed.end_local_iso)
+        self.assertFalse(parsed.needs_clarification)
+
+    def test_chinese_cn_digit_hour(self):
+        parsed = self.parser.parse("明天上午九点")
+        self.assertEqual("2026-08-10T09:00:00", parsed.start_local_iso)
+        self.assertTrue(parsed.needs_clarification)
+        self.assertIn("end time", parsed.clarification)
+
+    def test_chinese_cn_digit_duration(self):
+        parsed = self.parser.parse("明天早上九点1小时")
+        self.assertEqual("2026-08-10T09:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T10:00:00", parsed.end_local_iso)
+
+    def test_chinese_cn_digit_range(self):
+        parsed = self.parser.parse("今天下午三点到五点")
+        self.assertEqual("2026-08-09T15:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-09T17:00:00", parsed.end_local_iso)
+
+    def test_english_duration(self):
+        parsed = self.parser.parse("tomorrow 2pm for 1 hour")
+        self.assertEqual("2026-08-10T14:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T15:00:00", parsed.end_local_iso)
+
+    def test_half_hour_duration(self):
+        parsed = self.parser.parse("tomorrow 2pm half an hour")
+        self.assertEqual("2026-08-10T14:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T14:30:00", parsed.end_local_iso)
+
 
 if __name__ == "__main__":
     unittest.main()

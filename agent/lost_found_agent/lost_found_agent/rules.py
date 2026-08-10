@@ -20,11 +20,18 @@ from .tools import (
     CampusApiClient,
     ClaimItemInput,
     GetItemDetailInput,
+    ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
 )
 
-Intent = Literal["report_lost", "search_found_items", "get_item_detail", "claim_item"]
+Intent = Literal[
+    "report_lost",
+    "report_found",
+    "search_found_items",
+    "get_item_detail",
+    "claim_item",
+]
 Emit = Callable[[AgentEvent], None]
 
 CATEGORIES: dict[str, str] = {
@@ -100,6 +107,8 @@ ALLOWED_CONTEXT_FIELDS = {
     "date_from",
     "date_to",
     "report_id",
+    "system_facts",
+    "recent_messages",
     "proof_description",
     "visual_fingerprint",
 }
@@ -150,6 +159,8 @@ class RuleEngine:
 
         if intent == "report_lost":
             return self._prepare_report(context, verified, request_id, language, emit)
+        if intent == "report_found":
+            return self._prepare_found(context, verified, request_id, language, emit)
         if intent == "claim_item":
             return self._prepare_claim(context, verified, request_id, language, emit)
         if intent == "get_item_detail":
@@ -192,6 +203,54 @@ class RuleEngine:
             f"请确认报失信息：{summary}"
             if language == "zh"
             else f"Please confirm this lost-item report: {summary}"
+        )
+        emit(AgentEvent("confirmation_required", confirmation.model_dump(mode="json")))
+        return response_with_token(
+            message,
+            "needs_confirmation",
+            request_id,
+            emit,
+            shared_context=context,
+            confirmation_required=confirmation,
+        )
+
+    def _prepare_found(
+        self,
+        context: dict[str, Any],
+        verified: VerifiedRequest,
+        request_id: str,
+        language: str,
+        emit: Emit,
+    ) -> InvokeResponse:
+        """登记捡到物品（report_found）：先确认（写操作），确认后创建 FOUND 报告。"""
+        required = ["item_name", "category", "description", "location", "event_date"]
+        missing = [field for field in required if not context.get(field)]
+        if missing:
+            message = missing_message(missing, language)
+            emit(AgentEvent("needs_more_info", {"missing_fields": missing, "message": message}))
+            return response_with_token(
+                message,
+                "needs_more_info",
+                request_id,
+                emit,
+                shared_context=context,
+            )
+
+        report = ReportFoundInput.model_validate(context)
+        confirmation_id, pending = self._confirmations.create(
+            verified.user_id, "report_found", report.model_dump(mode="json")
+        )
+        summary = report_summary(report, language)
+        confirmation = ConfirmationRequired(
+            confirmation_id=confirmation_id,
+            action="report_found",
+            summary=summary,
+            expires_at=datetime.fromtimestamp(pending.expires_at, UTC).isoformat(),
+        )
+        message = (
+            f"请确认捡到物品信息：{summary}"
+            if language == "zh"
+            else f"Please confirm this found-item report: {summary}"
         )
         emit(AgentEvent("confirmation_required", confirmation.model_dump(mode="json")))
         return response_with_token(
@@ -297,6 +356,28 @@ class RuleEngine:
                         ActionTaken(
                             action="claim_item",
                             result_summary=f"claim_id={result.get('id')}",
+                            status="success",
+                        )
+                    ],
+                )
+
+            if pending.action == "report_found":
+                found_report = ReportFoundInput.model_validate(pending.payload)
+                emit(tool_event("report_found", "started"))
+                created = await self._api.report_found(
+                    verified.user_id, verified.user_role, found_report
+                )
+                emit(tool_event("report_found", "completed"))
+                message = found_created_message(created, language)
+                return response_with_token(
+                    message,
+                    "completed",
+                    request_id,
+                    emit,
+                    actions_taken=[
+                        ActionTaken(
+                            action="report_found",
+                            result_summary=f"report_id={created.get('id')}",
                             status="success",
                         )
                     ],
@@ -489,18 +570,24 @@ def detect_explicit_intent(message: str) -> Intent | None:
     ):
         return "get_item_detail"
     if re.search(r"\bsearch\b|\bfind\b|\bfound item", lowered) or any(
-        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
+        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到", "找到")
     ):
         return "search_found_items"
     if re.search(r"\bi lost\b|\breport(?:ed)? lost\b|\blost my\b", lowered) or any(
         keyword in message for keyword in ("我丢了", "丢了", "丢失", "遗失", "报失")
     ):
         return "report_lost"
+    # 捡到/拾到物品 → 登记捡到报告（report_found）；"找到"保留给失主搜索
+    if re.search(r"\bpick(?:ed)? up\b|\bfound\b", lowered) or any(
+        keyword in message for keyword in ("捡到", "捡了", "拾到")
+    ):
+        return "report_found"
     return None
 
 
 ALLOWED_INTENTS = {
     "report_lost",
+    "report_found",
     "search_found_items",
     "get_item_detail",
     "claim_item",
@@ -508,11 +595,27 @@ ALLOWED_INTENTS = {
 
 
 def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in shared_data.items()
-        if key in ALLOWED_CONTEXT_FIELDS and isinstance(value, (str, int, float, bool))
-    }
+    result: dict[str, Any] = {}
+    for key, value in shared_data.items():
+        if key not in ALLOWED_CONTEXT_FIELDS:
+            continue
+        if key == "system_facts" and isinstance(value, dict):
+            # 编排层注入的系统事实包：只放行字符串值（today/now/timezone/user_language）
+            result[key] = {k: v for k, v in value.items() if isinstance(v, str)}
+        elif key == "recent_messages" and isinstance(value, list):
+            # 编排层注入的最近对话历史：只保留 role/content 字符串对
+            cleaned = []
+            for item in value:
+                if (
+                    isinstance(item, dict)
+                    and isinstance(item.get("role"), str)
+                    and isinstance(item.get("content"), str)
+                ):
+                    cleaned.append({"role": item["role"], "content": item["content"]})
+            result[key] = cleaned
+        elif isinstance(value, (str, int, float, bool)):
+            result[key] = value
+    return result
 
 
 def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
@@ -660,7 +763,7 @@ def missing_message(fields: list[str], language: str) -> str:
     return f"还需要以下信息：{names}。" if language == "zh" else f"Please provide: {names}."
 
 
-def report_summary(report: ReportLostInput, language: str) -> str:
+def report_summary(report: ReportLostInput | ReportFoundInput, language: str) -> str:
     if language == "zh":
         return (
             f"{report.item_name}，类别 {report.category}，地点 {report.location}，"
@@ -681,6 +784,17 @@ def report_created_message(created: dict[str, Any], matches: list[Any], language
         f"and found {len(matches)} potential match(es)." if matches else "with no strong match yet."
     )
     return f"Lost report #{report_id} was created {suffix}"
+
+
+def found_created_message(created: dict[str, Any], language: str) -> str:
+    """捡到（FOUND）报告创建成功文案（暂不匹配失主：后端无 LOST 候选端点）。"""
+    report_id = created.get("id")
+    if language == "zh":
+        return f"捡到物品记录 #{report_id} 已登记，失主报失后会匹配到这条记录。"
+    return (
+        f"Found report #{report_id} was registered; "
+        "it will be matched when the owner files a lost report."
+    )
 
 
 def detail_message(detail: dict[str, Any], language: str) -> str:

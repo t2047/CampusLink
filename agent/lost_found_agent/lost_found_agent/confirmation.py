@@ -15,7 +15,7 @@ class ConfirmationError(ValueError):
 @dataclass(frozen=True)
 class PendingConfirmation:
     user_id: str
-    action: Literal["report_lost", "claim_item"]
+    action: Literal["report_lost", "report_found", "claim_item"]
     payload: dict[str, Any]
     expires_at: float
 
@@ -35,7 +35,7 @@ class ConfirmationStore:
     def create(
         self,
         user_id: str,
-        action: Literal["report_lost", "claim_item"],
+        action: Literal["report_lost", "report_found", "claim_item"],
         payload: dict[str, Any],
     ) -> tuple[str, PendingConfirmation]:
         confirmation_id = secrets.token_urlsafe(32)

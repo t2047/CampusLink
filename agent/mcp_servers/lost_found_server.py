@@ -220,6 +220,7 @@ async def invoke(
                         {
                             "response": "智能识别服务暂时不可用，请稍后重试。",
                             "status": "failed",
+                            "error": f"llm_fail_closed: {exc}",
                             "request_id": request_id,
                         },
                         ensure_ascii=False,

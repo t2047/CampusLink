@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/English-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
 
 CampusLink is a campus **AI Agent platform**: the `agent/chat_core` orchestration layer (FastAPI + LangGraph)
-is the core, driving multi-domain Agents (mail / facility / lost-found / skill / utility-tools) over the
+is the core, driving multi-domain Agents (mail / facility / lost-found / utility-tools) over the
 MCP protocol for chat Q&A and business operations, with SSE streaming and HITL human approval.
 
 **Lost & Found is the first fully shipped vertical slice of the platform**: a complete Web workflow
@@ -81,7 +81,7 @@ Stop the infrastructure without deleting its data with `docker compose stop`. Us
 The platform core is a campus **AI assistant** (natural-language chat + multi-domain Agent orchestration):
 
 - **Orchestration**: `agent/chat_core` (FastAPI + LangGraph; intent routing, agent invocation, HITL human approval, LLM fallback)
-- **Agents**: MCP servers under `agent/mcp_servers/` (mail / facility / lost-found / skill / utility-tools),
+- **Agents**: MCP servers under `agent/mcp_servers/` (mail / facility / lost-found / utility-tools),
   exposed over streamable HTTP and registered via capability declarations in `agent/schemas/*.json`
 - **Frontend**: chat entry at the React app home page (typing/SSE streaming, intent display, HITL confirmations — confirming resumes the suspended graph via `POST /api/chat/resume` and re-invokes the sub-agent with `confirmed=true` so the write actually happens; lost-report / claim confirmation flows are live)
 - **Security**: RS256 Delegation Token chain — see [docs/communication-security.md](docs/communication-security.md)
@@ -169,7 +169,7 @@ PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking
 project/
 ├── agent/                   Agent system (platform core)
 │   ├── chat_core/           Orchestration (FastAPI + LangGraph; intent routing / HITL / LLM fallback)
-│   ├── mcp_servers/         MCP server adapters (mail/facility/lost-found/skill/utility)
+│   ├── mcp_servers/         MCP server adapters (mail/facility/lost-found/utility)
 │   ├── lost_found_agent/    L&F business engine (rules + LLM intent parsing)
 │   └── schemas/             Agent capability declarations (JSON Schema)
 ├── backend/

@@ -75,6 +75,11 @@ vi.mock('./api/adminLostFound', () => ({
   approveAdminClaim: adminApiMocks.approveClaim,
   rejectAdminClaim: adminApiMocks.rejectClaim,
 }))
+vi.mock('./api/adminUsers', () => ({
+  listAdminUsers: vi.fn().mockResolvedValue([]),
+  createAdminUser: vi.fn(),
+  updateUserRole: vi.fn(),
+}))
 
 function setDesktopViewport() {
   Object.defineProperty(window, 'matchMedia', {
@@ -151,18 +156,14 @@ describe('admin application routes', () => {
   })
 
 
-  it.each([
-    ['/admin/users', 'User Management', 'The scope of this module is pending team confirmation.'],
-  ])('renders the %s administrator placeholder', async (path, heading, description) => {
+  it('renders the User Management page at the users route', async () => {
     storeSession('ADMIN')
-    renderApp(path)
+    renderApp('/admin/users')
 
-    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
-    expect(screen.getByText(description)).toBeInTheDocument()
-    expect(screen.getByText('Coming Soon')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'User Management' })).toBeInTheDocument()
+    expect(await screen.findByText('暂无用户')).toBeInTheDocument()
     expect(screen.getByText('CampusLink Administration')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: heading })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('link', { name: 'Return to Overview' })).toHaveAttribute('href', '/admin/dashboard')
+    expect(screen.getByRole('link', { name: 'User Management' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('renders the Facilities dashboard at the facilities route', async () => {

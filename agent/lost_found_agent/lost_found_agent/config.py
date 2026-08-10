@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     lost_found_llm_api_key: str = ""
     lost_found_llm_base_url: str = "https://api.deepseek.com"
     lost_found_llm_model: str = "deepseek-v4-flash"
-    lost_found_llm_timeout_seconds: float = Field(default=10, ge=1, le=60)
+    lost_found_llm_timeout_seconds: float = Field(default=30, ge=1, le=120)
     # 单次调用最大生成 token（推理模型需预留思考空间，1200 会被
     # reasoning_content 耗尽导致 content 为空；默认 4000 可调）
     lost_found_llm_max_tokens: int = Field(default=4000, ge=256, le=8192)

@@ -127,3 +127,37 @@ def test_intent_router_llm_raises_falls_back_to_chat(monkeypatch):
     assert result["intent_type"] == "chat"
     assert result["agent_plan"] == []
     assert result["utility_plan"] == []
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 澄清循环（编排层主动信息收集）
+# ──────────────────────────────────────────────────────────────────────
+
+def test_intent_router_clarification_skips_llm(monkeypatch):
+    """澄清轮：pending_info 存在时跳过 LLM 分类，直接回同一 Agent。"""
+    class BombLLM:
+        def invoke(self, messages):
+            raise AssertionError("澄清轮不应调用意图分类 LLM")
+
+    monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: BombLLM())
+    state = make_state("在操场捡的")
+    state["pending_info"] = {"agent_name": "lost-found-agent", "missing_fields": ["location"], "attempts": 1}
+    result = intent_router(state)
+    assert result["intent_type"] == "domain_agent"
+    assert result["agent_plan"] == ["lost-found-agent"]
+    assert result["pending_info"]["attempts"] == 1  # 保留给 agent_invoker 更新
+
+
+def test_intent_router_clarification_abandon(monkeypatch):
+    """澄清轮显式放弃：退出循环转闲聊并清空 pending_info。"""
+    class BombLLM:
+        def invoke(self, messages):
+            raise AssertionError("放弃澄清后不应再调用意图分类 LLM")
+
+    monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: BombLLM())
+    state = make_state("算了不找了")
+    state["pending_info"] = {"agent_name": "lost-found-agent", "missing_fields": ["location"], "attempts": 2}
+    result = intent_router(state)
+    assert result["intent_type"] == "chat"
+    assert result["agent_plan"] == []
+    assert result["pending_info"] is None  # 退出澄清循环
