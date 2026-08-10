@@ -14,6 +14,7 @@ const ReservationsPage = lazy(() => import('./admin/facilities/FacilitiesPage').
 const MaintenancePage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.MaintenancePage })))
 const MaintenanceDetailPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.MaintenanceDetailPage })))
 const AdminLostFoundPage = lazy(() => import('./admin/lostFound/AdminLostFoundPage').then((module) => ({ default: module.AdminLostFoundPage })))
+const AdminClaimDetailPage = lazy(() => import('./admin/lostFound/AdminClaimDetailPage').then((module) => ({ default: module.AdminClaimDetailPage })))
 const AdminNotFoundPage = lazy(() => import('./admin/shared/AdminNotFoundPage').then((module) => ({ default: module.AdminNotFoundPage })))
 const AdminUserManagementPage = lazy(() => import('./admin/users/AdminUserManagementPage').then((module) => ({ default: module.AdminUserManagementPage })))
 const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage').then((module) => ({ default: module.AdminForbiddenPage })))
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
           <Route path="/admin/lost-found" element={<AdminLostFoundPage />} />
+          <Route path="/admin/lost-found/claims/:claimId" element={<AdminClaimDetailPage />} />
           <Route path="/admin/facilities" element={<FacilitiesDashboardPage />} />
           <Route path="/admin/facilities/reservations" element={<ReservationsPage />} />
           <Route path="/admin/facilities/maintenance" element={<MaintenancePage />} />
