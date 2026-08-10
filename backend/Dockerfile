@@ -12,8 +12,12 @@ RUN ./mvnw -Pfast-sast -DskipTests package -B
 # ─── Runtime ───
 FROM eclipse-temurin:21-jre-alpine
 
-# Non-root user
-RUN addgroup -S campus && adduser -S campus -G campus
+# Non-root user + RSA 密钥目录：root 下预创建并归属 campus
+# （命名卷 delegation_keys 首次挂载时继承镜像目录 owner，否则卷属 root →
+#  campus 无法写入 → AccessDenied）
+# 固定 UID 1001：已有旧卷（root 属主）迁移时可直接 chown 1001:1001
+RUN addgroup -S campus -g 1001 && adduser -S campus -G campus -u 1001 \
+    && mkdir -p /app/keys && chown campus:campus /app/keys
 USER campus
 
 COPY --from=builder /app/target/*.jar /app/app.jar
