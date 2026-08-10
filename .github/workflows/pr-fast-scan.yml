@@ -47,6 +47,26 @@ defaults:
 
 jobs:
 
+  chat-core-test:
+    name: Chat Core Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agent/chat_core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/chat_core/pyproject.toml
+      - name: Install Chat Core dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run Chat Core tests
+        run: pytest -q
+
   agent-quality:
     name: Agent Lint, Test & Dependency Audit
     runs-on: ubuntu-latest
@@ -79,7 +99,9 @@ jobs:
       - name: Python dependency audit
         run: uv run pip-audit
       - name: Build non-root Agent image
-        run: docker build -t campuslink-lost-found-agent:${{ github.sha }} .
+        # Dockerfile 的 COPY 路径（lost_found_agent/*、mcp_servers/）以 agent/ 为 context
+        working-directory: agent
+        run: docker build -f lost_found_agent/Dockerfile -t campuslink-lost-found-agent:${{ github.sha }} .
 
   agent-codeql:
     name: Agent CodeQL
@@ -228,12 +250,16 @@ jobs:
       - name: Verify Docker Compose configuration
         working-directory: ${{ github.workspace }}
         run: |
+          # .env 被 gitignore，CI checkout 后不存在；compose 的 env_file: .env 按
+          # 仓库根解析，先生成一份（默认占位值仅用于配置校验，不用于真实运行）
+          cp .env.example .env
           docker compose config --quiet
           docker compose --profile agent config --quiet
 
       - name: Build non-root backend image
         working-directory: ${{ github.workspace }}
-        run: docker build -t campuslink-api-server:${{ github.sha }} backend
+        # backend/Dockerfile 的 COPY 路径（backend/*）以仓库根为 context（与 compose chat-backend 一致）
+        run: docker build -f backend/Dockerfile -t campuslink-api-server:${{ github.sha }} .
 
       - name: Upload Test Report
         if: always()

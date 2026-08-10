@@ -4,8 +4,13 @@ import type { ApiErrorBody } from '../types'
 export const TOKEN_KEY = 'campuslink.token'
 export const USER_KEY = 'campuslink.user'
 
+// API 基址统一（与 services/api.ts 一致）：读 VITE_API_BASE（后端根地址，可选）。
+// 默认同源相对 /api —— dev 由 vite proxy 转发到 8080；部署时设
+// VITE_API_BASE=http://backend 即走完整地址（需后端 CORS 放行该 origin）。
+const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api',
+  baseURL: `${API_BASE}/api`,
   timeout: 20_000,
 })
 

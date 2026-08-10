@@ -1,21 +1,25 @@
-FROM eclipse-temurin:21-jdk AS builder
-
-WORKDIR /workspace
-COPY .mvn .mvn
-COPY mvnw pom.xml ./
-RUN chmod +x mvnw \
-    && ./mvnw -Pfast-sast -DskipTests dependency:go-offline
-COPY src src
-RUN ./mvnw -Pfast-sast -DskipTests package
-
-FROM eclipse-temurin:21-jre
-
-RUN groupadd --system campuslink \
-    && useradd --system --gid campuslink --create-home campuslink
+# ─── CampusLink Chat Backend (Spring Boot 4.1) ───
+FROM eclipse-temurin:21-jdk-alpine AS builder
 
 WORKDIR /app
-COPY --from=builder /workspace/target/*.jar /app/app.jar
+COPY backend/pom.xml backend/mvnw backend/mvnw.cmd ./
+COPY backend/.mvn ./.mvn
+RUN chmod +x mvnw && ./mvnw -Pfast-sast -DskipTests dependency:go-offline -B
 
-USER campuslink
+COPY backend/src ./src
+RUN ./mvnw -Pfast-sast -DskipTests package -B
+
+# ─── Runtime ───
+FROM eclipse-temurin:21-jre-alpine
+
+# Non-root user
+RUN addgroup -S campus && adduser -S campus -G campus
+USER campus
+
+COPY --from=builder /app/target/*.jar /app/app.jar
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

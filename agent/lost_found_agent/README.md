@@ -7,9 +7,11 @@
 ## 本地运行
 
 ```bash
-cd agent/lost_found_agent
+# 先在仓库根目录创建统一配置文件
 cp .env.example .env
+cd agent/lost_found_agent
 # 为三个共享密钥变量分别生成随机值，例如：openssl rand -hex 32
+set -a && source ../../.env && set +a
 python3.12 -m pip install uv
 uv sync --all-extras
 uv run uvicorn lost_found_agent.main:app --host 0.0.0.0 --port 8083
@@ -23,7 +25,7 @@ uv run uvicorn lost_found_agent.main:app --host 0.0.0.0 --port 8083
 - `rules`：始终使用规则引擎；
 - `llm`：强制使用模型，缺少 API Key 时拒绝启动。
 
-模型只负责四种允许意图的识别和字段提取，输出必须通过 Pydantic 校验。模型超时、限流、返回无效 JSON 或请求越权工具时会自动降级到规则引擎。报失和认领仍由服务端确认流程控制，模型不能直接写数据库或绕过确认。当前默认使用 `deepseek-v4-flash`；可将 `LOST_FOUND_LLM_MODEL` 改为 `deepseek-v4-pro`，也可配合 `LOST_FOUND_LLM_BASE_URL` 接入其他 OpenAI-compatible 服务。
+模型只负责四种允许意图的识别和字段提取，输出必须通过 Pydantic 校验。默认 `LOST_FOUND_LLM_FAIL_CLOSED=true`，模型超时、限流、无效 JSON 或越权输出会明确失败；仅在显式设为 `false` 时降级到规则引擎。报失和认领仍由服务端确认流程控制，模型不能直接写数据库或绕过确认。当前默认使用 `deepseek-v4-flash`；可将 `LOST_FOUND_LLM_MODEL` 改为 `deepseek-v4-pro`，也可配合 `LOST_FOUND_LLM_BASE_URL` 接入其他 OpenAI-compatible 服务。
 
 从仓库根目录可以启动整个 Agent 联调环境：
 
@@ -31,7 +33,7 @@ uv run uvicorn lost_found_agent.main:app --host 0.0.0.0 --port 8083
 docker compose --profile agent up -d --build
 ```
 
-未启用 `agent` profile 时，原有 `docker compose up -d` 仍只启动 MySQL 和 MinIO。启用 profile 前必须在根目录 `.env` 配置 `JWT_SECRET`、`SUPER_ADMIN_PASSWORD` 和三个 Agent 密钥；密钥可分别用 `openssl rand -hex 32` 生成，不能提交到 Git。
+未启用 `agent` profile 时，`docker compose up -d` 会启动平台基础栈，但不会启动 8083 端口的 Lost & Found REST Agent。启用 profile 前必须在根目录 `.env` 配置 `JWT_SECRET`、`SUPER_ADMIN_PASSWORD` 和三个 Agent 密钥；密钥可分别用 `openssl rand -hex 32` 生成，不能提交到 Git。
 
 ## 检查
 

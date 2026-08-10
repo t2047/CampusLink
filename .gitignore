@@ -5,6 +5,7 @@ Thumbs.db
 # ─────── Environment ───────
 .env
 .env.local
+.env.*.local
 # *.env 会误杀 .env.example，只精确忽略 .env
 
 # ─────── IDE ───────
@@ -18,24 +19,33 @@ Thumbs.db
 
 # ─────── Build / Output ───────
 build/
+
+# ─── Java / Maven ───
 target/
-dist/
-node_modules/
-.vite/
 *.class
 *.jar
-*.war
-*.log
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
 
-# ─────── Mobile ───────
-*.apk
-*.aab
-*.keystore
-local.properties
+# ─── Node / Frontend ───
+node_modules/
+dist/
+*.local
 
-# ─────── Python ───────
+# ─── Python ───
 __pycache__/
-*.pyc
-venv/
+*.py[cod]
 .venv/
+venv/
+.pytest_cache/
+.ruff_cache/
 *.egg-info/
+
+# ─── RSA 密钥（Delegation Token）───
+keys/
+*.pem
+
+# ─── 日志 / 临时 ───
+*.log
+logs/
+tmp/

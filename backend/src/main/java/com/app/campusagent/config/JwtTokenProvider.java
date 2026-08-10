@@ -18,7 +18,13 @@ public final class JwtTokenProvider {
     public JwtTokenProvider(
             @Value("${app.jwt.secret}") String secret,
             @Value("${app.jwt.expiration-ms}") long expirationMs) {
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        // Build a 256-bit key from the secret.  Using HS256 avoids the
+        // JJWT auto-detection pitfall where a 376-bit key triggers HS512
+        // (which requires ≥ 512 bits per RFC 7518 § 3.2).
+        byte[] keyBytes = new byte[32];
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        System.arraycopy(secretBytes, 0, keyBytes, 0, Math.min(secretBytes.length, 32));
+        this.key = Keys.hmacShaKeyFor(keyBytes);
         this.expirationMs = expirationMs;
     }
 
@@ -31,7 +37,7 @@ public final class JwtTokenProvider {
                 .claim("role", role)
                 .issuedAt(now)
                 .expiration(expiry)
-                .signWith(key)
+                .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
 
@@ -50,6 +56,14 @@ public final class JwtTokenProvider {
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
+    }
+
+    /**
+     * 解析 Token 并返回 Claims。
+     * 供 {@link JwtAuthFilter} 使用；签名无效或过期时抛出 {@link JwtException}。
+     */
+    public Claims parseToken(String token) {
+        return parseClaims(token);
     }
 
     private Claims parseClaims(String token) {

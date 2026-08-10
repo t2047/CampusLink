@@ -1,0 +1,468 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "agent": "mail-agent",
+  "version": "1.1.0",
+  "description": "校园邮箱 Agent — 理解用户邮件相关需求，自主完成搜索、阅读、管理操作，并以自然语言返回结果。内部包含 LLM 推理、Tool 选择与执行（ReAct 循环）。",
+  "transport": {
+    "type": "mcp",
+    "protocol": "streamable HTTP",
+    "baseUrl": "http://localhost:8081",
+    "endpoints": {
+      "mcp": {
+        "method": "POST / GET",
+        "path": "/mcp/",
+        "description": "MCP streamable HTTP 端点（Sprint 3 起承载全部调用）。调用工具：invoke（输入/输出契约见下方 invoke 段）"
+      },
+      "health": {
+        "method": "GET",
+        "path": "/health",
+        "description": "健康检查（无鉴权）"
+      }
+    }
+  },
+  "capabilities": {
+    "domains": [
+      "email"
+    ],
+    "description": "可以帮你搜索邮件、阅读邮件内容、归档/删除/标记邮件，理解模糊的邮件管理需求并自主执行",
+    "examples": [
+      "帮我找一下张三最近发的邮件",
+      "上周一关于考试安排的邮件说了什么",
+      "把促销邮件全部归档",
+      "帮我看看有没有未读的重要邮件",
+      "把发票相关的邮件转发给财务处"
+    ],
+    "constraints": {
+      "scope": "仅限当前登录用户的校园邮箱",
+      "destructive_actions": [
+        "delete"
+      ],
+      "require_confirmation": [
+        "delete"
+      ],
+      "max_search_results": 50
+    },
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "actions": [
+      "search_emails",
+      "read_email",
+      "manage_email"
+    ],
+    "privacy": {
+      "exposesPublisherContact": false,
+      "exposesStorageObjectKey": false,
+      "exposesOtherUsersClaimProof": false
+    },
+    "rateLimit": {
+      "perUserPerMinute": 10,
+      "perSession": 30
+    }
+  },
+  "invoke": {
+    "input": {
+      "$ref": "#/$defs/invokeInput"
+    },
+    "output": {
+      "$ref": "#/$defs/invokeOutput"
+    }
+  },
+  "streaming": {
+    "status": "not_implemented",
+    "deprecated": true,
+    "description": "Sprint 3 起不再推送 Agent 内部执行进度（编排层经 MCP 同步调用 invoke）。确认交互由 invoke 返回 status=needs_confirmation + confirmation_required 承载；前端步骤展示改用返回的 actions_taken。以下事件定义保留作历史参考",
+    "events": {
+      "agent_start": {
+        "description": "Agent 开始处理请求",
+        "payload": {
+          "agent": {
+            "type": "string",
+            "const": "mail-agent"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "tool_call_start": {
+        "description": "Agent 内部开始调用某个 Tool",
+        "payload": {
+          "tool": {
+            "type": "string",
+            "enum": [
+              "search_emails",
+              "read_email",
+              "manage_email"
+            ]
+          },
+          "args_summary": {
+            "type": "string"
+          }
+        }
+      },
+      "tool_call_progress": {
+        "description": "Tool 执行中（耗时较长的操作推送进度）",
+        "payload": {
+          "tool": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "string"
+          }
+        }
+      },
+      "tool_call_end": {
+        "description": "Tool 调用完成",
+        "payload": {
+          "tool": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "result_summary": {
+            "type": "string"
+          }
+        }
+      },
+      "token": {
+        "description": "LLM 逐 token 生成回复",
+        "payload": {
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "agent_needs_confirmation": {
+        "description": "需要用户确认才能继续（如删除操作）",
+        "payload": {
+          "confirmation_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "agent_done": {
+        "description": "Agent 完成全部处理",
+        "payload": {
+          "response_summary": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial",
+              "failed"
+            ]
+          },
+          "actions_taken": {
+            "type": "array"
+          }
+        }
+      },
+      "agent_error": {
+        "description": "Agent 处理过程中发生不可恢复的错误",
+        "payload": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "UNAVAILABLE",
+              "TIMEOUT",
+              "AUTH_FAILED",
+              "INTERNAL_ERROR",
+              "RATE_LIMITED"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "internalTools": {
+    "description": "Agent 内部使用的 Tool 列表。编排层不直接调用这些 Tool，仅供 Agent 内部 ReAct 循环使用。列于此处以供 Agent 开发者实现参考。",
+    "tools": [
+      {
+        "name": "search_emails",
+        "description": "按关键词、发件人、日期范围搜索邮件。返回匹配的邮件摘要列表（不包含正文）。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "description": "搜索关键词，匹配主题和发件人"
+            },
+            "sender": {
+              "type": "string",
+              "description": "发件人邮箱地址，支持部分匹配"
+            },
+            "start_date": {
+              "type": "string",
+              "format": "date",
+              "description": "ISO 8601 格式 (YYYY-MM-DD)"
+            },
+            "end_date": {
+              "type": "string",
+              "format": "date",
+              "description": "ISO 8601 格式 (YYYY-MM-DD)"
+            },
+            "max_results": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          "required": [
+            "keyword"
+          ]
+        },
+        "requiresConfirmation": false
+      },
+      {
+        "name": "read_email",
+        "description": "根据邮件 ID 读取完整邮件内容，包括正文和附件列表。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "email_id": {
+              "type": "string",
+              "description": "由 search_emails 返回的邮件唯一 ID"
+            }
+          },
+          "required": [
+            "email_id"
+          ]
+        },
+        "requiresConfirmation": false
+      },
+      {
+        "name": "manage_email",
+        "description": "对指定邮件执行管理操作：归档、删除、标记已读/未读、加星标。delete 操作需经 Agent 内部 guard 确认。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "email_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "archive",
+                "delete",
+                "mark_read",
+                "mark_unread",
+                "star",
+                "unstar"
+              ]
+            }
+          },
+          "required": [
+            "email_id",
+            "action"
+          ]
+        },
+        "requiresConfirmation": true
+      }
+    ]
+  },
+  "$id": "https://campuslink.local/schemas/mail-agent-1.1.0.json",
+  "agentType": "domain_agent",
+  "security": {
+    "requiredHeaders": [
+      "Authorization",
+      "X-Timestamp"
+    ],
+    "delegationTokenAudience": "mail-agent",
+    "tokenAlgorithm": "RS256 (JWKS)",
+    "writeConfirmationRequired": [
+      "manage_email"
+    ],
+    "confirmationTtlSeconds": 600
+  },
+  "$defs": {
+    "invokeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "conversation_context": {
+          "type": "object",
+          "properties": {
+            "previous_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "shared_data": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "confirmed": {
+          "type": "boolean",
+          "default": false
+        },
+        "confirmation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "parent_span_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "invokeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "needs_more_info",
+            "needs_confirmation",
+            "failed"
+          ]
+        },
+        "confirmation_required": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "confirmation_id": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "confirmation_id",
+            "action",
+            "summary",
+            "expires_at"
+          ]
+        },
+        "shared_context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "params_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "result_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failed",
+                  "skipped"
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "status"
+            ]
+          }
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "response",
+        "status",
+        "request_id"
+      ]
+    }
+  },
+  "model": {
+    "modes": [
+      "rules"
+    ],
+    "responsibilities": [
+      "intent_detection",
+      "action_selection"
+    ],
+    "fallbackMode": "rules",
+    "writeConfirmationCannotBeBypassed": true
+  }
+}
