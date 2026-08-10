@@ -21,10 +21,6 @@ services:
       url: ${LOSTFOUND_AGENT_URL:http://127.0.0.1:8083}
       mcp_url: ${LOSTFOUND_AGENT_MCP_URL:http://127.0.0.1:8085/mcp/}
       timeout_ms: 30000
-    - name: skill-agent
-      url: ${SKILL_AGENT_URL:http://127.0.0.1:8084}
-      mcp_url: ${SKILL_AGENT_MCP_URL:http://127.0.0.1:8084/mcp/}
-      timeout_ms: 30000
 
   utility_tools:
     - name: utility-tools

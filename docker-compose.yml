@@ -92,14 +92,12 @@ services:
       - MAIL_AGENT_MCP_URL=http://mail-agent-mcp:8081/mcp/
       - FACILITY_AGENT_MCP_URL=http://facility-agent-mcp:8082/mcp/
       - LOSTFOUND_AGENT_MCP_URL=http://lost-found-mcp:8085/mcp/
-      - SKILL_AGENT_MCP_URL=http://skill-agent-mcp:8084/mcp/
       - UTILITY_TOOLS_MCP_URL=http://utility-mcp:8090/mcp/
     depends_on:
       - chat-backend
       - mail-agent-mcp
       - facility-agent-mcp
       - lost-found-mcp
-      - skill-agent-mcp
       - utility-mcp
 
   # ─── MCP Servers (Sprint 3) ─────────────────────────────────
@@ -141,7 +139,7 @@ services:
 
   lostfound-agent-mcp:
     # 退役（Sprint 4）：L&F 已由 lost-found-mcp（组员业务 MCP 适配层）承担，
-    # 脚手架对 lost-found 无意义。mail/facility/skill 仍使用本服务。
+    # 脚手架对 lost-found 无意义。mail/facility 仍使用本服务。
     # 注意：8083 已由 lost-found-agent（REST）占用，本 legacy 服务映射到主机 8086
     build:
       context: .
@@ -157,20 +155,6 @@ services:
       - chat-backend
     # 注意：本服务不再被编排层引用（LOSTFOUND_AGENT_MCP_URL 指向 lost-found-mcp:8085）
     profiles: ["legacy"]
-
-  skill-agent-mcp:
-    build:
-      context: .
-      dockerfile: agent/mcp_servers/Dockerfile
-    env_file:
-      - .env
-    environment:
-      - MCP_AGENT_NAME=skill-agent
-      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
-    ports:
-      - "8084:8084"
-    depends_on:
-      - chat-backend
 
   utility-mcp:
     build:

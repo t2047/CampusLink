@@ -39,7 +39,7 @@ uvicorn orchestration.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## 启动 Agent / Utility MCP Server（Sprint 3）
 
-每个领域 Agent 一个独立 MCP Server（streamable HTTP，端口 8081-8084），Utility 一个（8090）。
+每个领域 Agent 一个独立 MCP Server（streamable HTTP），Utility 一个（8090）。
 `domain_server.py` / `utility_server.py` 启动时自动加载仓库根 `.env`（无需手动 source）：
 
 ```bash
@@ -49,12 +49,9 @@ cd agent
 MCP_AGENT_NAME=mail-agent uvicorn mcp_servers.domain_server:app --host 0.0.0.0 --port 8081 --reload
 
 # 终端 2：Facility Agent（8082）
-MCP_AGENT_NAME=facility-agent uvicorn mcp_servers.domain_server:app --host 0.0.0.0 --port 8082 --reload
+uvicorn mcp_servers.facilities_server:app --host 0.0.0.0 --port 8082 --reload
 
-# 终端 3：Skill Agent（8084）
-MCP_AGENT_NAME=skill-market-agent uvicorn mcp_servers.domain_server:app --host 0.0.0.0 --port 8084 --reload
-
-# 终端 4：Utility Tools MCP Server（8090）
+# 终端 3：Utility Tools MCP Server（8090）
 uvicorn mcp_servers.utility_server:app --host 0.0.0.0 --port 8090 --reload
 ```
 
