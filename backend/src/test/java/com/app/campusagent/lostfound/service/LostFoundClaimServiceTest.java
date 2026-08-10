@@ -21,12 +21,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,13 +38,16 @@ class LostFoundClaimServiceTest {
     @Mock
     private LostFoundReportRepository reportRepository;
 
+    @Mock
+    private LostFoundNotificationService notificationService;
+
     private LostFoundClaimService service;
     private User owner;
     private User claimant;
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new LostFoundClaimService(claimRepository, reportRepository);
+        service = new LostFoundClaimService(claimRepository, reportRepository, notificationService);
         owner = user(1L, "owner@u.nus.edu");
         claimant = user(2L, "claimant@u.nus.edu");
     }
@@ -69,6 +72,7 @@ class LostFoundClaimServiceTest {
         assertThat(response.id()).isEqualTo(30L);
         assertThat(response.status()).isEqualTo(ClaimStatus.SUBMITTED);
         assertThat(response.submittedByMe()).isTrue();
+        verify(notificationService).claimSubmitted(any());
     }
 
     @Test
@@ -131,35 +135,25 @@ class LostFoundClaimServiceTest {
     }
 
     @Test
-    void ownerApprovalClaimsReportAndRejectsOtherPendingClaims() throws Exception {
-        LostFoundReport report = report(ReportType.FOUND, owner, 20L);
-        LostFoundClaim selected = claim(report, claimant, 31L);
-        LostFoundClaim other = claim(report, user(3L, "other@u.nus.edu"), 32L);
-        when(claimRepository.findById(31L)).thenReturn(Optional.of(selected));
-        when(claimRepository.findByReportIdAndStatus(20L, ClaimStatus.SUBMITTED))
-                .thenReturn(List.of(selected, other));
-        when(claimRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        var response = service.approve(31L, new ClaimDecisionRequest("Proof verified"), owner);
-
-        assertThat(response.status()).isEqualTo(ClaimStatus.APPROVED);
-        assertThat(report.getStatus()).isEqualTo(ReportStatus.CLAIMED);
-        assertThat(other.getStatus()).isEqualTo(ClaimStatus.REJECTED);
+    void approveNowRequiresAdministratorRole() {
+        assertThatThrownBy(() -> service.approve(
+                31L,
+                new ClaimDecisionRequest("Proof verified"),
+                owner))
+                .isInstanceOf(LostFoundApiException.class)
+                .extracting("code")
+                .isEqualTo("CLAIM_REVIEW_ADMIN_ONLY");
     }
 
     @Test
-    void nonOwnerCannotReviewClaim() throws Exception {
-        LostFoundReport report = report(ReportType.FOUND, owner, 20L);
-        LostFoundClaim claim = claim(report, claimant, 31L);
-        when(claimRepository.findById(31L)).thenReturn(Optional.of(claim));
-
+    void rejectNowRequiresAdministratorRole() throws Exception {
         assertThatThrownBy(() -> service.reject(
                 31L,
                 new ClaimDecisionRequest("No"),
                 user(4L, "stranger@u.nus.edu")))
                 .isInstanceOf(LostFoundApiException.class)
                 .extracting("code")
-                .isEqualTo("CLAIM_REVIEW_FORBIDDEN");
+                .isEqualTo("CLAIM_REVIEW_ADMIN_ONLY");
     }
 
     private User user(Long id, String email) throws Exception {

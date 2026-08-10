@@ -2,6 +2,7 @@ package com.app.campusagent.lostfound.storage;
 
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import io.minio.BucketExistsArgs;
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
@@ -76,6 +77,22 @@ public class MinioObjectStorageService implements ObjectStorageService {
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "OBJECT_STORAGE_UNAVAILABLE",
                     "Image storage is temporarily unavailable",
+                    ex);
+        }
+    }
+
+    @Override
+    public byte[] download(String objectKey) {
+        try (InputStream input = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket)
+                .object(objectKey)
+                .build())) {
+            return input.readAllBytes();
+        } catch (Exception ex) {
+            throw new LostFoundApiException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "OBJECT_STORAGE_UNAVAILABLE",
+                    "Image download is temporarily unavailable",
                     ex);
         }
     }

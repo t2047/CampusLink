@@ -110,6 +110,7 @@ ALLOWED_CONTEXT_FIELDS = {
     "system_facts",
     "recent_messages",
     "proof_description",
+    "visual_fingerprint",
 }
 
 

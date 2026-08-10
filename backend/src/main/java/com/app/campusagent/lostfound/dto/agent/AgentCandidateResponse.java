@@ -4,6 +4,7 @@ import com.app.campusagent.lostfound.domain.ItemCategory;
 import com.app.campusagent.lostfound.domain.ReportStatus;
 
 import java.time.LocalDate;
+import java.util.List;
 
 public record AgentCandidateResponse(
         Long id,
@@ -14,5 +15,6 @@ public record AgentCandidateResponse(
         String location,
         LocalDate eventDate,
         String timeDescription,
-        ReportStatus status) {
+        ReportStatus status,
+        List<String> visualFingerprints) {
 }
