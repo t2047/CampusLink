@@ -6,6 +6,20 @@ import { TOKEN_KEY, USER_KEY } from './api/client'
 import { AuthProvider } from './auth/AuthContext'
 
 vi.mock('./pages/ReportsPage', () => ({ ReportsPage: () => <p>Lost and Found page</p> }))
+vi.mock('./api/facilities', () => ({
+  facilitiesApi: {
+    getDashboard: vi.fn().mockResolvedValue({
+      summary: { totalFacilities: 5, availableFacilities: 3, todayReservations: 2, underMaintenance: 1 },
+      statusBreakdown: [{ status: 'AVAILABLE', count: 3 }],
+      reservationTrend: [],
+      facilityUsage: [],
+    }),
+    getReservations: vi.fn().mockResolvedValue([]),
+    getMaintenance: vi.fn().mockResolvedValue([]),
+    getMaintenanceDetail: vi.fn(),
+    updateMaintenance: vi.fn(),
+  },
+}))
 
 function setDesktopViewport() {
   Object.defineProperty(window, 'matchMedia', {
@@ -100,7 +114,7 @@ describe('admin application routes', () => {
     renderApp('/admin/facilities')
 
     expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
-    expect(screen.getByText('Total Facilities')).toBeInTheDocument()
+    expect(await screen.findByText('Total Facilities')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Reservations' })).toHaveAttribute('href', '/admin/facilities/reservations')
     expect(screen.getByRole('tab', { name: 'Maintenance' })).toHaveAttribute('href', '/admin/facilities/maintenance')
   })
