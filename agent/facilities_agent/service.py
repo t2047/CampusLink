@@ -1,8 +1,11 @@
 """Deterministic orchestration core for the Facilities Domain Agent Adapter."""
 
+import logging
 import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 from .confirmation import ConfirmationError, ConfirmationStore, PendingAction
 from .context import ContextResolutionError, FacilitiesContextManager
@@ -87,8 +90,16 @@ class FacilitiesAdapterService:
                 invocation_id,
             )
         except (ToolClientError, PlannerError) as error:
+            logger.warning(
+                "Facilities service invoke failed: invocation_id=%s code=%s detail=%s",
+                invocation_id, getattr(error, "code", "?"), error,
+            )
             return map_technical_error(error, context.snapshot(), invocation_id)
         except Exception as error:  # Adapter exceptions are true system failures.
+            logger.exception(
+                "Facilities service invoke crashed: invocation_id=%s",
+                invocation_id,
+            )
             return map_technical_error(error, context.snapshot(), invocation_id)
 
     def _utc_now(self):

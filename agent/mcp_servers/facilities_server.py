@@ -157,6 +157,10 @@ async def _invoke_adapter(
                 request_id=request_id,
             )
     except (ToolClientError, PlannerError) as error:
+        logger.warning(
+            "Facilities invoke failed: request_id=%s code=%s detail=%s",
+            request_id, getattr(error, "code", "?"), error,
+        )
         response = map_technical_error(error, {}, request_id)
     except Exception:
         logger.exception("Facilities invoke failed: request_id=%s", request_id)

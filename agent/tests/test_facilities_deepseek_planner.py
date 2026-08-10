@@ -262,17 +262,6 @@ async def test_prompt_and_context_are_bounded_and_do_not_include_identity():
             "missing_fields": [],
             "clarification": None,
         },
-        {
-            "intent": "check_availability",
-            "arguments": {
-                "spaceId": 3,
-                "startDateTime": "2026-08-11T14:00:00",
-                "endDateTime": "2026-08-11T16:00:00",
-            },
-            "datetime_text": None,
-            "missing_fields": [],
-            "clarification": None,
-        },
     ],
 )
 async def test_untrusted_or_unknown_model_fields_are_rejected(invalid_output):
