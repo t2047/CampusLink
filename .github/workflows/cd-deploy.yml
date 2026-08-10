@@ -57,7 +57,7 @@ jobs:
               campuslink-backend)          dockerfile=backend/Dockerfile;          context=. ;;
               campuslink-orchestration)    dockerfile=agent/chat_core/Dockerfile;  context=. ;;
               campuslink-mcp-servers)      dockerfile=agent/mcp_servers/Dockerfile; context=. ;;
-              campuslink-lost-found-agent) dockerfile=lost_found_agent/Dockerfile; context=./agent ;;
+              campuslink-lost-found-agent) dockerfile=agent/lost_found_agent/Dockerfile; context=./agent ;;
               campuslink-web)              dockerfile=frontend_web/Dockerfile;     context=. ;;
             esac
             docker build -f "$dockerfile" \
