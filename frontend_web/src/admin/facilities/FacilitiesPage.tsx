@@ -20,7 +20,6 @@ function FacilitiesNav() {
 function Loading() { return <Box sx={{ display: 'grid', placeItems: 'center', minHeight: 240 }}><CircularProgress /></Box> }
 function ErrorState({ message, retry }: { message: string; retry: () => void }) { return <Alert severity="error" action={<Button color="inherit" size="small" onClick={retry}>Retry</Button>}>{message}</Alert> }
 function Metric({ label, value, detail }: { label: string; value: number; detail: string }) { return <Card variant="outlined"><CardContent><Typography color="text.secondary" variant="body2">{label}</Typography><Typography variant="h4" fontWeight={700} sx={{ my: 1 }}>{value}</Typography><Typography variant="body2" color="text.secondary">{detail}</Typography></CardContent></Card> }
-function EmptyState({ message }: { message: string }) { return <Alert severity="info">{message}</Alert> }
 function nextStatuses(status: string) {
   if (status === 'SUBMITTED') return ['SUBMITTED', 'IN_PROGRESS', 'CANCELLED']
   if (status === 'IN_PROGRESS') return ['IN_PROGRESS', 'RESOLVED', 'CANCELLED']

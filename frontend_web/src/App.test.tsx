@@ -148,17 +148,17 @@ describe('admin application routes', () => {
 
 
   it.each([
-    ['Lost & Found', '/admin/lost-found'],
-    ['Facilities', '/admin/facilities'],
-    ['User Management', '/admin/users'],
-  ])('navigates from the %s dashboard card to its placeholder', async (label, path) => {
+    ['Lost & Found', '/admin/lost-found', 'Lost & Found'],
+    ['Facilities', '/admin/facilities', 'Facilities Dashboard'],
+    ['User Management', '/admin/users', 'User Management'],
+  ])('navigates from the %s dashboard card to its page', async (label, path, heading) => {
     storeSession('ADMIN')
     renderApp('/admin/dashboard')
 
     expect(await screen.findByRole('heading', { name: 'Dashboard Overview' })).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: label }))
 
-    expect(await screen.findByRole('heading', { name: label })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent(path)
     expect(screen.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page')
   })
