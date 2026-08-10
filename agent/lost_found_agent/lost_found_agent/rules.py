@@ -101,6 +101,7 @@ ALLOWED_CONTEXT_FIELDS = {
     "date_to",
     "report_id",
     "proof_description",
+    "visual_fingerprint",
 }
 
 

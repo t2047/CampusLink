@@ -1,13 +1,22 @@
 import hashlib
 import hmac
+import io
 import json
 import time
 import uuid
 from typing import Any
 
 import jwt
+from PIL import Image
 
 from lost_found_agent.config import Settings
+
+
+def make_solid_png(rgb: tuple[int, int, int], size: int = 16) -> bytes:
+    image = Image.new("RGB", (size, size), rgb)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def signed_request(

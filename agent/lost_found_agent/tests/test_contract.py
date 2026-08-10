@@ -9,7 +9,7 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
     Draft202012Validator.check_schema(schema)
-    assert schema["version"] == "1.3.0"
+    assert schema["version"] == "1.4.0"
     assert schema["security"]["writeConfirmationRequired"] == [
         "report_lost",
         "claim_item",

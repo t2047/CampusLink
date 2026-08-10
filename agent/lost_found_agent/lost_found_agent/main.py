@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from .config import Settings, get_settings
 from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
-from .llm import LlmInterpreter, LlmUnavailable
+from .llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
 from .models import InvokeRequest, InvokeResponse
 from .rate_limit import RateLimiter
 from .rules import RuleEngine
@@ -102,7 +102,8 @@ def create_app(
             interpretation = None
             if active_llm_interpreter and not (payload.confirmed or payload.confirmation_id):
                 try:
-                    interpretation = await active_llm_interpreter.interpret(
+                    interpretation = await interpret_with_retry(
+                        active_llm_interpreter,
                         payload.message,
                         payload.conversation_context.shared_data,
                     )
