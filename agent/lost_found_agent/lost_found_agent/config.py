@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     lost_found_llm_api_key: str = ""
     lost_found_llm_base_url: str = "https://api.deepseek.com"
     lost_found_llm_model: str = "deepseek-v4-flash"
-    lost_found_llm_timeout_seconds: float = Field(default=10, ge=1, le=60)
+    lost_found_llm_timeout_seconds: float = Field(default=30, ge=1, le=120)
     # fail-closed（默认 true，2026-08-09 决策）：LLM 调用失败或输出不可信
     # （LlmUnavailable）时显式失败，不降级到规则引擎；设 false 恢复旧降级行为
     llm_fail_closed: bool = True

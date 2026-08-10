@@ -101,6 +101,8 @@ ALLOWED_CONTEXT_FIELDS = {
     "date_from",
     "date_to",
     "report_id",
+    "system_facts",
+    "recent_messages",
     "proof_description",
 }
 
@@ -586,11 +588,29 @@ ALLOWED_INTENTS = {
 
 
 def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in shared_data.items()
-        if key in ALLOWED_CONTEXT_FIELDS and isinstance(value, (str, int, float, bool))
-    }
+    result: dict[str, Any] = {}
+    for key, value in shared_data.items():
+        if key not in ALLOWED_CONTEXT_FIELDS:
+            continue
+        if key == "system_facts" and isinstance(value, dict):
+            # 编排层注入的系统事实包：只放行字符串值（today/now/timezone/user_language）
+            result[key] = {
+                k: v for k, v in value.items() if isinstance(v, str)
+            }
+        elif key == "recent_messages" and isinstance(value, list):
+            # 编排层注入的最近对话历史：只保留 role/content 字符串对
+            cleaned = []
+            for item in value:
+                if (
+                    isinstance(item, dict)
+                    and isinstance(item.get("role"), str)
+                    and isinstance(item.get("content"), str)
+                ):
+                    cleaned.append({"role": item["role"], "content": item["content"]})
+            result[key] = cleaned
+        elif isinstance(value, (str, int, float, bool)):
+            result[key] = value
+    return result
 
 
 def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
