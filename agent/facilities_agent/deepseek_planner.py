@@ -205,11 +205,20 @@ class DeepSeekPlanner(FacilitiesPlanner):
         except PlannerOutputError:
             raise
         except httpx.TimeoutException as error:
-            raise PlannerTimeoutError("Facilities planner timed out") from error
+            raise PlannerTimeoutError(
+                "Facilities planner timed out: {}".format(str(error)[:300])
+            ) from error
         except httpx.HTTPError as error:
-            raise PlannerUnavailableError("Facilities planner request failed") from error
+            raise PlannerUnavailableError(
+                "Facilities planner request failed: {}".format(str(error)[:300])
+            ) from error
         except (ValidationError, ValueError, KeyError, TypeError) as error:
-            raise PlannerOutputError("Facilities planner returned invalid output") from error
+            detail = str(error).strip()[:300]
+            raise PlannerOutputError(
+                "Facilities planner returned invalid output: {}".format(detail)
+                if detail
+                else "Facilities planner returned invalid output"
+            ) from error
 
     async def _post(self, payload: dict[str, Any]) -> httpx.Response:
         headers = {

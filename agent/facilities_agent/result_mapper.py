@@ -175,5 +175,5 @@ def map_technical_error(
         shared_context=shared_context,
         actions_taken=[],
         request_id=request_id,
-        error=code,
+        error=(f"{code}: {error}" if isinstance(error, PlannerError) else code),
     )
