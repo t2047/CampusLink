@@ -19,7 +19,7 @@ from typing import Optional
 from langchain_openai import ChatOpenAI
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-flash"
 
 
 def _env(key: str, default: str) -> str:
