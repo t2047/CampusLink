@@ -194,6 +194,7 @@ async def chat_stream(request: Request):
         "approval_context": None,
         "approval_agent": None,
         "pending_confirmation": None,
+        "pending_info": None,
         "error": None,
         "failed_agents": [],
         "service_failures": [],   # 失败兜底上下文，每轮重置（防跨轮残留误触发）
@@ -358,6 +359,9 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
                             yield _format_sse(SSEEvent("confirm_required", {
                                 "agent": value.get("agent", ""),
                                 "details": value.get("details", {}),
+                                # interrupt 顶层 message（human_approval 的确认提示）透传，
+                                # 前端优先展示；details 里无 message 时回退 summary
+                                "message": value.get("message", ""),
                             }))
                             # 中断是正常暂停而非"无输出"：置位以抑制流末 LLM 抢答
                             # （否则用户同时看到确认框和一条 LLM 即时回复）

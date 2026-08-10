@@ -64,21 +64,39 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 }}
 
 规则：
-1. intent_type="domain_agent"：用户需要操作邮件、预约设施、失物招领、技能市场
+1. intent_type="domain_agent"：用户需要操作邮件、预约设施、失物招领、技能市场。
+   典型语义（含问句形式）：查询/登记/查找失物下落、报失、捡到东西、认领、
+   预约或查询教室/场馆/研讨室、查邮件、技能搜索与交易等——即使表述为
+   "我的东西在哪""帮我看看"等口语问句，只要涉及上述业务域，即为 domain_agent
 2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索
-3. intent_type="chat"：闲聊、问候、一般知识问答
+3. intent_type="chat"：闲聊、问候、一般知识问答（与校园业务无关）
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
-5. 无法确定时返回 intent_type="chat", targets=[]
+5. 无法确定时：若消息明显涉及校园业务域（失物/设施/邮件/技能），返回
+   intent_type="domain_agent"（宁可让子 Agent 追问细节，也不要在 chat 里编造
+   业务信息）；确属无关闲聊才返回 intent_type="chat", targets=[]
 6. 根据用户语言使用对应语言回答
 7. 用户明确拒绝使用工具（如"不要用工具""别调用工具""不用工具计算""不需要搜索"
    等）时，intent_type="chat"——直接回答或说明，即使消息里含计算/搜索等
    工具关键词；"工具"指所有 utility 工具与 domain agent
+8. 重要防幻觉：intent_type="chat" 时你只做一般性闲聊/知识回答，**绝对禁止**
+   编造校园业务事实（如失物存放地点/电话/地址、登记信息、预约状态等）。
+   用户消息一旦涉及具体校园业务（物品、预约、邮件、技能），一律路由
+   domain_agent 或如实说明无法处理，不得虚构
 
 Domain Agent 能力：
 {agent_capabilities}
 
 Utility Tool 能力：
 {utility_capabilities}
+
+示例：
+- "我丢了一串钥匙，帮我登记" → {{"intent_type":"domain_agent","targets":["lost-found-agent"]}}
+- "我捡到一张学生卡" → {{"intent_type":"domain_agent","targets":["lost-found-agent"]}}（捡到/找到物品属于失物招领域，与设施无关）
+- "明天下午有没有空的研讨室" → {{"intent_type":"domain_agent","targets":["facility-agent"]}}
+- "帮我查一下昨天收到的邮件" → {{"intent_type":"domain_agent","targets":["mail-agent"]}}
+- "把 15 美元换算成人民币" → {{"intent_type":"utility","targets":["unit_converter"]}}
+- "你好，今天天气怎么样" → {{"intent_type":"chat","targets":[]}}
+- "不要用工具，直接告诉我 2+2" → {{"intent_type":"chat","targets":[]}}
 """
 
 _INJECTION_PATTERNS: list[str] = [
@@ -146,28 +164,87 @@ def intent_router(state: AgentState) -> AgentState:
             "current_agent_index": 0,
         }
 
+    # 澄清循环短路（编排层主动信息收集）：上轮子 Agent 返回 needs_more_info（缺信息），
+    # 本轮用户消息是对追问的补充 → 跳过 LLM 意图分类，直接回到同一 Agent。
+    # 好处：补充内容（如"在操场"）不会被重新分类成别的意图/闲聊。
+    # 显式放弃（算了/不用了等）→ 退出澄清循环转闲聊。
+    pending_info = state.get("pending_info") or {}
+    if pending_info.get("agent_name"):
+        abandon = any(
+            k in user_msg for k in ("算了", "不用了", "不用找", "不找了", "放弃", "换一个", "先不管", "先不弄")
+        )
+        if abandon:
+            logger.info("intent_router: abandon clarification for %s", pending_info["agent_name"])
+            return {
+                "intent_type": "chat",
+                "targets": [],
+                "agent_plan": [],
+                "utility_plan": [],
+                "current_agent_index": 0,
+                "pending_info": None,  # 退出澄清循环
+            }
+        logger.info(
+            "intent_router: clarification turn for %s (attempt %s), skip LLM routing",
+            pending_info["agent_name"], pending_info.get("attempts", 1),
+        )
+        return {
+            "intent_type": "domain_agent",
+            "targets": [pending_info["agent_name"]],
+            "agent_plan": [pending_info["agent_name"]],
+            "utility_plan": [],
+            "current_agent_index": 0,
+            # pending_info 保留：由 agent_invoker 依据本轮结果更新/消费
+        }
+
     llm = intent_llm()
     prompt = _INTENT_SYSTEM_PROMPT.format(
         agent_capabilities=json.dumps(AGENT_CAPABILITIES, ensure_ascii=False, indent=2),
         utility_capabilities=json.dumps(UTILITY_CAPABILITIES, ensure_ascii=False, indent=2),
     )
+    parsed: dict[str, Any] = {}
+    intent_type = "chat"
+    targets: list[str] = []
     try:
         response = llm.invoke(
             [SystemMessage(content=prompt), HumanMessage(content=user_msg)]
         )
         parsed = json.loads(response.content)
-        intent_type = parsed.get("intent_type", "chat")
-        targets = parsed.get("targets", [])
+        intent_type = str(parsed.get("intent_type", "chat"))
+        targets = [t for t in (parsed.get("targets") or []) if isinstance(t, str)]
     except Exception:
         # LLM 失败/超时/返回非 JSON → 安全降级为闲聊，不误调 Agent/Utility
         intent_type, targets = "chat", []
 
+    # targets 白名单：只保留已知 Agent/Utility（防 LLM 幻觉出未知目标名）
+    valid_agents = set(AGENT_CAPABILITIES.keys())
+    valid_utils = set(UTILITY_CAPABILITIES.keys())
     if intent_type == "domain_agent":
-        agent_plan, utility_plan = targets, []
+        agent_plan: list[str] = [t for t in targets if t in valid_agents]
+        utility_plan: list[str] = []
     elif intent_type == "utility":
-        agent_plan, utility_plan = [], targets
+        agent_plan = []
+        utility_plan = [t for t in targets if t in valid_utils]
     else:
         agent_plan, utility_plan = [], []
+
+    # 失物语义兜底：LLM 可能把"捡到学生卡"误判为设施/闲聊。消息含明确失物词且
+    # 无否定意图时，强制纳入 lost-found-agent（避免主 LLM 无数据编造失物信息）
+    if "lost-found-agent" not in agent_plan:
+        has_lost_keyword = any(
+            k in user_msg for k in ("捡到", "捡了", "丢了", "丢失", "遗失", "报失", "失物", "招领", "失主")
+        )
+        refuses_tools = any(
+            k in user_msg.lower() for k in ("不要用工具", "别调用", "不用工具", "不需要搜索", "不找")
+        )
+        if has_lost_keyword and not refuses_tools:
+            agent_plan.append("lost-found-agent")
+            intent_type = "domain_agent"
+            logger.info("intent_router: lost-found keyword fallback applied")
+
+    logger.info(
+        "intent_router: msg=%.80s intent_type=%s targets=%s reasoning=%s",
+        user_msg, intent_type, targets, parsed.get("reasoning", ""),
+    )
 
     return {
         "intent_type": intent_type,
@@ -241,7 +318,29 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         ),
         # 消费确认标记（确认重调只执行一次）
         "pending_confirmation": None,
+        # 默认结束澄清循环；needs_more_info 分支会覆盖为新一轮澄清状态
+        "pending_info": None,
     }
+
+    if result.get("status") == "needs_more_info":
+        # 澄清循环（编排层主动信息收集）：记录缺失信息与尝试次数，
+        # 下一轮由 intent_router 短路回本 Agent 继续收集
+        attempts = int((state.get("pending_info") or {}).get("attempts", 0)) + 1
+        if attempts >= 3:
+            # 3 轮未补齐 → 终止澄清，输出明确提示（不再静默循环）
+            logger.info("clarification terminated: agent=%s attempts=%s", agent_name, attempts)
+            # 替换 update 中已追加的 needs_more_info 记录为终止文案（避免残留两条）
+            update["agent_invocations"][-1] = {
+                **invocation,
+                "output_response": "信息仍不完整，暂时无法处理。请直接到「失物招领」系统操作，或重新描述一下。",
+                "output_status": "failed",
+            }
+        else:
+            update["pending_info"] = {
+                "agent_name": agent_name,
+                "missing_fields": result.get("missing_fields", []),
+                "attempts": attempts,
+            }
 
     if result.get("status") == "needs_confirmation":
         if is_confirmation_call:
@@ -430,9 +529,20 @@ def response_aggregator(state: AgentState) -> AgentState:
     utility_results = state.get("utility_results", {})
     parts: list[str] = []
 
+    # 澄清循环：若本轮已有进展（completed/failed/确认结果），历史 needs_more_info 的
+    # 追问文本不再输出（避免"追问 + 最终结果"拼接残留）；仅当没有任何进展
+    # （首轮追问、用户还在补充中）时才输出追问文本
+    has_progress = any(
+        inv.get("output_status") not in ("needs_confirmation", "needs_more_info")
+        for inv in agent_invocations
+    )
+
     for inv in agent_invocations:
         if inv.get("output_status") == "needs_confirmation":
             # 确认提示由 HITL 确认框呈现，不进最终回复；确认后的操作结果由重调记录输出
+            continue
+        if inv.get("output_status") == "needs_more_info" and has_progress:
+            # 澄清历史追问已被最终结果取代
             continue
         parts.append(inv.get("output_response", ""))
 
@@ -483,11 +593,18 @@ def human_approval(state: AgentState) -> AgentState:
     from langgraph.types import interrupt
 
     approval_agent = state.get("approval_agent", "")
+    approval_context = state.get("approval_context", {}) or {}
     decision = interrupt({
         "type": "confirm_action",
         "agent": approval_agent,
-        "details": state.get("approval_context", {}),
-        "message": "请确认此操作",
+        "details": approval_context,
+        # 确认信息优先用 Agent 的真实摘要（L&F confirmation_required.summary），
+        # 前端确认框展示的就是用户要确认的具体内容
+        "message": (
+            approval_context.get("message")
+            or approval_context.get("summary")
+            or "请确认此操作"
+        ),
     })
 
     update: dict[str, Any] = {
