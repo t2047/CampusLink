@@ -2,12 +2,9 @@ package com.app.campusagent.lostfound.service;
 
 import com.app.campusagent.domain.User;
 import com.app.campusagent.lostfound.domain.ItemCategory;
-import com.app.campusagent.lostfound.domain.LostFoundImage;
 import com.app.campusagent.lostfound.domain.LostFoundReport;
 import com.app.campusagent.lostfound.domain.ReportStatus;
 import com.app.campusagent.lostfound.domain.ReportType;
-import com.app.campusagent.lostfound.repository.LostFoundClaimRepository;
-import com.app.campusagent.lostfound.repository.LostFoundNotificationRepository;
 import com.app.campusagent.lostfound.repository.LostFoundReportRepository;
 import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import com.app.campusagent.repository.UserRepository;
@@ -52,9 +49,7 @@ class LostFoundSearchIntegrationTest {
         reportRepository.flush();
 
         LostFoundReportService service = new LostFoundReportService(
-                reportRepository, mock(ObjectStorageService.class),
-                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
+                reportRepository, mock(ObjectStorageService.class));
         var result = service.search(
                 ReportType.FOUND,
                 "HEADPHONES",
@@ -72,70 +67,9 @@ class LostFoundSearchIntegrationTest {
     }
 
     @Test
-    void searchCandidatesExposesStoredVisualFingerprints() {
-        User owner = userRepository.save(new User("owner2@u.nus.edu", "encoded"));
-        LostFoundReport report = report(
-                ReportType.FOUND, "Blue Water Bottle", ItemCategory.OTHER,
-                "A blue water bottle left at the sports hall.", "Blue", "Sports Hall",
-                LocalDate.now().minusDays(1), owner);
-        report.addImage(new LostFoundImage(
-                "lost-found/bottle.png", "bottle.png", "image/png", 1024L, 0,
-                "VF1:expected-fingerprint"));
-        reportRepository.saveAndFlush(report);
-
-        LostFoundReportService service = new LostFoundReportService(
-                reportRepository, mock(ObjectStorageService.class),
-                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
-        var result = service.searchCandidates(
-                "water", null, null, null, null, null,
-                PageRequest.of(0, 20));
-
-        assertThat(result.content()).hasSize(1);
-        assertThat(result.content().getFirst().visualFingerprints())
-                .containsExactly("VF1:expected-fingerprint");
-    }
-
-    @Test
-    void publicSearchAndCandidatesExcludeHiddenReports() {
-        User owner = userRepository.save(new User("owner-hidden@u.nus.edu", "encoded"));
-        LostFoundReport hidden = report(
-                ReportType.FOUND, "Hidden Headphones", ItemCategory.ELECTRONICS,
-                "A pair of headphones that should not be visible.", "Black", "Central Library",
-                LocalDate.now().minusDays(1), owner);
-        hidden.hide();
-        reportRepository.saveAndFlush(hidden);
-        reportRepository.saveAndFlush(report(
-                ReportType.FOUND, "Visible Umbrella", ItemCategory.UMBRELLA,
-                "A blue umbrella near the gate.", "Blue", "East Gate",
-                LocalDate.now().minusDays(1), owner));
-
-        LostFoundReportService service = new LostFoundReportService(
-                reportRepository, mock(ObjectStorageService.class),
-                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
-
-        var search = service.search(
-                null, null, null, null, null, null, null, null,
-                PageRequest.of(0, 20), owner);
-        assertThat(search.content())
-                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
-                .contains("Visible Umbrella")
-                .doesNotContain("Hidden Headphones");
-
-        var candidates = service.searchCandidates(
-                null, null, null, null, null, null, PageRequest.of(0, 20));
-        assertThat(candidates.content())
-                .extracting(com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse::itemName)
-                .doesNotContain("Hidden Headphones");
-    }
-
-    @Test
     void rejectsReversedDateRange() {
         LostFoundReportService service = new LostFoundReportService(
-                reportRepository, mock(ObjectStorageService.class),
-                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
+                reportRepository, mock(ObjectStorageService.class));
         User currentUser = new User("reader@u.nus.edu", "encoded");
 
         assertThatThrownBy(() -> service.search(

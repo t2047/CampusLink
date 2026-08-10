@@ -8,7 +8,5 @@ public interface ObjectStorageService {
 
     String createPresignedGetUrl(String objectKey);
 
-    byte[] download(String objectKey);
-
     void delete(String objectKey);
 }

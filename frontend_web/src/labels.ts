@@ -1,4 +1,4 @@
-import type { AuditAction, ClaimStatus, ItemCategory, ReportStatus, ReportType } from './types'
+import type { ClaimStatus, ItemCategory, ReportStatus, ReportType } from './types'
 
 export const categoryLabels: Record<ItemCategory, string> = {
   ELECTRONICS: 'Electronics',
@@ -22,14 +22,4 @@ export const claimStatusLabels: Record<ClaimStatus, string> = {
   SUBMITTED: 'Submitted',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
-}
-export const auditActionLabels: Record<AuditAction, string> = {
-  REPORT_CREATED: 'Created',
-  REPORT_UPDATED: 'Updated',
-  REPORT_CLOSED: 'Closed',
-  REPORT_DELETED: 'Deleted',
-  REPORT_DELISTED: 'Delisted',
-  REPORT_RESTORED: 'Restored',
-  REPORT_DELETED_BY_ADMIN: 'Deleted by admin',
-  REPORT_CLAIMED: 'Marked claimed',
 }

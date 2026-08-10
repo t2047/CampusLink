@@ -16,7 +16,6 @@ public record AdminLostFoundReportResponse(
         String location,
         LocalDate eventDate,
         ReportStatus status,
-        boolean adminHidden,
         String createdByEmail,
         Instant createdAt,
         Instant updatedAt) {

@@ -49,5 +49,3 @@ keys/
 *.log
 logs/
 tmp/
-
-.claude/

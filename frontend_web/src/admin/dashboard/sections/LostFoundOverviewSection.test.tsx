@@ -16,7 +16,6 @@ const overviewFixture: AdminLostFoundOverview = {
   lostReports: 7,
   foundReports: 5,
   submittedClaims: 2,
-  hiddenReports: 0,
 }
 
 interface Deferred<T> {
@@ -105,7 +104,6 @@ describe('LostFoundOverviewSection', () => {
       lostReports: 0,
       foundReports: 0,
       submittedClaims: 0,
-      hiddenReports: 0,
     })
 
     renderSection()
