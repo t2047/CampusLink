@@ -310,7 +310,7 @@ export default function ChatPage() {
           break;
       }
     },
-    [appendContent, appendStep, finish, markLastStepOk],
+    [appendContent, appendStep, finish, markLastStepOk, t],
   );
 
   // ── 发送 ────────────────────────────────────
@@ -363,7 +363,7 @@ export default function ChatPage() {
         finish();
       }
     },
-    [input, sessionId, handleEvent, appendContent, finish],
+    [input, sessionId, handleEvent, appendContent, finish, t],
   );
 
   // ── 停止生成 ────────────────────────────────
@@ -422,6 +422,7 @@ export default function ChatPage() {
       appendContent,
       finish,
       markLastStepOk,
+      t,
     ],
   );
 
