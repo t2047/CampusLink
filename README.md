@@ -161,7 +161,7 @@ npm test
 npm run build
 ```
 
-PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking high-severity SpotBugs checks, npm vulnerability auditing, and dependency-change review. The nightly workflow adds deeper SpotBugs analysis, OWASP dependency checking, and ZAP scanning. A deployment target has not been configured, so CD remains intentionally disabled.
+PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking high-severity SpotBugs checks, npm vulnerability auditing, and dependency-change review. The nightly workflow adds deeper SpotBugs analysis, OWASP dependency checking, and ZAP scanning. A CD workflow (`cd-deploy.yml`) deploys to a single DigitalOcean Droplet via SSH on `main` push — see `DEPLOYMENT.md` for setup.
 
 ## Project Structure
 
