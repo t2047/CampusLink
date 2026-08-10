@@ -88,6 +88,7 @@ export interface AdminLostFoundOverview {
   lostReports: number
   foundReports: number
   submittedClaims: number
+  hiddenReports: number
 }
 
 export interface AdminLostFoundReport {
@@ -99,13 +100,45 @@ export interface AdminLostFoundReport {
   location: string
   eventDate: string
   status: ReportStatus
+  adminHidden: boolean
   createdByEmail: string
   createdAt: string
   updatedAt: string
 }
 
+export type AuditAction =
+  | 'REPORT_CREATED'
+  | 'REPORT_UPDATED'
+  | 'REPORT_CLOSED'
+  | 'REPORT_DELETED'
+  | 'REPORT_DELISTED'
+  | 'REPORT_RESTORED'
+  | 'REPORT_DELETED_BY_ADMIN'
+  | 'REPORT_CLAIMED'
+
+export interface AdminAuditLog {
+  id: number
+  reportId: number
+  itemName: string
+  action: AuditAction
+  actorEmail: string
+  reason: string | null
+  detail: string | null
+  createdAt: string
+}
+
 export interface CreateReportInput {
   reportType: ReportType
+  itemName: string
+  category: ItemCategory
+  description: string
+  colour: string
+  location: string
+  eventDate: string
+  timeDescription: string
+}
+
+export interface UpdateReportInput {
   itemName: string
   category: ItemCategory
   description: string
