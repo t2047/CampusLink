@@ -5,16 +5,19 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
 import { searchReports } from '../api/lostFound'
 import { ReportCard } from '../components/ReportCard'
+import { LostFoundAgentPanel } from '../components/LostFoundAgentPanel'
 import { categoryLabels } from '../labels'
 import type { ItemCategory, PageResponse, LostFoundReport } from '../types'
 
 const categories = Object.keys(categoryLabels) as ItemCategory[]
+const emptyFilters = { keyword: '', category: '', colour: '', location: '', dateFrom: '', dateTo: '' }
 
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [result, setResult] = useState<PageResponse<LostFoundReport> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
   const [form, setForm] = useState(() => ({
     keyword: searchParams.get('keyword') ?? '',
     category: searchParams.get('category') ?? '',
@@ -55,7 +58,7 @@ export function ReportsPage() {
       .catch((requestError) => { if (active) setError(apiErrorMessage(requestError)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [queryKey])
+  }, [queryKey, refreshKey])
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -79,6 +82,12 @@ export function ReportsPage() {
     setSearchParams(next)
   }
 
+  function handleAgentReportCreated() {
+    setForm(emptyFilters)
+    setSearchParams({ reportType: 'LOST', status: 'OPEN' })
+    setRefreshKey((value) => value + 1)
+  }
+
   return (
     <Stack spacing={3}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={2}>
@@ -88,6 +97,8 @@ export function ReportsPage() {
           <Button component={RouterLink} to="/lost-found/new/found" variant="contained" startIcon={<AddIcon />}>Report found</Button>
         </Stack>
       </Stack>
+
+      <LostFoundAgentPanel onReportCreated={handleAgentReportCreated} />
 
       <Paper component="form" onSubmit={submit} sx={{ p: 2 }}>
         <Stack direction="row" spacing={1} sx={{ mb: 2 }}>

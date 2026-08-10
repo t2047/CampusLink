@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "campuslink-lost-found-agent"
+version = "0.4.0"
+description = "CampusLink Lost & Found domain agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116,<1",
+    "httpx>=0.28,<1",
+    "mcp>=1.28,<2",
+    "pydantic>=2.11,<3",
+    "pydantic-settings>=2.10,<3",
+    "pyjwt>=2.10,<3",
+    "python-dotenv>=1.0,<2",
+    "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "bandit>=1.8,<2",
+    "jsonschema>=4.25,<5",
+    "mypy>=1.17,<2",
+    "pip-audit>=2.9,<3",
+    "pytest>=9.0.3,<10",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<1",
+    "types-jsonschema>=4.25,<5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lost_found_agent"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]

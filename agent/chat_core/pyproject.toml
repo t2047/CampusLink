@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "campuslink-chat-core"
+version = "0.1.0"
+description = "CampusLink Chat Core — LangGraph orchestration layer"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "langchain-community>=0.3",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "PyJWT>=2.8",
+    # MCP（Sprint 3：编排层 ↔ Agent/Utility 统一走 MCP 协议；锁 v1.x 稳定 API）
+    "mcp>=1.28,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[tool.setuptools]
+packages = [
+    "orchestration",
+    "orchestration.graph",
+    "orchestration.mcp",
+    "orchestration.security",
+    "orchestration.streaming",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "."]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

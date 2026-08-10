@@ -80,6 +80,30 @@ export interface LostFoundClaim {
   updatedAt: string
 }
 
+export interface AdminLostFoundOverview {
+  totalReports: number
+  openReports: number
+  claimedReports: number
+  closedReports: number
+  lostReports: number
+  foundReports: number
+  submittedClaims: number
+}
+
+export interface AdminLostFoundReport {
+  id: number
+  reportType: ReportType
+  itemName: string
+  category: ItemCategory
+  colour: string | null
+  location: string
+  eventDate: string
+  status: ReportStatus
+  createdByEmail: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CreateReportInput {
   reportType: ReportType
   itemName: string

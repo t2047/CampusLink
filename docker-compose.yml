@@ -1,11 +1,20 @@
+# Docker Compose — CampusLink（Chat Core + Lost & Found）
+#
+# Usage:
+#   docker compose up -d                 # 平台基础栈：基础设施 + 后端 + Chat Core/MCP
+#   docker compose --profile agent up -d # 追加 Lost & Found REST Agent 测试入口
+#   curl http://localhost:8080/actuator/health
+#   curl http://localhost:8000/health
+
 services:
+  # ─── 基础设施 ────────────────────────────────────────────
   mysql:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-campuslink}
       MYSQL_DATABASE: campusLink_db
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -31,6 +40,192 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─── Chat Backend (Spring Boot + MVC + WebClient) ─────────
+  # Chat Core 网关与 Lost & Found API 共用同一份 Spring Boot 后端代码
+  chat-backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/campusLink_db?useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-campuslink}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_EXPIRATION_MS=${JWT_EXPIRATION_MS:-86400000}
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-admin@campuslink.com}
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-}
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET=${MINIO_BUCKET:-campuslink}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      - LOST_FOUND_AGENT_URL=http://lost-found-agent:8083
+      - AGENT_BACKEND_SHARED_SECRET=${AGENT_BACKEND_SHARED_SECRET:-}
+      # RSA 密钥持久化目录：挂载命名卷，容器重建不轮换（Agent 端 JWKS 缓存依赖密钥稳定）
+      - DELEGATION_KEY_DIR=/app/keys
+    volumes:
+      - delegation_keys:/app/keys
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # ─── Orchestration Layer (Python / FastAPI / LangGraph) ───
+  orchestration:
+    build:
+      context: .
+      dockerfile: agent/chat_core/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Docker 网络内用服务名互访（.env 中的 localhost 仅限本地联调）
+      - TOKEN_SERVICE_URL=http://chat-backend:8080
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      # Sprint 3：MCP Server 端点（服务名互访）
+      - MAIL_AGENT_MCP_URL=http://mail-agent-mcp:8081/mcp/
+      - FACILITY_AGENT_MCP_URL=http://facility-agent-mcp:8082/mcp/
+      - LOSTFOUND_AGENT_MCP_URL=http://lost-found-mcp:8085/mcp/
+      - SKILL_AGENT_MCP_URL=http://skill-agent-mcp:8084/mcp/
+      - UTILITY_TOOLS_MCP_URL=http://utility-mcp:8090/mcp/
+    depends_on:
+      - chat-backend
+      - mail-agent-mcp
+      - facility-agent-mcp
+      - lost-found-mcp
+      - skill-agent-mcp
+      - utility-mcp
+
+  # ─── MCP Servers (Sprint 3) ─────────────────────────────────
+  # Domain Agent 与 Utility 均暴露 MCP streamable HTTP 端点（/mcp/）。
+  # 验签凭据：env_file(.env) 提供 TOKEN_SERVICE_JWKS_URL（RS256 验签必需）
+  mail-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=mail-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8081:8081"
+    depends_on:
+      - chat-backend
+
+  facility-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=facility-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8082:8082"
+    depends_on:
+      - chat-backend
+
+  lostfound-agent-mcp:
+    # 退役（Sprint 4）：L&F 已由 lost-found-mcp（组员业务 MCP 适配层）承担，
+    # 脚手架对 lost-found 无意义。mail/facility/skill 仍使用本服务。
+    # 注意：8083 已由 lost-found-agent（REST）占用，本 legacy 服务映射到主机 8086
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=lost-found-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8086:8083"
+    depends_on:
+      - chat-backend
+    # 注意：本服务不再被编排层引用（LOSTFOUND_AGENT_MCP_URL 指向 lost-found-mcp:8085）
+    profiles: ["legacy"]
+
+  skill-agent-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_AGENT_NAME=skill-agent
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8084:8084"
+    depends_on:
+      - chat-backend
+
+  utility-mcp:
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    command: ["uvicorn", "mcp_servers.utility_server:app", "--host", "0.0.0.0", "--port", "8090"]
+    env_file:
+      - .env
+    environment:
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8090:8090"
+    depends_on:
+      - chat-backend
+
+  # ─── 自研 Lost & Found Agent（组员实现，profile: agent）────────
+  # 双入口：REST（/agent/invoke + SSE，组员联调用）与 MCP 适配层（编排层用）
+  lost-found-agent:
+    profiles: ["agent"]
+    build:
+      context: ./agent
+      dockerfile: lost_found_agent/Dockerfile
+    environment:
+      CAMPUS_API_URL: http://chat-backend:8080
+      LOST_FOUND_AGENT_MODE: ${LOST_FOUND_AGENT_MODE:-auto}
+      AGENT_SHARED_SECRET: ${AGENT_SHARED_SECRET:-}
+      AGENT_BACKEND_SHARED_SECRET: ${AGENT_BACKEND_SHARED_SECRET:-}
+      LOST_FOUND_CONFIRMATION_SECRET: ${LOST_FOUND_CONFIRMATION_SECRET:-}
+      LOST_FOUND_LLM_API_KEY: ${LOST_FOUND_LLM_API_KEY:-}
+      LOST_FOUND_LLM_BASE_URL: ${LOST_FOUND_LLM_BASE_URL:-https://api.deepseek.com}
+      LOST_FOUND_LLM_MODEL: ${LOST_FOUND_LLM_MODEL:-deepseek-v4-flash}
+      LOST_FOUND_LLM_TIMEOUT_SECONDS: ${LOST_FOUND_LLM_TIMEOUT_SECONDS:-10}
+    ports:
+      - "8083:8083"
+    depends_on:
+      - chat-backend
+
+  # Lost & Found MCP 适配层（编排层调用入口；RS256 Delegation 验签）
+  lost-found-mcp:
+    build:
+      context: ./agent
+      dockerfile: lost_found_agent/Dockerfile
+    command: ["uvicorn", "mcp_servers.lost_found_server:app", "--host", "0.0.0.0", "--port", "8085"]
+    env_file:
+      - .env
+    environment:
+      - CAMPUS_API_URL=http://chat-backend:8080
+      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+    ports:
+      - "8085:8085"
+    # 覆盖镜像默认 healthcheck（镜像按 REST 8083 探测；本服务跑 MCP 网关 8085）
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      - chat-backend
+
 volumes:
   mysql_data:
   minio_data:
+  delegation_keys:

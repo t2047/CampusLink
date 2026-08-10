@@ -8,6 +8,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -21,6 +23,20 @@ class LostFoundSecurityIntegrationTest {
     @Test
     void rejectsUnauthenticatedLostFoundRequests() throws Exception {
         mockMvc.perform(get("/api/lost-found/metadata"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/lost-found/agent/invoke")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "message": "帮我找蓝色雨伞",
+                                  "conversationContext": {
+                                    "sessionId": "anonymous-session",
+                                    "sharedData": {}
+                                  },
+                                  "confirmed": false
+                                }
+                                """))
                 .andExpect(status().isUnauthorized());
     }
 

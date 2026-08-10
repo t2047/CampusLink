@@ -9,6 +9,8 @@ import java.util.List;
 
 public interface LostFoundClaimRepository extends JpaRepository<LostFoundClaim, Long> {
 
+    long countByStatus(ClaimStatus status);
+
     boolean existsByReportIdAndClaimantIdAndStatusIn(
             Long reportId,
             Long claimantId,

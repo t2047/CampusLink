@@ -10,6 +10,7 @@ import com.app.campusagent.lostfound.dto.CreateLostFoundReportRequest;
 import com.app.campusagent.lostfound.dto.LostFoundImageResponse;
 import com.app.campusagent.lostfound.dto.LostFoundReportResponse;
 import com.app.campusagent.lostfound.dto.PageResponse;
+import com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.app.campusagent.lostfound.repository.LostFoundReportRepository;
 import com.app.campusagent.lostfound.storage.ObjectStorageService;
@@ -107,14 +108,75 @@ public class LostFoundReportService {
             ReportStatus status,
             Pageable pageable,
             User currentUser) {
+        Specification<LostFoundReport> specification = specification(
+                reportType, keyword, category, colour, location, dateFrom, dateTo, status);
+
+        Page<LostFoundReportResponse> result = reportRepository.findAll(specification, pageable)
+                .map(report -> toResponse(report, currentUser));
+        return PageResponse.from(result);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<AgentCandidateResponse> searchCandidates(
+            String keyword,
+            ItemCategory category,
+            String colour,
+            String location,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            Pageable pageable) {
+        Specification<LostFoundReport> specification = specification(
+                ReportType.FOUND,
+                keyword,
+                category,
+                colour,
+                location,
+                dateFrom,
+                dateTo,
+                ReportStatus.OPEN);
+        return PageResponse.from(reportRepository.findAll(specification, pageable)
+                .map(report -> new AgentCandidateResponse(
+                        report.getId(),
+                        report.getItemName(),
+                        report.getCategory(),
+                        report.getDescription(),
+                        report.getColour(),
+                        report.getLocation(),
+                        report.getEventDate(),
+                        report.getTimeDescription(),
+                        report.getStatus())));
+    }
+
+    @Transactional(readOnly = true)
+    public LostFoundReportResponse getById(Long reportId, User currentUser) {
+        return toResponse(requireReport(reportId), currentUser);
+    }
+
+    @Transactional(readOnly = true)
+    public LostFoundReport requireReport(Long reportId) {
+        return reportRepository.findById(reportId)
+                .orElseThrow(() -> new LostFoundApiException(
+                        HttpStatus.NOT_FOUND,
+                        "LOST_FOUND_REPORT_NOT_FOUND",
+                        "The requested report does not exist"));
+    }
+
+    private Specification<LostFoundReport> specification(
+            ReportType reportType,
+            String keyword,
+            ItemCategory category,
+            String colour,
+            String location,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            ReportStatus status) {
         if (dateFrom != null && dateTo != null && dateFrom.isAfter(dateTo)) {
             throw new LostFoundApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "INVALID_DATE_RANGE",
                     "dateFrom must be on or before dateTo");
         }
-
-        Specification<LostFoundReport> specification = (root, query, builder) -> {
+        return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (reportType != null) {
                 predicates.add(builder.equal(root.get("reportType"), reportType));
@@ -132,12 +194,10 @@ public class LostFoundReportService {
                         builder.like(builder.lower(root.get("description")), pattern)));
             }
             if (StringUtils.hasText(colour)) {
-                predicates.add(builder.like(
-                        builder.lower(root.get("colour")), likePattern(colour)));
+                predicates.add(builder.like(builder.lower(root.get("colour")), likePattern(colour)));
             }
             if (StringUtils.hasText(location)) {
-                predicates.add(builder.like(
-                        builder.lower(root.get("location")), likePattern(location)));
+                predicates.add(builder.like(builder.lower(root.get("location")), likePattern(location)));
             }
             if (dateFrom != null) {
                 predicates.add(builder.greaterThanOrEqualTo(root.get("eventDate"), dateFrom));
@@ -147,24 +207,6 @@ public class LostFoundReportService {
             }
             return builder.and(predicates.toArray(Predicate[]::new));
         };
-
-        Page<LostFoundReportResponse> result = reportRepository.findAll(specification, pageable)
-                .map(report -> toResponse(report, currentUser));
-        return PageResponse.from(result);
-    }
-
-    @Transactional(readOnly = true)
-    public LostFoundReportResponse getById(Long reportId, User currentUser) {
-        return toResponse(requireReport(reportId), currentUser);
-    }
-
-    @Transactional(readOnly = true)
-    public LostFoundReport requireReport(Long reportId) {
-        return reportRepository.findById(reportId)
-                .orElseThrow(() -> new LostFoundApiException(
-                        HttpStatus.NOT_FOUND,
-                        "LOST_FOUND_REPORT_NOT_FOUND",
-                        "The requested report does not exist"));
     }
 
     private LostFoundReportResponse toResponse(LostFoundReport report, User currentUser) {

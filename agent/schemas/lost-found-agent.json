@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.3.0.json",
+  "agent": "lost-found-agent",
+  "version": "1.3.0",
+  "description": "校园失物招领领域 Agent。负责报失、搜索拾获记录、查看详情和提交认领；所有写操作必须经过用户确认。",
+  "agentType": "domain_agent",
+  "transport": {
+    "type": "mcp",
+    "protocol": "streamable HTTP",
+    "baseUrl": "http://localhost:8085",
+    "endpoints": {
+      "mcp": {
+        "method": "POST / GET",
+        "path": "/mcp/",
+        "description": "MCP streamable HTTP 端点（mcp_servers/lost_found_server.py 适配层，端口 8085；8083 为组员自研 REST /agent/invoke）"
+      },
+      "health": {"method": "GET", "path": "/health", "authenticated": false}
+    }
+  },
+  "security": {
+    "requiredHeaders": ["Authorization", "X-Timestamp"],
+    "delegationTokenAudience": "lost-found-agent",
+    "tokenAlgorithm": "RS256 (JWKS)",
+    "writeConfirmationRequired": ["report_lost", "claim_item"],
+    "confirmationTtlSeconds": 600
+  },
+  "capabilities": {
+    "domains": ["lost_and_found"],
+    "languages": ["zh", "en"],
+    "actions": ["report_lost", "search_found_items", "get_item_detail", "claim_item"],
+    "privacy": {
+      "exposesPublisherContact": false,
+      "exposesStorageObjectKey": false,
+      "exposesOtherUsersClaimProof": false
+    },
+    "rateLimit": {"perUserPerMinute": 5, "perSession": 20}
+  },
+  "$defs": {
+    "category": {
+      "type": "string",
+      "enum": [
+        "ELECTRONICS",
+        "CLOTHING",
+        "BOOKS_STATIONERY",
+        "KEYS",
+        "WALLET_PURSE",
+        "ID_CARD",
+        "BAG",
+        "UMBRELLA",
+        "OTHER"
+      ]
+    },
+    "invokeInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "conversation_context": {
+          "type": "object",
+          "properties": {
+            "previous_agent": {"type": ["string", "null"]},
+            "session_id": {"type": ["string", "null"]},
+            "shared_data": {"type": "object", "additionalProperties": true}
+          },
+          "additionalProperties": false
+        },
+        "confirmed": {"type": "boolean", "default": false},
+        "confirmation_id": {"type": ["string", "null"]},
+        "trace_parent": {
+          "type": "object",
+          "properties": {
+            "trace_id": {"type": ["string", "null"]},
+            "parent_span_id": {"type": ["string", "null"]}
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["message"]
+    },
+    "matchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {"type": "string"},
+        "item_name": {"type": "string"},
+        "category": {"$ref": "#/$defs/category"},
+        "description": {"type": "string"},
+        "found_location": {"type": "string"},
+        "found_date": {"type": "string", "format": "date"},
+        "status": {"type": "string", "enum": ["OPEN", "CLAIMED", "CLOSED"]},
+        "match_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "match_reason": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": [
+        "item_id",
+        "item_name",
+        "category",
+        "description",
+        "found_location",
+        "found_date",
+        "status",
+        "match_score",
+        "match_reason"
+      ]
+    },
+    "invokeOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "needs_more_info",
+            "match_found",
+            "no_match",
+            "needs_confirmation",
+            "failed"
+          ]
+        },
+        "match_results": {"type": "array", "items": {"$ref": "#/$defs/matchResult"}},
+        "confirmation_required": {
+          "type": ["object", "null"],
+          "properties": {
+            "confirmation_id": {"type": "string"},
+            "action": {"type": "string", "enum": ["report_lost", "claim_item"]},
+            "summary": {"type": "string"},
+            "expires_at": {"type": "string", "format": "date-time"}
+          },
+          "required": ["confirmation_id", "action", "summary", "expires_at"]
+        },
+        "shared_context": {"type": "object", "additionalProperties": true},
+        "actions_taken": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": ["report_lost", "search_found_items", "get_item_detail", "claim_item"]
+              },
+              "params_summary": {"type": ["string", "null"]},
+              "result_summary": {"type": ["string", "null"]},
+              "status": {"type": "string", "enum": ["success", "failed", "skipped"]}
+            },
+            "required": ["action", "status"]
+          }
+        },
+        "request_id": {"type": "string"}
+      },
+      "required": ["response", "status", "request_id"]
+    }
+  },
+  "invoke": {
+    "input": {"$ref": "#/$defs/invokeInput"},
+    "output": {"$ref": "#/$defs/invokeOutput"}
+  },
+  "internalTools": [
+    {
+      "name": "report_lost",
+      "requiresConfirmation": true,
+      "required": ["item_name", "category", "description", "location", "event_date"]
+    },
+    {
+      "name": "search_found_items",
+      "requiresConfirmation": false,
+      "defaults": {"report_type": "FOUND", "status": "OPEN", "limit": 100}
+    },
+    {"name": "get_item_detail", "requiresConfirmation": false, "required": ["report_id"]},
+    {
+      "name": "claim_item",
+      "requiresConfirmation": true,
+      "required": ["report_id", "proof_description"]
+    }
+  ],
+  "streaming": {
+    "status": "not_implemented",
+    "deprecated": true,
+    "description": "Sprint 3 起不再推送 Agent 内部执行进度（编排层经 MCP 同步调用 invoke）。确认交互由 invoke 返回 status + confirmation_required 承载；以下事件定义保留作历史参考",
+    "events": [
+      "agent_start",
+      "tool_execution",
+      "needs_more_info",
+      "confirmation_required",
+      "model_fallback",
+      "token",
+      "agent_done",
+      "agent_error"
+    ],
+    "retentionSeconds": 300
+  },
+  "matching": {
+    "candidateDefaults": {"reportType": "FOUND", "status": "OPEN", "limit": 100},
+    "topK": 5,
+    "defaultMinimumScore": 0.35,
+    "weights": {"text": 0.30, "category": 0.30, "colour": 0.15, "location": 0.15, "date": 0.10},
+    "missingFieldsRenormalizeWeights": true
+  },
+  "model": {
+    "modes": ["auto", "rules", "llm"],
+    "compatibleProtocol": "OpenAI chat completions",
+    "responsibilities": ["intent_detection", "field_extraction"],
+    "allowedTools": ["report_lost", "search_found_items", "get_item_detail", "claim_item"],
+    "maximumToolsPerInvocation": 2,
+    "validatedOutput": true,
+    "fallbackMode": "rules",
+    "writeConfirmationCannotBeBypassed": true
+  }
+}
