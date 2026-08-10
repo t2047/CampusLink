@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminLostFoundPage } from './AdminLostFoundPage'
 
@@ -24,6 +24,15 @@ vi.mock('../../api/adminLostFound', () => ({
 vi.mock('./AdminAuditLogsSection', () => ({
   AdminAuditLogsSection: () => <div>Audit logs section</div>,
 }))
+
+vi.mock('./AdminClaimsSection', () => ({
+  AdminClaimsSection: () => <div>Claims section</div>,
+}))
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div aria-label="Current location">{`${location.pathname}${location.search}`}</div>
+}
 
 const overview = {
   totalReports: 12,
@@ -73,6 +82,7 @@ function renderPage(initialEntry = '/admin/lost-found') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <AdminLostFoundPage />
+      <LocationProbe />
     </MemoryRouter>,
   )
 }
@@ -200,6 +210,59 @@ describe('AdminLostFoundPage', () => {
 
     await waitFor(() => expect(apiMocks.deleteReport).toHaveBeenCalledWith(42, 'Community guidelines violation'))
     await waitFor(() => expect(apiMocks.searchReports).toHaveBeenCalledTimes(2))
+  })
+
+  it('renders Claims as the middle administration tab', async () => {
+    renderPage()
+    await screen.findByText('Black Headphones')
+
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Reports', 'Claims', 'Audit Logs'])
+  })
+
+  it('switches from Reports to the default submitted Claims queue without refetching reports', async () => {
+    renderPage('/admin/lost-found?keyword=headphones&page=2')
+    await screen.findByText('Black Headphones')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Claims' }))
+
+    expect(await screen.findByText('Claims section')).toBeInTheDocument()
+    expect(screen.getByLabelText('Current location')).toHaveTextContent(
+      '/admin/lost-found?tab=claims&status=SUBMITTED',
+    )
+    expect(apiMocks.searchReports).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads overview metrics on Claims without requesting the reports list', async () => {
+    renderPage('/admin/lost-found?tab=claims&status=SUBMITTED')
+
+    expect(await screen.findByText('Claims section')).toBeInTheDocument()
+    expect(await screen.findByText('Pending claims')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+    expect(apiMocks.getOverview).toHaveBeenCalledTimes(1)
+    expect(apiMocks.searchReports).not.toHaveBeenCalled()
+  })
+
+  it('clears Claims parameters when switching back to Reports', async () => {
+    renderPage('/admin/lost-found?tab=claims&status=APPROVED&keyword=wallet&page=2')
+    await screen.findByText('Claims section')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Reports' }))
+
+    expect(await screen.findByText('Black Headphones')).toBeInTheDocument()
+    expect(screen.getByLabelText('Current location')).toHaveTextContent('/admin/lost-found')
+    expect(screen.getByLabelText('Current location')).not.toHaveTextContent('status=')
+  })
+
+  it('clears Claims parameters when switching to Audit Logs', async () => {
+    renderPage('/admin/lost-found?tab=claims&status=REJECTED&keyword=wallet&page=2')
+    await screen.findByText('Claims section')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Audit Logs' }))
+
+    expect(await screen.findByText('Audit logs section')).toBeInTheDocument()
+    expect(screen.getByLabelText('Current location')).toHaveTextContent('/admin/lost-found?tab=audit')
+    expect(screen.getByLabelText('Current location')).not.toHaveTextContent('status=')
   })
 
   it('switches to the audit logs tab without refetching reports', async () => {

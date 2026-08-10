@@ -48,13 +48,14 @@ import type {
   ReportType,
 } from '../../types'
 import { AdminAuditLogsSection } from './AdminAuditLogsSection'
+import { AdminClaimsSection } from './AdminClaimsSection'
 
 const categories = Object.keys(categoryLabels) as ItemCategory[]
 const reportTypes: ReportType[] = ['LOST', 'FOUND']
 const reportStatuses: ReportStatus[] = ['OPEN', 'CLAIMED', 'CLOSED']
 
 type AdminAction = 'delist' | 'restore' | 'delete'
-type TabValue = 'reports' | 'audit'
+type TabValue = 'reports' | 'claims' | 'audit'
 
 interface MetricCardProps {
   label: string
@@ -81,9 +82,30 @@ function formatDateTime(value: string) {
   }).format(new Date(value))
 }
 
+const reportQueryKeys = [
+  'keyword', 'reportType', 'category', 'status', 'colour', 'location',
+  'dateFrom', 'dateTo', 'adminHidden', 'page',
+] as const
+
+function normalizeReportStatus(value: string | null) {
+  return reportStatuses.includes(value as ReportStatus) ? value ?? '' : ''
+}
+
+function normalizeReportSearchParams(source: URLSearchParams) {
+  const normalized = new URLSearchParams()
+  reportQueryKeys.forEach((key) => {
+    const value = source.get(key)
+    if (!value) return
+    if (key === 'status' && !reportStatuses.includes(value as ReportStatus)) return
+    normalized.set(key, value)
+  })
+  return normalized
+}
+
 export function AdminLostFoundPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab: TabValue = searchParams.get('tab') === 'audit' ? 'audit' : 'reports'
+  const tabParam = searchParams.get('tab')
+  const tab: TabValue = tabParam === 'claims' ? 'claims' : tabParam === 'audit' ? 'audit' : 'reports'
   const [overview, setOverview] = useState<AdminLostFoundOverview | null>(null)
   const [result, setResult] = useState<PageResponse<AdminLostFoundReport> | null>(null)
   const [loading, setLoading] = useState(true)
@@ -93,7 +115,7 @@ export function AdminLostFoundPage() {
     keyword: searchParams.get('keyword') ?? '',
     reportType: searchParams.get('reportType') ?? '',
     category: searchParams.get('category') ?? '',
-    status: searchParams.get('status') ?? '',
+    status: normalizeReportStatus(searchParams.get('status')),
     colour: searchParams.get('colour') ?? '',
     location: searchParams.get('location') ?? '',
     dateFrom: searchParams.get('dateFrom') ?? '',
@@ -105,12 +127,17 @@ export function AdminLostFoundPage() {
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState('')
 
-  // 剔除 tab 参数，切换页签不触发报告列表重查
-  const reportsQueryKey = useMemo(() => {
-    const params = new URLSearchParams(searchParams)
-    params.delete('tab')
-    return params.toString()
-  }, [searchParams])
+  // Reports read only their whitelisted query parameters.
+  const reportsQueryKey = useMemo(
+    () => tab === 'reports' ? normalizeReportSearchParams(searchParams).toString() : '',
+    [searchParams, tab],
+  )
+
+  useEffect(() => {
+    if (tab === 'reports' && searchParams.toString() !== reportsQueryKey) {
+      setSearchParams(new URLSearchParams(reportsQueryKey), { replace: true })
+    }
+  }, [reportsQueryKey, searchParams, setSearchParams, tab])
 
   useEffect(() => {
     if (tab !== 'reports') return
@@ -163,9 +190,10 @@ export function AdminLostFoundPage() {
     return () => { active = false }
   }, [reportsQueryKey, refreshCounter, tab])
 
-  // 审计页签只加载统计卡，审计表格由 AdminAuditLogsSection 自管理
+  // Claims and Audit load overview metrics without loading the reports list.
   useEffect(() => {
-    if (tab !== 'audit') return
+    if (tab === 'reports') return
+    setError('')
     let active = true
     getAdminLostFoundOverview()
       .then((overviewData) => {
@@ -178,10 +206,13 @@ export function AdminLostFoundPage() {
   }, [tab, refreshCounter])
 
   function changeTab(next: TabValue) {
-    const nextParams = new URLSearchParams(searchParams)
-    if (next === 'audit') nextParams.set('tab', 'audit')
-    else nextParams.delete('tab')
-    setSearchParams(nextParams)
+    if (next === 'claims') {
+      setSearchParams({ tab: 'claims', status: 'SUBMITTED' })
+    } else if (next === 'audit') {
+      setSearchParams({ tab: 'audit' })
+    } else {
+      setSearchParams({})
+    }
   }
 
   function submit(event: FormEvent) {
@@ -252,6 +283,7 @@ export function AdminLostFoundPage() {
 
       <Tabs value={tab} onChange={(_, value: TabValue) => changeTab(value)}>
         <Tab label="Reports" value="reports" />
+        <Tab label="Claims" value="claims" />
         <Tab label="Audit Logs" value="audit" />
       </Tabs>
 
@@ -408,6 +440,8 @@ export function AdminLostFoundPage() {
             </Paper>
           )}
         </>
+      ) : tab === 'claims' ? (
+        <AdminClaimsSection />
       ) : (
         <AdminAuditLogsSection />
       )}

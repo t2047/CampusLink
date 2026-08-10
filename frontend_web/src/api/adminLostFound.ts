@@ -1,13 +1,30 @@
 import { apiClient } from './client'
 import type {
   AdminAuditLog,
+  AdminClaimDecisionInput,
+  AdminClaimDetail,
+  AdminClaimRejectInput,
+  AdminClaimSummary,
   AdminLostFoundOverview,
   AdminLostFoundReport,
   AuditAction,
+  ClaimStatus,
   PageResponse,
 } from '../types'
 
 export type AdminReportSearchParams = Record<string, string | number | undefined>
+
+export interface AdminClaimSearchParams {
+  status?: ClaimStatus
+  keyword?: string
+  reportId?: number
+  claimantEmail?: string
+  reportOwnerEmail?: string
+  adminHidden?: boolean
+  page?: number
+  size?: number
+  sort?: string
+}
 
 export interface AdminAuditLogSearchParams {
   reportId?: number
@@ -60,6 +77,43 @@ export async function searchAdminAuditLogs(
   const response = await apiClient.get<PageResponse<AdminAuditLog>>(
     '/admin/lost-found/audit-logs',
     { params },
+  )
+  return response.data
+}
+
+export async function searchAdminClaims(
+  params: AdminClaimSearchParams,
+): Promise<PageResponse<AdminClaimSummary>> {
+  const response = await apiClient.get<PageResponse<AdminClaimSummary>>(
+    '/admin/lost-found/claims',
+    { params },
+  )
+  return response.data
+}
+
+export async function getAdminClaimDetail(id: number): Promise<AdminClaimDetail> {
+  const response = await apiClient.get<AdminClaimDetail>(`/admin/lost-found/claims/${id}`)
+  return response.data
+}
+
+export async function approveAdminClaim(
+  id: number,
+  input: AdminClaimDecisionInput = {},
+): Promise<AdminClaimDetail> {
+  const response = await apiClient.post<AdminClaimDetail>(
+    `/admin/lost-found/claims/${id}/approve`,
+    input,
+  )
+  return response.data
+}
+
+export async function rejectAdminClaim(
+  id: number,
+  input: AdminClaimRejectInput,
+): Promise<AdminClaimDetail> {
+  const response = await apiClient.post<AdminClaimDetail>(
+    `/admin/lost-found/claims/${id}/reject`,
+    input,
   )
   return response.data
 }

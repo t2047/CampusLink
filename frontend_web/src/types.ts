@@ -106,6 +106,83 @@ export interface AdminLostFoundReport {
   updatedAt: string
 }
 
+export interface AdminClaimUserSummary {
+  id: number
+  email: string
+}
+
+export interface AdminClaimUserDetail {
+  id: number
+  email: string
+  role: string
+}
+
+export interface AdminClaimReportSummary {
+  id: number
+  reportType: ReportType
+  itemName: string
+  category: ItemCategory
+  colour: string | null
+  location: string
+  eventDate: string
+  status: ReportStatus
+  adminHidden: boolean
+  owner: AdminClaimUserSummary
+}
+
+export interface AdminClaimReportDetail {
+  id: number
+  reportType: ReportType
+  itemName: string
+  category: ItemCategory
+  description: string
+  colour: string | null
+  location: string
+  eventDate: string
+  timeDescription: string | null
+  status: ReportStatus
+  adminHidden: boolean
+  owner: AdminClaimUserSummary
+  images: LostFoundImage[]
+}
+
+export interface AdminClaimReviewInfo {
+  reviewed: boolean
+  decisionNote: string | null
+  reviewedAt: string | null
+}
+
+export interface AdminClaimSummary {
+  id: number
+  status: ClaimStatus
+  proofSummary: string
+  decisionNote: string | null
+  claimant: AdminClaimUserSummary
+  report: AdminClaimReportSummary
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminClaimDetail {
+  id: number
+  status: ClaimStatus
+  proofDescription: string
+  decisionNote: string | null
+  claimant: AdminClaimUserDetail
+  report: AdminClaimReportDetail
+  review: AdminClaimReviewInfo
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminClaimDecisionInput {
+  decisionNote?: string | null
+}
+
+export type AdminClaimRejectInput = AdminClaimDecisionInput & {
+  decisionNote: string
+}
+
 export type AuditAction =
   | 'REPORT_CREATED'
   | 'REPORT_UPDATED'
