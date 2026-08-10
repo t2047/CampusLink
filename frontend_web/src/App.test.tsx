@@ -6,6 +6,20 @@ import { TOKEN_KEY, USER_KEY } from './api/client'
 import { AuthProvider } from './auth/AuthContext'
 
 vi.mock('./pages/ReportsPage', () => ({ ReportsPage: () => <p>Lost and Found page</p> }))
+vi.mock('./api/facilities', () => ({
+  facilitiesApi: {
+    getDashboard: vi.fn().mockResolvedValue({
+      summary: { totalFacilities: 5, availableFacilities: 3, todayReservations: 2, underMaintenance: 1 },
+      statusBreakdown: [{ status: 'AVAILABLE', count: 3 }],
+      reservationTrend: [],
+      facilityUsage: [],
+    }),
+    getReservations: vi.fn().mockResolvedValue([]),
+    getMaintenance: vi.fn().mockResolvedValue([]),
+    getMaintenanceDetail: vi.fn(),
+    updateMaintenance: vi.fn(),
+  },
+}))
 vi.mock('./api/adminLostFound', () => ({
   getAdminLostFoundOverview: vi.fn().mockResolvedValue({
     totalReports: 0,
@@ -101,7 +115,6 @@ describe('admin application routes', () => {
 
 
   it.each([
-    ['/admin/facilities', 'Facilities', 'Facilities administration will be available here.'],
     ['/admin/users', 'User Management', 'The scope of this module is pending team confirmation.'],
   ])('renders the %s administrator placeholder', async (path, heading, description) => {
     storeSession('ADMIN')
@@ -115,8 +128,27 @@ describe('admin application routes', () => {
     expect(screen.getByRole('link', { name: 'Return to Overview' })).toHaveAttribute('href', '/admin/dashboard')
   })
 
+  it('renders the Facilities dashboard at the facilities route', async () => {
+    storeSession('ADMIN')
+    renderApp('/admin/facilities')
+
+    expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
+    expect(await screen.findByText('Total Facilities')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Reservations' })).toHaveAttribute('href', '/admin/facilities/reservations')
+    expect(screen.getByRole('tab', { name: 'Maintenance' })).toHaveAttribute('href', '/admin/facilities/maintenance')
+  })
+
+  it('renders the administrator Lost & Found page at the lost-found route', async () => {
+    storeSession('ADMIN')
+    renderApp('/admin/lost-found')
+
+    expect(await screen.findByRole('heading', { name: 'Lost & Found' })).toBeInTheDocument()
+    expect(await screen.findByText('No reports found')).toBeInTheDocument()
+  })
+
 
   it.each([
+    ['Lost & Found', '/admin/lost-found'],
     ['Facilities', '/admin/facilities'],
     ['User Management', '/admin/users'],
   ])('navigates from the %s dashboard card to its placeholder', async (label, path) => {
@@ -129,6 +161,16 @@ describe('admin application routes', () => {
     expect(await screen.findByRole('heading', { name: label })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent(path)
     expect(screen.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('navigates from the Facilities dashboard card to the Facilities dashboard', async () => {
+    storeSession('ADMIN')
+    renderApp('/admin/dashboard')
+
+    fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Facilities' }))
+
+    expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/facilities')
   })
 
   it('navigates from the dashboard to the Lost & Found administration page', async () => {
