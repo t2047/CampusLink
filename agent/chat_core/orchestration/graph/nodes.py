@@ -196,7 +196,8 @@ def intent_router(state: AgentState) -> AgentState:
             "agent_plan": [pending_info["agent_name"]],
             "utility_plan": [],
             "current_agent_index": 0,
-            # pending_info 保留：由 agent_invoker 依据本轮结果更新/消费
+            # pending_info 显式保留：由 agent_invoker 依据本轮结果更新/消费
+            "pending_info": pending_info,
         }
 
     llm = intent_llm()

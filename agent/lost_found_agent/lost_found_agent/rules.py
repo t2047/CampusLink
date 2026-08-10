@@ -25,7 +25,13 @@ from .tools import (
     SearchFoundItemsInput,
 )
 
-Intent = Literal["report_lost", "report_found", "search_found_items", "get_item_detail", "claim_item"]
+Intent = Literal[
+    "report_lost",
+    "report_found",
+    "search_found_items",
+    "get_item_detail",
+    "claim_item",
+]
 Emit = Callable[[AgentEvent], None]
 
 CATEGORIES: dict[str, str] = {

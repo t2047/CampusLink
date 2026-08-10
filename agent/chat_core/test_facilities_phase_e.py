@@ -287,11 +287,14 @@ def test_conversation_context_keeps_session_and_domain_namespaces():
     )
 
     assert context["session_id"] == "stable-thread"
-    assert context["shared_data"] == {
-        "mail": {"message_id": "m1"},
-        "facilities": {"last_booking_id": 123},
-        "lost_found": {"last_item_id": 456},
-    }
+    shared = context["shared_data"]
+    assert shared["mail"] == {"message_id": "m1"}
+    assert shared["facilities"] == {"last_booking_id": 123}
+    assert shared["lost_found"] == {"last_item_id": 456}
+    # 编排层统一注入的系统事实包（日期格式 YYYY-MM-DD，不绑定具体日期）
+    assert shared["system_facts"]["timezone"] == "Asia/Singapore"
+    assert len(shared["system_facts"]["today"]) == 10
+    assert isinstance(shared["recent_messages"], list)
 
 
 @pytest.mark.parametrize(
