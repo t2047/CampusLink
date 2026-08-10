@@ -143,6 +143,22 @@ REGISTRY=ghcr.io/<owner> docker compose -f docker-compose.yml -f docker-compose.
   docker compose exec -T mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_PASSWORD" campusLink_db' > backup.sql
   ```
 
+## 8b. 升级/迁移注意（RSA 密钥卷权限）
+
+backend 以非 root 用户（UID 1001）运行，`delegation_keys` 命名卷**首次挂载**会继承镜像目录 owner（campus）。
+
+**若该卷已由旧版本（root 属主）创建**（如曾因权限问题启动失败过），升级后 backend 仍会因无法写 `/app/keys` 崩溃。迁移修复：
+
+```bash
+# 用固定 UID 修复已有卷属主（一次性；backend 停止时执行）
+docker compose stop chat-backend
+docker compose run --rm -u root chat-backend chown -R 1001:1001 /app/keys
+docker compose start chat-backend
+```
+
+> 若选择删卷重建（`docker compose down -v`），会**轮换 RSA 密钥**——Agent 端 JWKS 缓存
+> （依赖密钥稳定）会失效，需重启编排层/MCP 容器重新拉取公钥；优先用 chown 方案。
+
 ## 9. CD（持续部署：CI 构建镜像 + VM 拉取）
 
 见 `.github/workflows/cd-deploy.yml`，流程：
