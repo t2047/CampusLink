@@ -1,0 +1,46 @@
+# ─── 生产 override：镜像引用（替代 build）─────────────────────────
+# 用法（与基础 compose 合并，VM 只拉镜像不构建）：
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
+#
+# 环境变量（.env 或部署时注入）：
+#   REGISTRY  镜像仓库前缀，如 ghcr.io/<github-owner>（默认 ghcr.io/your-org）
+#   TAG       镜像标签（默认 latest）
+#
+# mysql / minio 为官方镜像，保持不变。
+
+services:
+  chat-backend:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-backend:${TAG:-latest}
+
+  orchestration:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-orchestration:${TAG:-latest}
+
+  mail-agent-mcp:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-mcp-servers:${TAG:-latest}
+
+  facility-agent-mcp:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-mcp-servers:${TAG:-latest}
+
+  utility-mcp:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-mcp-servers:${TAG:-latest}
+
+  lostfound-agent-mcp:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-mcp-servers:${TAG:-latest}
+
+  lost-found-agent:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-lost-found-agent:${TAG:-latest}
+
+  lost-found-mcp:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-lost-found-agent:${TAG:-latest}
+
+  web:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-web:${TAG:-latest}

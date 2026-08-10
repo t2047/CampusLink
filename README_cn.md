@@ -163,7 +163,7 @@ npm test
 npm run build
 ```
 
-PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。当前尚未指定部署环境，因此不会擅自启用 CD。
+PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。CD 流水线（`cd-deploy.yml`）在推送到 `main` 时通过 SSH 部署到单台 DigitalOcean Droplet——配置见 `DEPLOYMENT.md`。
 
 ## 项目结构
 
