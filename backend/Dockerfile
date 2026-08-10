@@ -18,6 +18,10 @@ USER campus
 
 COPY --from=builder /app/target/*.jar /app/app.jar
 
+# RSA 密钥目录：预创建并归属 campus 用户（命名卷 delegation_keys 首次挂载时
+# 继承镜像目录 owner，否则卷属 root → campus 无法写入 → AccessDenied）
+RUN mkdir -p /app/keys && chown campus:campus /app/keys
+
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://localhost:8080/actuator/health || exit 1
 
