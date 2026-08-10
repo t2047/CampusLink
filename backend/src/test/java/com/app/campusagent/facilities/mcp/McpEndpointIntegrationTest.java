@@ -54,8 +54,10 @@ class McpEndpointIntegrationTest {
 
     @Test
     void mcpEndpointRequiresCampusLinkAuthentication() throws Exception {
+        // 未认证 → 401 Unauthorized（SecurityConfig 全局 authenticationEntryPoint 统一返回
+        // 401；与 Chat/Admin API 行为一致。403 仅用于"已认证但无权"）
         mockMvc.perform(mcpPost(INITIALIZE))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
