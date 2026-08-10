@@ -155,6 +155,7 @@ def intent_router(state: AgentState) -> AgentState:
     且维护成本高。LLM 失败/超时/返回非 JSON 时安全降级为 chat（不乱调工具）。
     """
     user_msg = state["messages"][-1].content if state.get("messages") else ""
+    history_text = _recent_history_text(state, limit=6)
 
     # Prompt injection 已由 input_guardrail 拦截
     if state.get("error"):
@@ -208,7 +209,17 @@ def intent_router(state: AgentState) -> AgentState:
     targets: list[str] = []
     try:
         response = llm.invoke(
-            [SystemMessage(content=prompt), HumanMessage(content=user_msg)]
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(
+                    content=(
+                        f"对话历史：\n{history_text}\n\n"
+                        f"当前消息：{user_msg}"
+                        if history_text
+                        else f"当前消息：{user_msg}"
+                    )
+                ),
+            ]
         )
         parsed = json.loads(response.content)
         intent_type = str(parsed.get("intent_type", "chat"))
@@ -400,6 +411,32 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
         invocation_shared = inv.get("shared_context") or {}
         if isinstance(invocation_shared, dict):
             shared.update(invocation_shared)
+
+    # 统一注入系统事实包：权威日期/时间/时区/用户语言（Asia/Singapore, UTC+8）。
+    # agent 解析相对时间（"刚刚/今天/明天"）时使用注入值，而不是各自猜测/重复计算。
+    from datetime import datetime, timedelta, timezone as dt_timezone
+
+    now = datetime.now(dt_timezone.utc).astimezone(dt_timezone(timedelta(hours=8)))
+    user_msgs = [
+        m.content
+        for m in state.get("messages", [])
+        if isinstance(m, HumanMessage)
+    ]
+    shared["system_facts"] = {
+        "today": now.strftime("%Y-%m-%d"),
+        "now": now.isoformat(timespec="seconds"),
+        "timezone": "Asia/Singapore",
+        "user_language": "zh" if _looks_chinese("".join(user_msgs)) else "en",
+    }
+    # 最近对话历史（结构化为 role/content 列表）：agent 解析补充性消息（如"刚刚"）
+    # 时结合上文理解，而不是只看当前一句
+    recent: list[dict[str, str]] = []
+    for m in state.get("messages", [])[-6:]:
+        if isinstance(m, HumanMessage):
+            recent.append({"role": "user", "content": m.content})
+        elif isinstance(m, AIMessage):
+            recent.append({"role": "assistant", "content": m.content})
+    shared["recent_messages"] = recent
     return {"session_id": state.get("session_id") or "", "shared_data": shared}
 
 
@@ -446,6 +483,17 @@ def _looks_chinese(text: str) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in text[:200])
 
 
+def _recent_history_text(state: AgentState, limit: int = 6) -> str:
+    """取最近几轮对话（用户/助手）的纯文本，供意图分类与重述参考。"""
+    lines: list[str] = []
+    for m in state.get("messages", [])[-limit:]:
+        if isinstance(m, HumanMessage):
+            lines.append(f"用户：{m.content}")
+        elif isinstance(m, AIMessage):
+            lines.append(f"助手：{m.content}")
+    return "\n".join(lines)
+
+
 async def _rephrase_in_user_language(user_msg: str, text: str) -> str | None:
     """把一段结果文本交给 LLM，用与用户消息相同的语言重述为自然回复。
 
@@ -459,8 +507,14 @@ async def _rephrase_in_user_language(user_msg: str, text: str) -> str | None:
             SystemMessage(content=(
                 "你是校园助手。以下是一段系统生成的结果文本（可能是子 Agent 的"
                 "原始回复，语言可能与用户不一致）。请用与用户消息相同的语言，把内容"
-                "组织成一段自然、简洁的回复。保留所有关键事实（编号、数量、时间、"
-                "地点等），不要编造结果中没有的信息，不要提及内部细节。"
+                "组织成一段自然、简洁的回复。"
+                "严格只做语言转换和润色：保留原文本全部事实（编号、数量、时间、"
+                "地点等），不得添加、删减或推断原文本没有的信息，不得评论功能是否"
+                "可用、是否成功或‘暂时无法’等，不得替用户下任何结论，不得提及内部细节。"
+                "如果结果文本本身是一个问题/澄清/请求补充信息（如 asking for a space"
+                "ID, asking to clarify time），必须保持提问或请求形式——绝不能把它"
+                "改写成已完成、已成功的陈述（例如绝不能输出‘已为您预订’除非原文明确"
+                "说明预订已完成）。"
             )),
             HumanMessage(content=(
                 f"用户消息：{user_msg}\n"
@@ -646,13 +700,25 @@ async def response_aggregator(state: AgentState) -> AgentState:
     # 避免英文提问却返回中文；用户消息与结果语言一致时跳过（省一次 LLM 往返），
     # 重述失败回退原文（LLM 不可用时保证有回复）
     if final:
-        user_msg = state["messages"][-1].content if state.get("messages") else ""
-        user_zh = _looks_chinese(user_msg)
+        # 用户语言用整个会话历史判断（而不是最后一条消息）：中文会话中用户可能
+        # 输入纯英文房间名/短语（如 "Room 101"），只看末条会误判为英文用户
+        user_msgs = [
+            m.content
+            for m in state.get("messages", [])
+            if isinstance(m, HumanMessage)
+        ]
+        user_msg = user_msgs[-1] if user_msgs else ""
+        user_zh = _looks_chinese("".join(user_msgs))
         final_zh = _looks_chinese(final)
         if user_zh != final_zh:
             rephrased = await _rephrase_in_user_language(user_msg, final)
             if rephrased:
                 final = rephrased
+
+    # 本节点位于 output_guardrail 之后，重述/聚合新生成的文本未经过脱敏，
+    # 此处补一轮 PII 脱敏（邮箱/手机号/身份证）
+    for pattern, replacement in _PII_PATTERNS:
+        final = re.sub(pattern, replacement, final)
 
     return {"messages": [AIMessage(content=final)]}
 
