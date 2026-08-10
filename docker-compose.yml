@@ -226,7 +226,8 @@ services:
     environment:
       - CERT_DOMAIN=${CERT_DOMAIN:-campuslink.local}
     volumes:
-      - certbot_conf:/etc/letsencrypt:ro
+      # 可写：ensure-cert.sh 需写入自签占位证书；certbot 容器共享同一卷写真证书
+      - certbot_conf:/etc/letsencrypt
       - certbot_www:/var/www/certbot
     depends_on:
       - chat-backend
