@@ -59,12 +59,14 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     status_idle: 'Ready',
     newChat: 'New Chat',
     newChatTitle: 'Start a new conversation (clears current session)',
+    services: 'Services',
+    servicesTitle: 'Open subsystem entry list',
     lostFound: 'Lost & Found',
-    lostFoundTitle: 'Lost & Found web subsystem',
+    mail: 'Mail',
+    facilities: 'Facilities',
     admin: 'Admin',
-    adminTitle: 'Admin console (admins only)',
     welcomeTitle: 'Start a conversation with the campus assistant',
-    welcomeSub: 'Ask about email, meeting rooms, lost & found, or the skill marketplace',
+    welcomeSub: 'Ask about email, meeting rooms, or lost & found',
     placeholder: 'Type a message, Enter to send, Shift+Enter for newline…',
     stop: 'Stop',
     send: 'Send',
@@ -86,12 +88,14 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     status_idle: '就绪',
     newChat: '新对话',
     newChatTitle: '开启新对话（清空当前会话）',
+    services: '子系统',
+    servicesTitle: '打开子系统入口列表',
     lostFound: '失物招领',
-    lostFoundTitle: '失物招领 Web 子系统',
+    mail: '邮件',
+    facilities: '设施',
     admin: '管理后台',
-    adminTitle: '管理后台（管理员）',
     welcomeTitle: '开始和校园助手对话吧',
-    welcomeSub: '可以问我邮件、会议室、失物招领、技能市场相关的问题',
+    welcomeSub: '可以问我邮件、会议室、失物招领相关的问题',
     placeholder: '输入消息，Enter 发送，Shift+Enter 换行…',
     stop: '停止',
     send: '发送',
@@ -160,6 +164,18 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const closeRef = useRef<{ close: () => void } | null>(null);
+  const [submenuOpen, setSubmenuOpen] = useState(false);
+  const submenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!submenuOpen) return;
+    const onDocClick = (ev: MouseEvent) => {
+      if (submenuRef.current && !submenuRef.current.contains(ev.target as Node)) {
+        setSubmenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [submenuOpen]);
   const streamingRef = useRef(false);
   // HITL 确认框同步 ref：setPendingConfirm 异步生效，双击/连点时闭包仍是旧值，
   // 用 ref 做同步守卫（防重复 resume 导致写操作重复执行）
@@ -534,25 +550,63 @@ export default function ChatPage() {
             {t('newChat')}
           </button>
 
-          {/* 前往各子系统入口 */}
-          <Link
-            to="/lost-found"
-            title={t('lostFoundTitle')}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-          >
-            <span className="text-base leading-none">🧭</span>
-            {t('lostFound')}
-          </Link>
-          {user?.role && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && (
-            <Link
-              to="/admin/dashboard"
-              title={t('adminTitle')}
+          {/* 前往各子系统入口（折叠为下拉，避免顶部拥挤） */}
+          <div className="relative" ref={submenuRef}>
+            <button
+              type="button"
+              onClick={() => setSubmenuOpen((o) => !o)}
+              title={t('servicesTitle')}
               className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
             >
-              <span className="text-base leading-none">🛠</span>
-              {t('admin')}
-            </Link>
-          )}
+              <span className="text-base leading-none">🧩</span>
+              {t('services')}
+              <span className={`text-xs leading-none transition-transform ${submenuOpen ? 'rotate-180' : ''}`}>▾</span>
+            </button>
+            {submenuOpen && (
+              <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                <Link
+                  to="/lost-found"
+                  onClick={() => setSubmenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <span className="text-base leading-none">🧭</span>
+                  <span className="flex-1">{t('lostFound')}</span>
+                  <span className="text-xs text-slate-400">/lost-found</span>
+                </Link>
+                <Link
+                  to="/mail"
+                  onClick={() => setSubmenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <span className="text-base leading-none">✉️</span>
+                  <span className="flex-1">{t('mail')}</span>
+                  <span className="text-xs text-slate-400">/mail</span>
+                </Link>
+                {user?.role && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && (
+                  <>
+                    <Link
+                      to="/admin/facilities"
+                      onClick={() => setSubmenuOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <span className="text-base leading-none">🏢</span>
+                      <span className="flex-1">{t('facilities')}</span>
+                      <span className="text-xs text-slate-400">/admin/facilities</span>
+                    </Link>
+                    <Link
+                      to="/admin/dashboard"
+                      onClick={() => setSubmenuOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <span className="text-base leading-none">🛠</span>
+                      <span className="flex-1">{t('admin')}</span>
+                      <span className="text-xs text-slate-400">/admin</span>
+                    </Link>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* 深色模式切换 */}
           <button
