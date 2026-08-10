@@ -15,5 +15,6 @@ COPY frontend_web/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 # 证书缺失时生成自签占位（443 证书就绪前 nginx 也能启动；certbot 签发后覆盖）
 COPY frontend_web/ensure-cert.sh /docker-entrypoint.d/40-ensure-cert.sh
-RUN chmod +x /docker-entrypoint.d/40-ensure-cert.sh
+# nginx:alpine 不带 openssl CLI，需安装用于生成占位证书
+RUN apk add --no-cache openssl && chmod +x /docker-entrypoint.d/40-ensure-cert.sh
 EXPOSE 80 443
