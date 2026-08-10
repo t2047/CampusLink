@@ -3,6 +3,17 @@
 容器化已就绪（`docker-compose.yml`，含前端 nginx）。本文从零部署到一台 **AWS EC2 m7i-flex.large**（单机，免费层适用）。
 该方案同样适用于任何 Ubuntu 云服务器（Azure VM、DigitalOcean、Oracle 等）——仅第 1 节创建方式不同。
 
+## 当前部署状态（2026-08）
+
+- **地址**：http://13.212.202.232/（HTTP；HTTPS 证书待配置，见第 6 节）
+- **实例**：AWS EC2 `m7i-flex.large`（2 vCPU / 8 GiB，Free tier，12 个月 $0）
+- **服务**：mysql / minio / chat-backend / orchestration / 5×MCP / lost-found / web（nginx）全部运行
+- **已知事项**：
+  - RSA 密钥卷权限：已手动 `chown 1001:1001` 修复（代码修复见 backend Dockerfile，合入后新部署自动生效）
+  - 前端 HTTP 下可用（randomUUID fallback 已合入 feature 分支，待合并 main 后由 CD 重建镜像）
+  - CD `deploy` job 待配置 GitHub Secrets（`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）后自动部署
+  - `feature/admin-dashboard-claim-review`（PR #22）已重新合并
+
 ## 1. 创建 AWS EC2（m7i-flex.large，Free tier eligible）
 
 AWS 控制台 → EC2 → 启动实例：
