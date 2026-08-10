@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -43,7 +43,10 @@ logger = logging.getLogger(__name__)
 
 AGENT_CAPABILITIES: dict[str, str] = {
     "mail-agent": "邮件搜索、阅读、管理（归档/删除/标记）",
-    "facility-agent": "研讨室、自习室、体育场馆查询与预订",
+    "facility-agent": (
+        "校园设施与空间：搜索研讨室、自习室、实验室、教室和体育场馆，查看空间详情与"
+        "可用时间，创建、查询、列出或取消本人预约，以及提交、查询或列出设施报修请求"
+    ),
     "lost-found-agent": "失物报失、查找、认领",
     "skill-agent": "校园技能搜索、发布、联系",
 }
@@ -163,9 +166,11 @@ def intent_router(state: AgentState) -> AgentState:
         intent_type, targets = "chat", []
 
     if intent_type == "domain_agent":
-        agent_plan, utility_plan = targets, []
+        agent_plan = [target for target in targets if target in AGENT_CAPABILITIES]
+        utility_plan = []
     elif intent_type == "utility":
-        agent_plan, utility_plan = [], targets
+        agent_plan = []
+        utility_plan = [target for target in targets if target in UTILITY_CAPABILITIES]
     else:
         agent_plan, utility_plan = [], []
 
@@ -225,6 +230,7 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         "confirmation_required": result.get("confirmation_required"),
         "shared_context": result.get("shared_context", {}),
         "actions_taken": result.get("actions_taken", []),
+        "request_id": result.get("request_id"),
         "error": result.get("error"),
     }
 
@@ -289,8 +295,14 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
     （ConversationContext.session_id），否则每轮回退 request_id 导致限流失效。
     """
     shared: dict[str, Any] = {}
+    supplied_context = state.get("conversation_context") or {}
+    supplied_shared = supplied_context.get("shared_data", {})
+    if isinstance(supplied_shared, dict):
+        shared.update(supplied_shared)
     for inv in state.get("agent_invocations", []):
-        shared.update(inv.get("shared_context") or {})
+        invocation_shared = inv.get("shared_context") or {}
+        if isinstance(invocation_shared, dict):
+            shared.update(invocation_shared)
     return {"session_id": state.get("session_id") or "", "shared_data": shared}
 
 

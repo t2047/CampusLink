@@ -231,3 +231,35 @@ export interface ApiErrorBody {
   message?: string
   fieldErrors?: Record<string, string>
 }
+
+export type MailFolder = 'inbox' | 'sent' | 'archived' | 'trash'
+
+export interface MailMessage {
+  id: string
+  subject: string
+  sender: string
+  recipients: string[]
+  preview: string
+  body: string
+  folder: MailFolder
+  read: boolean
+  starred: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface MailPageResponse {
+  content: MailMessage[]
+  page: number
+  size: number
+  total_elements: number
+  total_pages: number
+  first: boolean
+  last: boolean
+}
+
+export interface SendMailInput {
+  recipients: string[]
+  subject: string
+  body: string
+}

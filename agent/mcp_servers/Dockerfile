@@ -10,15 +10,16 @@ WORKDIR /app
 # 缺失而失败走 fallback，故 fallback 也需锁 mcp 1.x（无版本限制会装成 2.x 并移除 fastmcp）
 COPY agent/chat_core/pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || \
-    pip install --no-cache-dir "mcp>=1.28,<2" fastapi "uvicorn[standard]" python-dotenv httpx PyJWT
+    pip install --no-cache-dir "mcp>=1.28,<2" fastapi uvicorn[standard] python-dotenv httpx PyJWT
 
 # 源码
 COPY agent/mcp_servers ./mcp_servers
+COPY agent/facilities_agent ./facilities_agent
 
 # 非 root 运行
 RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
 USER app
 
-EXPOSE 8081
+EXPOSE 8081 8082
 # compose 中通过 MCP_AGENT_NAME / command 覆盖
 CMD ["uvicorn", "mcp_servers.domain_server:app", "--host", "0.0.0.0", "--port", "8081"]

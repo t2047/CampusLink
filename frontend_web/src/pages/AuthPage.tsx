@@ -1,7 +1,7 @@
 import { Alert, Box, Button, Card, CardContent, CircularProgress, Link, Stack, TextField, Typography } from '@mui/material'
 import { FormEvent, useState } from 'react'
 import { Link as RouterLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { apiErrorMessage } from '../api/client'
+import { apiErrorMessage, USER_KEY } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
@@ -14,8 +14,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+  const defaultDestination = user && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) ? '/admin/dashboard' : '/lost-found'
 
-  if (user) return <Navigate to={destination ?? '/lost-found'} replace />
+  if (user) return <Navigate to={destination ?? defaultDestination} replace />
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -31,7 +32,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     setError('')
     try {
       await (mode === 'login' ? login(email, password) : register(email, password))
-      navigate(destination ?? '/lost-found', { replace: true })
+      const storedUser = JSON.parse(sessionStorage.getItem(USER_KEY) ?? '{}') as { role?: string }
+      const nextDestination = ['ADMIN', 'SUPER_ADMIN'].includes(storedUser.role ?? '') ? '/admin/dashboard' : '/lost-found'
+      navigate(destination ?? nextDestination, { replace: true })
     } catch (requestError) {
       setError(apiErrorMessage(requestError))
     } finally {

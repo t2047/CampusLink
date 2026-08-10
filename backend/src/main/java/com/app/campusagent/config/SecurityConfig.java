@@ -1,5 +1,6 @@
 package com.app.campusagent.config;
 
+import com.app.campusagent.facilities.security.FacilityMcpDelegationAuthFilter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,15 +41,18 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final AgentDelegationAuthFilter agentDelegationAuthFilter;
+    private final FacilityMcpDelegationAuthFilter facilityMcpDelegationAuthFilter;
     private final List<String> allowedOrigins;
 
     @SuppressFBWarnings("EI_EXPOSE_REP2")
     public SecurityConfig(
             JwtAuthFilter jwtAuthFilter,
             AgentDelegationAuthFilter agentDelegationAuthFilter,
+            FacilityMcpDelegationAuthFilter facilityMcpDelegationAuthFilter,
             @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:8080,http://localhost:5173}") String allowedOrigins) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.agentDelegationAuthFilter = agentDelegationAuthFilter;
+        this.facilityMcpDelegationAuthFilter = facilityMcpDelegationAuthFilter;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
@@ -88,7 +92,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(agentDelegationAuthFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(facilityMcpDelegationAuthFilter, JwtAuthFilter.class);
 
         return http.build();
     }
@@ -102,7 +107,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(allowedOrigins);
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);

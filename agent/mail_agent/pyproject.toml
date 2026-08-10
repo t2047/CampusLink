@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "campuslink-mail-agent"
+version = "0.1.0"
+description = "Minimal CampusLink mail REST service"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116,<1",
+    "pydantic>=2.11,<3",
+    "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=8,<10",
+]
+
+[tool.setuptools]
+packages = ["mail_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

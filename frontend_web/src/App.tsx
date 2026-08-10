@@ -9,7 +9,10 @@ import ChatProtectedRoute from './components/ProtectedRoute'
 import ChatPage from './pages/ChatPage'
 
 const AdminDashboardPage = lazy(() => import('./admin/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })))
-const AdminFacilitiesPage = lazy(() => import('./admin/facilities/FacilitiesPlaceholderPage').then((module) => ({ default: module.FacilitiesPlaceholderPage })))
+const FacilitiesDashboardPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.FacilitiesDashboardPage })))
+const ReservationsPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.ReservationsPage })))
+const MaintenancePage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.MaintenancePage })))
+const MaintenanceDetailPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.MaintenanceDetailPage })))
 const AdminLostFoundPage = lazy(() => import('./admin/lostFound/AdminLostFoundPage').then((module) => ({ default: module.AdminLostFoundPage })))
 const AdminClaimDetailPage = lazy(() => import('./admin/lostFound/AdminClaimDetailPage').then((module) => ({ default: module.AdminClaimDetailPage })))
 const AdminNotFoundPage = lazy(() => import('./admin/shared/AdminNotFoundPage').then((module) => ({ default: module.AdminNotFoundPage })))
@@ -18,6 +21,7 @@ const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage'
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
+const MailPage = lazy(() => import('./pages/MailPage').then((module) => ({ default: module.MailPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })))
@@ -42,7 +46,10 @@ export default function App() {
           <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
           <Route path="/admin/lost-found" element={<AdminLostFoundPage />} />
           <Route path="/admin/lost-found/claims/:claimId" element={<AdminClaimDetailPage />} />
-          <Route path="/admin/facilities" element={<AdminFacilitiesPage />} />
+          <Route path="/admin/facilities" element={<FacilitiesDashboardPage />} />
+          <Route path="/admin/facilities/reservations" element={<ReservationsPage />} />
+          <Route path="/admin/facilities/maintenance" element={<MaintenancePage />} />
+          <Route path="/admin/facilities/maintenance/:id" element={<MaintenanceDetailPage />} />
           <Route path="/admin/users" element={<AdminUserManagementPage />} />
           <Route path="/admin/*" element={<AdminNotFoundPage />} />
         </Route>
@@ -57,6 +64,7 @@ export default function App() {
           <Route path="/lost-found/:reportId" element={<ReportDetailPage />} />
           <Route path="/claims/mine" element={<ClaimsPage view="mine" />} />
           <Route path="/claims/received" element={<ClaimsPage view="received" />} />
+          <Route path="/mail" element={<MailPage />} />
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />
