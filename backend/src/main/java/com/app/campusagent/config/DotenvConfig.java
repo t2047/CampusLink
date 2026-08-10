@@ -9,8 +9,12 @@ public class DotenvConfig {
 
     @Bean
     public Dotenv dotenv() {
+        return loadIntoSystemProperties();
+    }
+
+    public static Dotenv loadIntoSystemProperties() {
         Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
-        // Propagate to System properties so Spring can resolve ${MYSQL_URL} etc.
+        // Must run before SpringApplication so ${...} placeholders can resolve.
         dotenv.entries().forEach(e -> System.setProperty(e.getKey(), e.getValue()));
         return dotenv;
     }
