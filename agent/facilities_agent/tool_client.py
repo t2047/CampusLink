@@ -37,6 +37,10 @@ class ToolClientAuthenticationError(ToolClientError):
     code = "FACILITIES_AUTHENTICATION_FAILED"
 
 
+class ToolClientProtocolError(ToolClientError):
+    code = "FACILITIES_MCP_PROTOCOL_ERROR"
+
+
 class ToolClient(ABC):
     @abstractmethod
     async def call_tool(
