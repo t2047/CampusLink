@@ -1,10 +1,10 @@
 """Map Spring Facilities MCP envelopes to Domain Agent responses."""
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .models import ActionTaken, InvokeResponse
+from .planner import PlannerError
 from .tool_client import ToolClientError
-
 
 BUSINESS_ERROR_CODES = frozenset(
     {
@@ -18,6 +18,15 @@ BUSINESS_ERROR_CODES = frozenset(
         "INVALID_MAINTENANCE_REQUEST",
         "TICKET_NOT_FOUND",
         "VALIDATION_ERROR",
+        "INVALID_SPACE_TYPE",
+        "INVALID_CAPACITY",
+        "INVALID_PRIORITY",
+        "INVALID_MAINTENANCE_STATUS",
+        "INVALID_MAINTENANCE_TRANSITION",
+        "INVALID_STATUS_TRANSITION",
+        "CONFLICT",
+        "NOT_FOUND",
+        "BUSINESS_ERROR",
     }
 )
 
@@ -44,21 +53,30 @@ BUSINESS_MESSAGES = {
     "INVALID_MAINTENANCE_REQUEST": "Please provide the facility and problem details.",
     "TICKET_NOT_FOUND": "I could not find that maintenance request for your account.",
     "VALIDATION_ERROR": "Some required information is missing or invalid.",
+    "INVALID_SPACE_TYPE": "Please choose a supported campus space type.",
+    "INVALID_CAPACITY": "Please provide a valid minimum capacity.",
+    "INVALID_PRIORITY": "Maintenance priority must be LOW, MEDIUM, or HIGH.",
+    "INVALID_MAINTENANCE_STATUS": "That maintenance status is invalid.",
+    "INVALID_MAINTENANCE_TRANSITION": "That maintenance status change is not allowed.",
+    "INVALID_STATUS_TRANSITION": "That status change is not allowed.",
+    "CONFLICT": "The facilities request conflicts with the current resource state.",
+    "NOT_FOUND": "I could not find that resource for your account.",
+    "BUSINESS_ERROR": "The facilities request could not be completed.",
 }
 
 
-def _error_parts(envelope: Dict[str, Any]):
+def _error_parts(envelope: dict[str, Any]):
     error = envelope.get("error") or {}
     return error.get("code") or "FACILITIES_BUSINESS_ERROR", error.get("message")
 
 
 def map_tool_result(
     tool_name: str,
-    envelope: Dict[str, Any],
-    shared_context: Dict[str, Any],
+    envelope: dict[str, Any],
+    shared_context: dict[str, Any],
     request_id: str,
-    params_summary: Optional[str] = None,
-    success_message: Optional[str] = None,
+    params_summary: str | None = None,
+    success_message: str | None = None,
 ) -> InvokeResponse:
     if envelope.get("success") is True:
         return InvokeResponse(
@@ -96,6 +114,23 @@ def map_tool_result(
             request_id=request_id,
             error="FACILITIES_AUTHENTICATION_FAILED",
         )
+    if code == "INTERNAL_ERROR" or code not in BUSINESS_ERROR_CODES:
+        return InvokeResponse(
+            response="The facilities service encountered an internal error. Please try again later.",
+            status="failed",
+            shared_context=shared_context,
+            actions_taken=[
+                ActionTaken(
+                    action=tool_name,
+                    params_summary=params_summary,
+                    result_summary="Facilities backend failed",
+                    error_code=code,
+                    status="failed",
+                )
+            ],
+            request_id=request_id,
+            error="FACILITIES_BACKEND_ERROR",
+        )
     status = "needs_more_info" if code in NEEDS_MORE_INFO_CODES else "completed"
     message = BUSINESS_MESSAGES.get(
         code, backend_message or "The facilities request could not be completed."
@@ -120,14 +155,22 @@ def map_tool_result(
 
 def map_technical_error(
     error: Exception,
-    shared_context: Dict[str, Any],
+    shared_context: dict[str, Any],
     request_id: str,
 ) -> InvokeResponse:
     code = (
-        error.code if isinstance(error, ToolClientError) else "FACILITIES_ADAPTER_ERROR"
+        error.code
+        if isinstance(error, (ToolClientError, PlannerError))
+        else "FACILITIES_ADAPTER_ERROR"
     )
+    if code == "FACILITIES_PLANNER_NOT_CONFIGURED":
+        message = "The Facilities natural-language planner is not configured."
+    elif isinstance(error, PlannerError):
+        message = "The Facilities natural-language planner is temporarily unavailable."
+    else:
+        message = "The facilities service is temporarily unavailable. Please try again later."
     return InvokeResponse(
-        response="The facilities service is temporarily unavailable. Please try again later.",
+        response=message,
         status="failed",
         shared_context=shared_context,
         actions_taken=[],

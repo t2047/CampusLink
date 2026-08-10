@@ -6,16 +6,24 @@ from typing import Any, Dict, Iterable, Optional
 
 from .confirmation import ConfirmationError, ConfirmationStore, PendingAction
 from .context import ContextResolutionError, FacilitiesContextManager
-from .datetime_parser import CAMPUS_TIMEZONE, singapore_now
+from .datetime_parser import (
+    CAMPUS_TIMEZONE,
+    FacilitiesDateTimeParser,
+    singapore_now,
+)
 from .models import (
     ActionTaken,
-    BookingCandidate,
     ConfirmationRequired,
     InvokeRequest,
     InvokeResponse,
     PendingMaintenanceInfo,
 )
-from .planner import FacilitiesPlanner, PlannerDecision
+from .planner import (
+    FacilitiesPlanner,
+    PlannerConfigurationError,
+    PlannerDecision,
+    PlannerError,
+)
 from .result_mapper import map_technical_error, map_tool_result
 from .tool_client import ToolClient, ToolClientError
 
@@ -25,7 +33,7 @@ class FacilitiesAdapterService:
 
     def __init__(
         self,
-        planner: FacilitiesPlanner,
+        planner: Optional[FacilitiesPlanner],
         tool_client: ToolClient,
         confirmation_store: Optional[ConfirmationStore] = None,
         now_provider=singapore_now,
@@ -33,6 +41,7 @@ class FacilitiesAdapterService:
         self._planner = planner
         self._tool_client = tool_client
         self._now_provider = now_provider
+        self._datetime_parser = FacilitiesDateTimeParser(now_provider)
         self._confirmation_store = confirmation_store or ConfirmationStore(
             now_provider=self._utc_now
         )
@@ -63,6 +72,10 @@ class FacilitiesAdapterService:
                     invocation_id,
                 )
 
+            if self._planner is None:
+                raise PlannerConfigurationError(
+                    "Facilities planner is required for a new request"
+                )
             decision = await self._planner.plan(
                 request, context.context.model_copy(deep=True)
             )
@@ -73,7 +86,7 @@ class FacilitiesAdapterService:
                 context,
                 invocation_id,
             )
-        except ToolClientError as error:
+        except (ToolClientError, PlannerError) as error:
             return map_technical_error(error, context.snapshot(), invocation_id)
         except Exception as error:  # Adapter exceptions are true system failures.
             return map_technical_error(error, context.snapshot(), invocation_id)
@@ -92,16 +105,29 @@ class FacilitiesAdapterService:
         context: FacilitiesContextManager,
         request_id: str,
     ) -> InvokeResponse:
+        if decision.missing_fields:
+            return self._needs_more_info(
+                decision.clarification
+                or "Please provide: {0}.".format(
+                    ", ".join(decision.missing_fields)
+                ),
+                context,
+                request_id,
+            )
+        arguments = dict(decision.arguments)
+        if decision.datetime_text:
+            arguments["datetimeText"] = decision.datetime_text
+
         handlers = {
             "search_spaces": self._search_spaces,
-            "book_space": self._book_space,
+            "get_space_details": self._get_space_details,
+            "check_availability": self._check_availability,
             "create_booking": self._book_space,
-            "list_bookings": self._list_bookings,
             "list_user_bookings": self._list_bookings,
+            "get_booking_status": self._get_booking_status,
             "cancel_booking": self._cancel_booking,
-            "submit_maintenance": self._submit_maintenance,
             "submit_maintenance_request": self._submit_maintenance,
-            "list_maintenance_requests": self._list_maintenance,
+            "get_maintenance_status": self._get_maintenance_status,
             "list_user_maintenance_requests": self._list_maintenance,
         }
         handler = handlers.get(decision.intent)
@@ -112,11 +138,13 @@ class FacilitiesAdapterService:
                 request_id,
             )
         return await handler(
-            decision.arguments, user_id, session_id, context, request_id
+            arguments, user_id, session_id, context, request_id
         )
 
     @staticmethod
-    def _value(arguments: Dict[str, Any], camel: str, snake: str = None) -> Any:
+    def _value(
+        arguments: Dict[str, Any], camel: str, snake: Optional[str] = None
+    ) -> Any:
         if camel in arguments:
             return arguments.get(camel)
         return arguments.get(snake or camel)
@@ -140,6 +168,83 @@ class FacilitiesAdapterService:
                 output.append(char)
         return "".join(output)
 
+    def _resolve_space_id(
+        self,
+        arguments: Dict[str, Any],
+        context: FacilitiesContextManager,
+    ) -> tuple[Optional[int], Optional[str]]:
+        explicit = self._value(arguments, "spaceId", "space_id")
+        if explicit is not None:
+            try:
+                value = int(explicit)
+            except (TypeError, ValueError):
+                return None, "Please provide a valid numeric space ID."
+            if value <= 0:
+                return None, "Please provide a valid numeric space ID."
+            return value, None
+
+        rank = self._value(arguments, "candidateRank", "candidate_rank")
+        reference = str(self._value(arguments, "reference") or "").strip().lower()
+        if rank is None and reference in {"first", "first one", "第一个", "刚才第一个"}:
+            rank = 1
+        if rank is not None:
+            try:
+                candidate = context.resolve_space_rank(int(rank))
+                return candidate.space_id, None
+            except (ContextResolutionError, TypeError, ValueError) as error:
+                return None, str(error)
+        if reference in {"that", "that room", "that space", "it", "刚才那个", "那个房间"}:
+            selected = context.context.selected_space
+            if selected is not None:
+                return selected.space_id, None
+            results = context.context.search_results
+            if results is not None and len(results.candidates) == 1:
+                return results.candidates[0].space_id, None
+        return None, "Please provide a space ID or choose a recent search result."
+
+    def _normalized_time_range(
+        self,
+        arguments: Dict[str, Any],
+        *,
+        required: bool,
+    ) -> tuple[Optional[Dict[str, str]], Optional[str]]:
+        datetime_text = self._value(arguments, "datetimeText", "datetime_text")
+        start = self._value(arguments, "startDateTime", "start_date_time")
+        end = self._value(arguments, "endDateTime", "end_date_time")
+
+        if datetime_text:
+            parsed = self._datetime_parser.parse(str(datetime_text))
+            if parsed.needs_clarification:
+                return None, parsed.clarification or "Please clarify the requested time."
+            start = parsed.start_local_iso
+            end = parsed.end_local_iso
+
+        if not start and not end:
+            if required:
+                return None, "Please provide a date and both a start and end time."
+            return {}, None
+        if not start or not end:
+            return None, "Please provide both a start time and an end time."
+
+        try:
+            start_value = datetime.fromisoformat(str(start))
+            end_value = datetime.fromisoformat(str(end))
+        except (TypeError, ValueError):
+            return None, "Please provide a valid date and time."
+        if start_value.tzinfo is not None or end_value.tzinfo is not None:
+            return None, "Please provide Singapore local time without a timezone offset."
+        if end_value <= start_value:
+            return None, "The end time must be after the start time."
+        now = self._now_provider()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=CAMPUS_TIMEZONE)
+        if start_value.replace(tzinfo=CAMPUS_TIMEZONE) <= now.astimezone(CAMPUS_TIMEZONE):
+            return None, "Please provide a future date and time."
+        return {
+            "startDateTime": start_value.isoformat(timespec="seconds"),
+            "endDateTime": end_value.isoformat(timespec="seconds"),
+        }, None
+
     async def _search_spaces(
         self,
         arguments: Dict[str, Any],
@@ -160,6 +265,12 @@ class FacilitiesAdapterService:
                 "endDateTime",
             ),
         )
+        time_arguments, clarification = self._normalized_time_range(
+            arguments, required=False
+        )
+        if clarification:
+            return self._needs_more_info(clarification, context, request_id)
+        tool_arguments.update(time_arguments or {})
         result = await self._tool_client.call_tool("search_spaces", tool_arguments)
         if result.get("success") is not True:
             context.touch("search_spaces")
@@ -201,6 +312,89 @@ class FacilitiesAdapterService:
             error=None,
         )
 
+    async def _get_space_details(
+        self,
+        arguments: Dict[str, Any],
+        _user_id: str,
+        _session_id: str,
+        context: FacilitiesContextManager,
+        request_id: str,
+    ) -> InvokeResponse:
+        space_id, clarification = self._resolve_space_id(arguments, context)
+        if clarification:
+            return self._needs_more_info(clarification, context, request_id)
+        result = await self._tool_client.call_tool(
+            "get_space_details", {"spaceId": space_id}
+        )
+        context.touch("get_space_details")
+        if result.get("success") is not True:
+            return map_tool_result(
+                "get_space_details", result, context.snapshot(), request_id
+            )
+        data = result.get("data") or {}
+        name = data.get("name") if isinstance(data, dict) else None
+        return InvokeResponse(
+            response="Details for {0} are ready.".format(name or "space {0}".format(space_id)),
+            status="completed",
+            shared_context=context.snapshot(),
+            actions_taken=[
+                ActionTaken(
+                    action="get_space_details",
+                    result_summary="Space details retrieved",
+                    status="success",
+                )
+            ],
+            request_id=request_id,
+            error=None,
+        )
+
+    async def _check_availability(
+        self,
+        arguments: Dict[str, Any],
+        _user_id: str,
+        _session_id: str,
+        context: FacilitiesContextManager,
+        request_id: str,
+    ) -> InvokeResponse:
+        space_id, clarification = self._resolve_space_id(arguments, context)
+        if clarification:
+            return self._needs_more_info(clarification, context, request_id)
+        time_arguments, clarification = self._normalized_time_range(
+            arguments, required=True
+        )
+        if clarification:
+            return self._needs_more_info(clarification, context, request_id)
+        tool_arguments = {"spaceId": space_id, **(time_arguments or {})}
+        result = await self._tool_client.call_tool(
+            "check_availability", tool_arguments
+        )
+        context.touch("check_availability")
+        if result.get("success") is not True:
+            return map_tool_result(
+                "check_availability", result, context.snapshot(), request_id
+            )
+        data = result.get("data") or {}
+        available = isinstance(data, dict) and data.get("available") is True
+        message = (
+            "That space is available for the requested time."
+            if available
+            else "That space is not available for the requested time."
+        )
+        return InvokeResponse(
+            response=message,
+            status="completed",
+            shared_context=context.snapshot(),
+            actions_taken=[
+                ActionTaken(
+                    action="check_availability",
+                    result_summary="Available" if available else "Unavailable",
+                    status="success",
+                )
+            ],
+            request_id=request_id,
+            error=None,
+        )
+
     async def _book_space(
         self,
         arguments: Dict[str, Any],
@@ -216,30 +410,48 @@ class FacilitiesAdapterService:
                 request_id,
             )
 
-        explicit_space_id = self._value(arguments, "spaceId", "space_id")
         candidate = None
+        explicit_space_id = self._value(arguments, "spaceId", "space_id")
         if explicit_space_id is None:
-            rank = self._value(arguments, "candidateRank", "candidate_rank") or 1
+            rank = self._value(arguments, "candidateRank", "candidate_rank")
+            if rank is None and context.context.search_results is not None:
+                rank = 1
+            if rank is None:
+                return self._needs_more_info(
+                    "Please provide a space ID or choose a recent search result.",
+                    context,
+                    request_id,
+                )
             try:
                 candidate = context.resolve_space_rank(int(rank))
-            except ContextResolutionError as error:
+            except (ContextResolutionError, TypeError, ValueError) as error:
                 return self._needs_more_info(str(error), context, request_id)
             space_id = candidate.space_id
         else:
-            space_id = int(explicit_space_id)
+            space_id, clarification = self._resolve_space_id(arguments, context)
+            if clarification:
+                return self._needs_more_info(clarification, context, request_id)
 
         search_results = context.context.search_results
-        start = self._value(arguments, "startDateTime", "start_date_time")
-        end = self._value(arguments, "endDateTime", "end_date_time")
-        if search_results is not None:
-            start = start or search_results.start_date_time
-            end = end or search_results.end_date_time
-        if not start or not end:
-            return self._needs_more_info(
-                "Please provide both a start time and an end time.",
-                context,
-                request_id,
+        time_arguments, clarification = self._normalized_time_range(
+            arguments, required=False
+        )
+        if clarification:
+            return self._needs_more_info(clarification, context, request_id)
+        if not time_arguments and search_results is not None:
+            inherited = {
+                "startDateTime": search_results.start_date_time,
+                "endDateTime": search_results.end_date_time,
+            }
+            time_arguments, clarification = self._normalized_time_range(
+                inherited, required=True
             )
+        elif not time_arguments:
+            clarification = "Please provide a date and both a start and end time."
+        if clarification:
+            return self._needs_more_info(clarification, context, request_id)
+        start = time_arguments["startDateTime"]
+        end = time_arguments["endDateTime"]
 
         exact_arguments = {
             "spaceId": space_id,
@@ -334,6 +546,51 @@ class FacilitiesAdapterService:
                 ActionTaken(
                     action="list_user_bookings",
                     result_summary="{0} bookings found".format(len(candidates)),
+                    status="success",
+                )
+            ],
+            request_id=request_id,
+            error=None,
+        )
+
+    async def _get_booking_status(
+        self,
+        arguments: Dict[str, Any],
+        _user_id: str,
+        _session_id: str,
+        context: FacilitiesContextManager,
+        request_id: str,
+    ) -> InvokeResponse:
+        booking_id = self._value(arguments, "bookingId", "booking_id")
+        if booking_id is None:
+            reference = self._value(arguments, "reference") or "that booking"
+            rank = self._value(arguments, "candidateRank", "candidate_rank")
+            try:
+                candidate = context.resolve_booking_reference(
+                    str(reference), int(rank) if rank is not None else None
+                )
+                booking_id = candidate.booking_id
+            except (ContextResolutionError, TypeError, ValueError) as error:
+                return self._needs_more_info(str(error), context, request_id)
+        result = await self._tool_client.call_tool(
+            "get_booking_status", {"bookingId": int(booking_id)}
+        )
+        context.touch("get_booking_status")
+        if result.get("success") is not True:
+            return map_tool_result(
+                "get_booking_status", result, context.snapshot(), request_id
+            )
+        data = result.get("data") or {}
+        status = data.get("status") if isinstance(data, dict) else None
+        context.set_last_booking(int(booking_id), status)
+        return InvokeResponse(
+            response="Booking {0} is {1}.".format(booking_id, status or "UNKNOWN"),
+            status="completed",
+            shared_context=context.snapshot(),
+            actions_taken=[
+                ActionTaken(
+                    action="get_booking_status",
+                    result_summary="Booking status retrieved",
                     status="success",
                 )
             ],
@@ -454,6 +711,15 @@ class FacilitiesAdapterService:
                 ),
             )
         )
+        if not merged.get("spaceId") and (
+            self._value(arguments, "candidateRank", "candidate_rank") is not None
+            or self._value(arguments, "reference") is not None
+        ):
+            resolved_space_id, _clarification = self._resolve_space_id(
+                arguments, context
+            )
+            if resolved_space_id is not None:
+                merged["spaceId"] = resolved_space_id
         merged["priority"] = str(merged.get("priority") or "MEDIUM").upper()
 
         missing = []
@@ -573,6 +839,58 @@ class FacilitiesAdapterService:
                     result_summary="{0} maintenance requests found".format(
                         len(tickets)
                     ),
+                    status="success",
+                )
+            ],
+            request_id=request_id,
+            error=None,
+        )
+
+    async def _get_maintenance_status(
+        self,
+        arguments: Dict[str, Any],
+        _user_id: str,
+        _session_id: str,
+        context: FacilitiesContextManager,
+        request_id: str,
+    ) -> InvokeResponse:
+        ticket_id = self._value(arguments, "ticketId", "ticket_id")
+        if ticket_id is None:
+            reference = str(self._value(arguments, "reference") or "").lower()
+            if reference in {
+                "that",
+                "that ticket",
+                "it",
+                "latest",
+                "last",
+                "那个工单",
+            }:
+                ticket_id = context.context.last_maintenance_ticket_id
+        if ticket_id is None:
+            return self._needs_more_info(
+                "Please provide a maintenance ticket ID.", context, request_id
+            )
+        result = await self._tool_client.call_tool(
+            "get_maintenance_status", {"ticketId": int(ticket_id)}
+        )
+        context.touch("get_maintenance_status")
+        if result.get("success") is not True:
+            return map_tool_result(
+                "get_maintenance_status", result, context.snapshot(), request_id
+            )
+        data = result.get("data") or {}
+        status = data.get("status") if isinstance(data, dict) else None
+        context.set_last_maintenance_ticket(int(ticket_id))
+        return InvokeResponse(
+            response="Maintenance ticket {0} is {1}.".format(
+                ticket_id, status or "UNKNOWN"
+            ),
+            status="completed",
+            shared_context=context.snapshot(),
+            actions_taken=[
+                ActionTaken(
+                    action="get_maintenance_status",
+                    result_summary="Maintenance status retrieved",
                     status="success",
                 )
             ],

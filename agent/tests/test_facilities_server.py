@@ -137,7 +137,7 @@ def isolated_server_runtime(monkeypatch):
     monkeypatch.setattr(
         facilities_server,
         "_planner_factory",
-        facilities_server._default_planner_factory,
+        planner_factory(PlannerDecision(intent="unsupported")),
     )
     monkeypatch.setattr(
         facilities_server,
@@ -217,6 +217,27 @@ async def test_inbound_authentication_failure_returns_failed_response(monkeypatc
 
     assert result["status"] == "failed"
     assert result["error"] == "FACILITIES_AUTHENTICATION_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_missing_deepseek_configuration_fails_without_opening_tool_client(
+    monkeypatch,
+):
+    for name in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    factory = RecordingToolClientFactory()
+    monkeypatch.setattr(facilities_server, "_tool_client_factory", factory)
+    monkeypatch.setattr(
+        facilities_server,
+        "_planner_factory",
+        facilities_server._default_planner_factory,
+    )
+
+    result, _ = await invoke_adapter("find a study room")
+
+    assert result["status"] == "failed"
+    assert result["error"] == "FACILITIES_PLANNER_NOT_CONFIGURED"
+    assert factory.clients == []
 
 
 @pytest.mark.asyncio
@@ -398,13 +419,20 @@ async def test_booking_confirmation_uses_frozen_arguments(monkeypatch):
         facilities_server,
         "_planner_factory",
         planner_factory(
-            PlannerDecision(intent="book_space", arguments=original_arguments)
+            PlannerDecision(intent="create_booking", arguments=original_arguments)
         ),
     )
 
     pending, _ = await invoke_adapter("book this room")
     confirmation_id = pending["confirmation_required"]["confirmation_id"]
     original_arguments["spaceId"] = 999
+
+    def planner_must_not_be_created(_request):
+        raise AssertionError("confirmed resume must not create or call a planner")
+
+    monkeypatch.setattr(
+        facilities_server, "_planner_factory", planner_must_not_be_created
+    )
 
     confirmed, _ = await invoke_adapter(
         "ignore the previous room and use 999",
@@ -521,7 +549,7 @@ async def test_expired_confirmation_is_rejected(monkeypatch):
         "_planner_factory",
         planner_factory(
             PlannerDecision(
-                intent="book_space",
+                    intent="create_booking",
                 arguments={
                     "spaceId": 4,
                     "startDateTime": "2099-08-11T14:00:00",
@@ -553,7 +581,7 @@ async def test_confirmation_user_mismatch_is_rejected(monkeypatch):
         "_planner_factory",
         planner_factory(
             PlannerDecision(
-                intent="book_space",
+                    intent="create_booking",
                 arguments={
                     "spaceId": 4,
                     "startDateTime": "2099-08-11T14:00:00",
@@ -585,7 +613,7 @@ async def test_confirmation_session_mismatch_is_rejected(monkeypatch):
         "_planner_factory",
         planner_factory(
             PlannerDecision(
-                intent="book_space",
+                    intent="create_booking",
                 arguments={
                     "spaceId": 4,
                     "startDateTime": "2099-08-11T14:00:00",

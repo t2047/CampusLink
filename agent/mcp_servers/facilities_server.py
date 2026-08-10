@@ -1,9 +1,8 @@
 """Facilities Domain Agent MCP Server.
 
-This Phase C bootstrap exposes one public ``invoke`` tool to Chat Core. It uses
-a deliberately small deterministic planner to prove the complete transport and
-HITL wiring; Phase D replaces that planner with the real natural-language
-planner. The ten Spring Facilities tools remain private behind the Adapter.
+This server exposes one public ``invoke`` tool to Chat Core and uses the strict
+DeepSeek planner for natural-language intent extraction. The ten Spring
+Facilities tools remain private behind the Adapter.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import sys
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -27,9 +26,10 @@ if str(_ROOT) not in sys.path:
 
 from dotenv import find_dotenv, load_dotenv
 from facilities_agent.confirmation import ConfirmationStore
+from facilities_agent.deepseek_planner import DeepSeekPlanner
 from facilities_agent.mcp_tool_client import FacilitiesMcpToolClient
 from facilities_agent.models import InvokeRequest, InvokeResponse
-from facilities_agent.planner import FacilitiesPlanner, PlannerDecision
+from facilities_agent.planner import FacilitiesPlanner, PlannerError
 from facilities_agent.result_mapper import map_technical_error
 from facilities_agent.service import FacilitiesAdapterService
 from facilities_agent.tool_client import ToolClientError
@@ -48,38 +48,15 @@ AGENT_NAME = "facility-agent"
 DEFAULT_PORT = 8082
 
 
-class _TransportPlanner(FacilitiesPlanner):
-    """Minimal exact-command planner used only until Phase D.
-
-    It is intentionally not presented as natural-language understanding. Unknown
-    input is routed to the Adapter's existing needs-more-info response.
-    """
-
-    _DECISIONS: ClassVar[dict[str, PlannerDecision]] = {
-        "search spaces": PlannerDecision(intent="search_spaces", arguments={}),
-        "search campus spaces": PlannerDecision(intent="search_spaces", arguments={}),
-        "list my bookings": PlannerDecision(intent="list_user_bookings", arguments={}),
-        "list my maintenance requests": PlannerDecision(
-            intent="list_user_maintenance_requests", arguments={}
-        ),
-    }
-
-    async def plan(self, request, context) -> PlannerDecision:
-        decision = self._DECISIONS.get(request.message.strip().lower())
-        if decision is None:
-            return PlannerDecision(intent="unsupported", arguments={})
-        return decision.model_copy(deep=True)
-
-
 PlannerFactory = Callable[[InvokeRequest], FacilitiesPlanner]
 ToolClientFactory = Callable[[str], FacilitiesMcpToolClient]
 ServiceFactory = Callable[
-    [FacilitiesPlanner, Any, ConfirmationStore], FacilitiesAdapterService
+    [FacilitiesPlanner | None, Any, ConfirmationStore], FacilitiesAdapterService
 ]
 
 
 def _default_planner_factory(_request: InvokeRequest) -> FacilitiesPlanner:
-    return _TransportPlanner()
+    return DeepSeekPlanner.from_environment()
 
 
 def _default_tool_client_factory(token: str) -> FacilitiesMcpToolClient:
@@ -87,7 +64,7 @@ def _default_tool_client_factory(token: str) -> FacilitiesMcpToolClient:
 
 
 def _default_service_factory(
-    planner: FacilitiesPlanner,
+    planner: FacilitiesPlanner | None,
     tool_client: Any,
     confirmation_store: ConfirmationStore,
 ) -> FacilitiesAdapterService:
@@ -165,10 +142,10 @@ async def _invoke_adapter(
                 "VALIDATION_ERROR",
                 "The Facilities invoke request is invalid.",
             )
-        )
+    )
 
-    planner = _planner_factory(request)
     try:
+        planner = None if request.confirmed else _planner_factory(request)
         async with _tool_client_factory(delegation_token) as tool_client:
             service = _service_factory(planner, tool_client, _confirmation_store)
             response = await service.invoke(
@@ -176,7 +153,7 @@ async def _invoke_adapter(
                 authenticated_user_id=claims["sub"],
                 request_id=request_id,
             )
-    except ToolClientError as error:
+    except (ToolClientError, PlannerError) as error:
         response = map_technical_error(error, {}, request_id)
     except Exception:
         logger.exception("Facilities invoke failed: request_id=%s", request_id)

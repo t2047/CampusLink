@@ -4,7 +4,11 @@ from datetime import datetime, timedelta
 from agent.facilities_agent.confirmation import ConfirmationStore
 from agent.facilities_agent.datetime_parser import CAMPUS_TIMEZONE
 from agent.facilities_agent.models import InvokeRequest
-from agent.facilities_agent.planner import FakePlanner, PlannerDecision
+from agent.facilities_agent.planner import (
+    FACILITIES_INTENTS,
+    FakePlanner,
+    PlannerDecision,
+)
 from agent.facilities_agent.service import FacilitiesAdapterService
 from agent.facilities_agent.tool_client import (
     FACILITIES_TOOL_NAMES,
@@ -65,8 +69,8 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
                 },
             ),
             "book first": PlannerDecision(
-                intent="book_space",
-                arguments={"candidateRank": 1, "userId": 999},
+                intent="create_booking",
+                arguments={"candidateRank": 1},
             ),
         }
         fixtures = {
@@ -242,7 +246,7 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_demo_b_list_cancel_first_confirm(self):
         decisions = {
-            "list": PlannerDecision(intent="list_bookings"),
+            "list": PlannerDecision(intent="list_user_bookings"),
             "cancel first": PlannerDecision(
                 intent="cancel_booking",
                 arguments={"reference": "first one"},
@@ -288,7 +292,7 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancel_that_booking_with_multiple_candidates_needs_more_info(self):
         decisions = {
-            "list": PlannerDecision(intent="list_bookings"),
+            "list": PlannerDecision(intent="list_user_bookings"),
             "cancel that booking": PlannerDecision(
                 intent="cancel_booking", arguments={"reference": "that booking"}
             ),
@@ -333,29 +337,23 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_planner_user_id_is_never_forwarded(self):
-        decisions = {
-            "search": PlannerDecision(
+        with self.assertRaises(ValueError):
+            PlannerDecision(
                 intent="search_spaces",
                 arguments={"building": "COM2", "userId": 999, "user_id": 888},
             )
-        }
-        fixtures = {"search_spaces": {"success": True, "data": []}}
-        service, _planner, client, _store = self.build_service(decisions, fixtures)
-        response = await service.invoke(request("search"), "42")
-        self.assertEqual("completed", response.status)
-        self.assertEqual({"building": "COM2"}, client.calls[0]["arguments"])
 
     async def test_demo_c_maintenance_clarify_confirm_submit(self):
         decisions = {
             "projector broken": PlannerDecision(
-                intent="submit_maintenance",
+                intent="submit_maintenance_request",
                 arguments={
                     "facilityType": "projector",
                     "description": "The projector is broken.",
                 },
             ),
             "COM2-03": PlannerDecision(
-                intent="submit_maintenance",
+                intent="submit_maintenance_request",
                 arguments={"building": "COM2", "roomNumber": "03"},
             ),
         }
@@ -418,7 +416,9 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_demo_d_show_maintenance_requests(self):
         decisions = {
-            "show maintenance": PlannerDecision(intent="list_maintenance_requests")
+            "show maintenance": PlannerDecision(
+                intent="list_user_maintenance_requests"
+            )
         }
         fixtures = {
             "list_user_maintenance_requests": {
@@ -433,6 +433,151 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("list_user_maintenance_requests", client.calls[0]["tool_name"])
         self.assertEqual(
             7, response.shared_context["facilities"]["last_maintenance_ticket_id"]
+        )
+
+    async def test_direct_space_details_handler(self):
+        decisions = {
+            "details": PlannerDecision(
+                intent="get_space_details", arguments={"spaceId": 3}
+            )
+        }
+        fixtures = {
+            "get_space_details": {
+                "success": True,
+                "data": {"spaceId": 3, "name": "COM2 Room 3"},
+            }
+        }
+        service, _planner, client, _store = self.build_service(decisions, fixtures)
+        response = await service.invoke(request("details"), "42")
+        self.assertEqual("completed", response.status)
+        self.assertEqual(
+            {"spaceId": 3},
+            client.calls[0]["arguments"],
+        )
+
+    async def test_direct_availability_uses_deterministic_chinese_time(self):
+        decisions = {
+            "available": PlannerDecision(
+                intent="check_availability",
+                arguments={"spaceId": 3},
+                datetime_text="明天下午2点到4点",
+            )
+        }
+        fixtures = {
+            "check_availability": {
+                "success": True,
+                "data": {"available": True},
+            }
+        }
+        service, _planner, client, _store = self.build_service(decisions, fixtures)
+        response = await service.invoke(request("available"), "42")
+        self.assertEqual("completed", response.status)
+        self.assertEqual(
+            {
+                "spaceId": 3,
+                "startDateTime": "2026-08-10T14:00:00",
+                "endDateTime": "2026-08-10T16:00:00",
+            },
+            client.calls[0]["arguments"],
+        )
+
+    async def test_ambiguous_availability_does_not_call_backend(self):
+        decisions = {
+            "ambiguous": PlannerDecision(
+                intent="check_availability",
+                arguments={"spaceId": 3},
+                datetime_text="tomorrow at 2",
+            )
+        }
+        service, _planner, client, _store = self.build_service(decisions, {})
+        response = await service.invoke(request("ambiguous"), "42")
+        self.assertEqual("needs_more_info", response.status)
+        self.assertEqual([], client.calls)
+
+    async def test_direct_booking_status_handler(self):
+        decisions = {
+            "status": PlannerDecision(
+                intent="get_booking_status", arguments={"bookingId": 123}
+            )
+        }
+        fixtures = {
+            "get_booking_status": {
+                "success": True,
+                "data": {"bookingId": 123, "status": "CONFIRMED"},
+            }
+        }
+        service, _planner, client, _store = self.build_service(decisions, fixtures)
+        response = await service.invoke(request("status"), "42")
+        self.assertEqual("completed", response.status)
+        self.assertIn("CONFIRMED", response.response)
+        self.assertEqual("get_booking_status", client.calls[0]["tool_name"])
+
+    async def test_direct_maintenance_status_handler(self):
+        decisions = {
+            "ticket": PlannerDecision(
+                intent="get_maintenance_status", arguments={"ticketId": 123}
+            )
+        }
+        fixtures = {
+            "get_maintenance_status": {
+                "success": True,
+                "data": {"ticketId": 123, "status": "IN_PROGRESS"},
+            }
+        }
+        service, _planner, client, _store = self.build_service(decisions, fixtures)
+        response = await service.invoke(request("ticket"), "42")
+        self.assertEqual("completed", response.status)
+        self.assertIn("IN_PROGRESS", response.response)
+        self.assertEqual("get_maintenance_status", client.calls[0]["tool_name"])
+
+    async def test_missing_fields_uses_planner_clarification_without_tool_call(self):
+        decisions = {
+            "missing": PlannerDecision(
+                intent="submit_maintenance_request",
+                missing_fields=["roomNumber"],
+                clarification="Which room is affected?",
+            )
+        }
+        service, _planner, client, _store = self.build_service(decisions, {})
+        response = await service.invoke(request("missing"), "42")
+        self.assertEqual("needs_more_info", response.status)
+        self.assertEqual("Which room is affected?", response.response)
+        self.assertEqual([], client.calls)
+
+    async def test_internal_error_is_system_failure(self):
+        decisions = {"search": PlannerDecision(intent="search_spaces")}
+        fixtures = {
+            "search_spaces": {
+                "success": False,
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "sensitive backend detail",
+                },
+            }
+        }
+        service, _planner, _client, _store = self.build_service(decisions, fixtures)
+        response = await service.invoke(request("search"), "42")
+        self.assertEqual("failed", response.status)
+        self.assertEqual("FACILITIES_BACKEND_ERROR", response.error)
+        self.assertNotIn("sensitive backend detail", response.response)
+
+    async def test_unknown_backend_error_is_system_failure(self):
+        decisions = {"search": PlannerDecision(intent="search_spaces")}
+        fixtures = {
+            "search_spaces": {
+                "success": False,
+                "error": {"code": "UNEXPECTED_DATABASE_FAILURE", "message": "db"},
+            }
+        }
+        service, _planner, _client, _store = self.build_service(decisions, fixtures)
+        response = await service.invoke(request("search"), "42")
+        self.assertEqual("failed", response.status)
+        self.assertEqual("FACILITIES_BACKEND_ERROR", response.error)
+
+    async def test_canonical_intents_cover_exact_ten_spring_tools(self):
+        self.assertEqual(
+            FACILITIES_TOOL_NAMES,
+            FACILITIES_INTENTS - {"unsupported"},
         )
 
     async def test_fake_client_supports_exactly_ten_contract_tools(self):

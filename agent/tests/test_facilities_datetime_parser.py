@@ -51,6 +51,50 @@ class FacilitiesDateTimeParserTest(unittest.TestCase):
         self.assertTrue(parsed.needs_clarification)
         self.assertIn("am or pm", parsed.clarification)
 
+    def test_tomorrow_afternoon_without_exact_hours_is_ambiguous(self):
+        parsed = self.parser.parse("tomorrow afternoon")
+        self.assertTrue(parsed.needs_clarification)
+        self.assertIsNone(parsed.start)
+
+    def test_chinese_tomorrow_afternoon_single_time_requests_end(self):
+        parsed = self.parser.parse("明天下午2点")
+        self.assertEqual("2026-08-10T14:00:00", parsed.start_local_iso)
+        self.assertIsNone(parsed.end_local_iso)
+        self.assertIn("end time", parsed.clarification)
+
+    def test_chinese_tomorrow_afternoon_range(self):
+        parsed = self.parser.parse("明天下午2点到4点")
+        self.assertEqual("2026-08-10T14:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T16:00:00", parsed.end_local_iso)
+        self.assertFalse(parsed.needs_clarification)
+
+    def test_chinese_date_with_english_pm_range(self):
+        parsed = self.parser.parse("明天 2-4pm")
+        self.assertEqual("2026-08-10T14:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T16:00:00", parsed.end_local_iso)
+
+    def test_chinese_morning_range(self):
+        parsed = self.parser.parse("明天上午9点到11点")
+        self.assertEqual("2026-08-10T09:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-10T11:00:00", parsed.end_local_iso)
+
+    def test_explicit_past_date_is_rejected(self):
+        parsed = self.parser.parse("2026-08-08 2-4 pm")
+        self.assertTrue(parsed.needs_clarification)
+        self.assertIsNone(parsed.start)
+        self.assertIn("future", parsed.clarification)
+
+    def test_end_before_start_is_rejected(self):
+        parsed = self.parser.parse("tomorrow 4-2 pm")
+        self.assertTrue(parsed.needs_clarification)
+        self.assertIsNone(parsed.start)
+        self.assertIn("after", parsed.clarification)
+
+    def test_invalid_clock_time_is_rejected(self):
+        parsed = self.parser.parse("tomorrow 25:00-26:00")
+        self.assertTrue(parsed.needs_clarification)
+        self.assertIn("valid time", parsed.clarification)
+
 
 if __name__ == "__main__":
     unittest.main()

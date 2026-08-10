@@ -130,6 +130,9 @@ services:
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
       - FACILITIES_MCP_URL=http://chat-backend:8080/mcp
       - FACILITIES_AGENT_PORT=8082
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
     command: ["python", "-m", "mcp_servers.facilities_server"]
     ports:
       - "8082:8082"
