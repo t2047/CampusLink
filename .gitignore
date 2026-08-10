@@ -49,3 +49,9 @@ keys/
 *.log
 logs/
 tmp/
+
+
+# Gmail OAuth tokens (mail service)
+agent/mail_agent/token.json
+agent/mail_agent/credentials.json
+agent/mail_agent/tokens/

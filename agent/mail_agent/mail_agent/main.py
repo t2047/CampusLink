@@ -1,283 +1,251 @@
+"""CampusLink Mail Service - Gmail-backed.
+
+Exposes ``/api/mail/**`` used by the web frontend (and the MCP mail gateway),
+backed by the real Gmail API via OAuth2. The shapes match the previous in-memory
+mock so existing clients keep working.
+
+OAuth flow:
+  * ``GET  /api/mail/oauth/url``     -> Google consent URL.
+  * ``GET  /api/mail/oauth/status``  -> {connected, email}.
+  * ``GET  /callback``               -> Google redirect target; exchanges the
+                                       code for a token and redirects to the app.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import StrEnum
-from uuid import uuid4
+import math
 
-from fastapi import FastAPI, Header, HTTPException, Query, status
+from fastapi import FastAPI, Header, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi.responses import JSONResponse, RedirectResponse
+
+from . import config, gmail_service
+from .models import (
+    MailFolder,
+    MailMessage,
+    OAuthStatusResponse,
+    OAuthUrlResponse,
+    PageResponse,
+    SendMailRequest,
+    UpdateMailRequest,
+)
 
 
-class MailFolder(StrEnum):
-    inbox = "inbox"
-    sent = "sent"
-    archived = "archived"
-    trash = "trash"
+class MailApiError(Exception):
+    """Domain error rendered as a flat ``{code, error, ...}`` JSON body."""
+
+    def __init__(self, status_code: int, code: str, message: str, **extra) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.extra = extra
 
 
-class MailMessage(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
-
-    id: str
-    subject: str
-    sender: str
-    recipients: list[str]
-    preview: str
-    body: str
-    folder: MailFolder
-    read: bool = False
-    starred: bool = False
-    created_at: datetime
-    updated_at: datetime
+def _unauthorized(message: str) -> MailApiError:
+    return MailApiError(status.HTTP_401_UNAUTHORIZED, "UNAUTHORIZED", message)
 
 
-class PageResponse(BaseModel):
-    content: list[MailMessage]
-    page: int
-    size: int
-    total_elements: int
-    total_pages: int
-    first: bool
-    last: bool
+def _not_connected() -> MailApiError:
+    url, _state = gmail_service.authorization_url()
+    return MailApiError(
+        status.HTTP_409_CONFLICT,
+        "GMAIL_NOT_CONNECTED",
+        "Gmail is not connected. Authorize it first.",
+        auth_url=url,
+    )
 
 
-class SendMailRequest(BaseModel):
-    recipients: list[str] = Field(min_length=1, max_length=20)
-    subject: str = Field(min_length=1, max_length=160)
-    body: str = Field(min_length=1, max_length=10000)
-
-    @field_validator("recipients")
-    @classmethod
-    def validate_recipients(cls, value: list[str]) -> list[str]:
-        cleaned = [recipient.strip() for recipient in value if recipient.strip()]
-        if not cleaned:
-            raise ValueError("At least one recipient is required")
-        invalid = [recipient for recipient in cleaned if "@" not in recipient]
-        if invalid:
-            raise ValueError("Recipients must look like email addresses")
-        return cleaned
-
-
-class UpdateMailRequest(BaseModel):
-    read: bool | None = None
-    starred: bool | None = None
-    folder: MailFolder | None = None
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _preview(body: str) -> str:
-    compact = " ".join(body.split())
-    return compact[:140]
+def _map_gmail_error(exc: Exception) -> MailApiError:
+    if isinstance(exc, gmail_service.GmailNotConnectedError):
+        return _not_connected()
+    upstream_status = getattr(exc, "status_code", None)
+    reason = getattr(exc, "reason", None) or str(exc)
+    if isinstance(upstream_status, int) and upstream_status:
+        return MailApiError(upstream_status, "GMAIL_ERROR", reason)
+    return MailApiError(
+        status.HTTP_502_BAD_GATEWAY,
+        "GMAIL_ERROR",
+        f"Gmail request failed: {reason}",
+    )
 
 
 def _user_from_auth(authorization: str | None) -> str:
+    """Validate the bearer shape (mirrors the previous mock contract)."""
     if not authorization:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authorization")
+        raise _unauthorized("Missing Authorization")
     if not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Authorization")
-    return "student@campuslink.local"
+        raise _unauthorized("Invalid Authorization")
+    return authorization[len("bearer "):].strip()
 
 
-def _seed_messages(owner: str) -> list[MailMessage]:
-    now = _now()
-    return [
-        MailMessage(
-            id="mail-1",
-            subject="Exam arrangements for CS2103",
-            sender="cs-office@campus.edu",
-            recipients=[owner],
-            preview="The final exam venue has been confirmed. Please bring your student card.",
-            body=(
-                "The final exam venue has been confirmed.\n\n"
-                "Date: 2026-08-20\n"
-                "Venue: LT19\n"
-                "Please bring your student card and arrive 20 minutes early."
-            ),
-            folder=MailFolder.inbox,
-            read=False,
-            starred=True,
-            created_at=now,
-            updated_at=now,
-        ),
-        MailMessage(
-            id="mail-2",
-            subject="Library reminder",
-            sender="library@campus.edu",
-            recipients=[owner],
-            preview="One borrowed book is due soon. Renew it online if you need more time.",
-            body="One borrowed book is due soon. Renew it online if you need more time.",
-            folder=MailFolder.inbox,
-            read=True,
-            starred=False,
-            created_at=now,
-            updated_at=now,
-        ),
-        MailMessage(
-            id="mail-3",
-            subject="Project meeting notes",
-            sender=owner,
-            recipients=["teammate@campus.edu"],
-            preview="Here are the meeting notes and the next actions for our AD project.",
-            body="Here are the meeting notes and the next actions for our AD project.",
-            folder=MailFolder.sent,
-            read=True,
-            starred=False,
-            created_at=now,
-            updated_at=now,
-        ),
-    ]
-
-
-app = FastAPI(title="CampusLink Mail Service", version="0.1.0")
+app = FastAPI(title="CampusLink Mail Service", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080"],
+    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost:5000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-_mailboxes: dict[str, list[MailMessage]] = {}
 
-
-def _mailbox(owner: str) -> list[MailMessage]:
-    if owner not in _mailboxes:
-        _mailboxes[owner] = _seed_messages(owner)
-    return _mailboxes[owner]
-
-
-def _require_message(owner: str, message_id: str) -> MailMessage:
-    for message in _mailbox(owner):
-        if message.id == message_id:
-            return message
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+@app.exception_handler(MailApiError)
+async def _handle_mail_api_error(request: Request, exc: MailApiError) -> JSONResponse:
+    body = {"code": exc.code, "error": exc.message}
+    body.update(exc.extra)
+    return JSONResponse(status_code=exc.status_code, content=body)
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "mail-agent"}
+async def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "service": "mail-agent",
+        "gmail_connected": gmail_service.is_connected(),
+    }
 
+
+# ---------------------------------------------------------------------------
+# OAuth2
+# ---------------------------------------------------------------------------
+
+@app.get("/api/mail/oauth/url", response_model=OAuthUrlResponse)
+async def oauth_url(authorization: str | None = Header(default=None)) -> OAuthUrlResponse:
+    _user_from_auth(authorization)
+    url, _state = gmail_service.authorization_url()
+    return OAuthUrlResponse(auth_url=url, connected=gmail_service.is_connected())
+
+
+@app.get("/api/mail/oauth/status", response_model=OAuthStatusResponse)
+async def oauth_status(authorization: str | None = Header(default=None)) -> OAuthStatusResponse:
+    _user_from_auth(authorization)
+    return OAuthStatusResponse(
+        connected=gmail_service.is_connected(),
+        email=gmail_service.connected_email(),
+    )
+
+
+@app.get("/callback")
+async def oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+    if error:
+        raise MailApiError(status.HTTP_400_BAD_REQUEST, "OAUTH_ERROR", error)
+    if not code or not state:
+        raise MailApiError(
+            status.HTTP_400_BAD_REQUEST,
+            "OAUTH_ERROR",
+            "Missing code or state",
+        )
+    try:
+        gmail_service.exchange_code(code, state)
+    except ValueError as exc:
+        raise MailApiError(status.HTTP_400_BAD_REQUEST, "OAUTH_ERROR", str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
+    return RedirectResponse(url=f"{config.FRONTEND_URL}/mail?connected=1")
+
+
+@app.post("/api/mail/oauth/disconnect", response_model=OAuthStatusResponse)
+async def oauth_disconnect(authorization: str | None = Header(default=None)) -> OAuthStatusResponse:
+    _user_from_auth(authorization)
+    gmail_service.reset_connection()
+    return OAuthStatusResponse(connected=False, email=None)
+
+
+# ---------------------------------------------------------------------------
+# Mail operations
+# ---------------------------------------------------------------------------
 
 @app.get("/api/mail/messages", response_model=PageResponse)
-async def list_messages(
+def list_messages(
     authorization: str | None = Header(default=None),
     folder: MailFolder = MailFolder.inbox,
     q: str = "",
     unread: bool | None = None,
     starred: bool | None = None,
     page: int = Query(default=0, ge=0),
-    size: int = Query(default=20, ge=1, le=100),
+    size: int = Query(default=20, ge=1, le=gmail_service.MAX_PAGE_SIZE),
 ) -> PageResponse:
-    owner = _user_from_auth(authorization)
-    query = q.strip().lower()
-    messages = [message for message in _mailbox(owner) if message.folder == folder]
-    if query:
-        messages = [
-            message
-            for message in messages
-            if query in message.subject.lower()
-            or query in message.sender.lower()
-            or query in message.body.lower()
-        ]
-    if unread is not None:
-        messages = [message for message in messages if message.read is not unread]
-    if starred is not None:
-        messages = [message for message in messages if message.starred is starred]
-
-    messages.sort(key=lambda item: item.created_at, reverse=True)
-    total = len(messages)
-    start = page * size
-    end = start + size
-    total_pages = (total + size - 1) // size if total else 0
+    _user_from_auth(authorization)
+    try:
+        messages, total, has_next = gmail_service.list_messages(
+            folder, q, unread, starred, page, size
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
+    total_pages = max(1, math.ceil(total / size)) if total else 0
     return PageResponse(
-        content=messages[start:end],
+        content=messages,
         page=page,
         size=size,
         total_elements=total,
         total_pages=total_pages,
         first=page == 0,
-        last=page >= max(total_pages - 1, 0),
+        last=not has_next or page >= total_pages - 1,
     )
 
 
 @app.get("/api/mail/messages/{message_id}", response_model=MailMessage)
-async def get_message(
+def get_message(
     message_id: str,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    owner = _user_from_auth(authorization)
-    message = _require_message(owner, message_id)
-    if not message.read:
-        message.read = True
-        message.updated_at = _now()
-    return message
+    _user_from_auth(authorization)
+    try:
+        return gmail_service.get_message(message_id, mark_read=True)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
 
 
-@app.post("/api/mail/messages", response_model=MailMessage, status_code=status.HTTP_201_CREATED)
-async def send_message(
+@app.post(
+    "/api/mail/messages",
+    response_model=MailMessage,
+    status_code=status.HTTP_201_CREATED,
+)
+def send_message(
     request: SendMailRequest,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    owner = _user_from_auth(authorization)
-    now = _now()
-    message = MailMessage(
-        id=f"mail-{uuid4().hex[:12]}",
-        subject=request.subject.strip(),
-        sender=owner,
-        recipients=request.recipients,
-        preview=_preview(request.body),
-        body=request.body.strip(),
-        folder=MailFolder.sent,
-        read=True,
-        starred=False,
-        created_at=now,
-        updated_at=now,
-    )
-    _mailbox(owner).append(message)
-    return message
+    _user_from_auth(authorization)
+    try:
+        return gmail_service.send_message(request)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
 
 
 @app.patch("/api/mail/messages/{message_id}", response_model=MailMessage)
-async def update_message(
+def update_message(
     message_id: str,
     request: UpdateMailRequest,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    owner = _user_from_auth(authorization)
-    message = _require_message(owner, message_id)
-    if request.read is not None:
-        message.read = request.read
-    if request.starred is not None:
-        message.starred = request.starred
-    if request.folder is not None:
-        message.folder = request.folder
-    message.updated_at = _now()
-    return message
+    _user_from_auth(authorization)
+    try:
+        return gmail_service.update_message(
+            message_id, request.read, request.starred, request.folder
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
 
 
 @app.post("/api/mail/messages/{message_id}/archive", response_model=MailMessage)
-async def archive_message(
+def archive_message(
     message_id: str,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    owner = _user_from_auth(authorization)
-    message = _require_message(owner, message_id)
-    message.folder = MailFolder.archived
-    message.updated_at = _now()
-    return message
+    _user_from_auth(authorization)
+    try:
+        return gmail_service.archive_message(message_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
 
 
 @app.post("/api/mail/messages/{message_id}/delete", response_model=MailMessage)
-async def delete_message(
+def delete_message(
     message_id: str,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    owner = _user_from_auth(authorization)
-    message = _require_message(owner, message_id)
-    message.folder = MailFolder.trash
-    message.updated_at = _now()
-    return message
+    _user_from_auth(authorization)
+    try:
+        return gmail_service.trash_message(message_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc

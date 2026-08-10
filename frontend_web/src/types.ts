@@ -131,6 +131,7 @@ export interface MailMessage {
   recipients: string[]
   preview: string
   body: string
+  body_html?: string | null
   folder: MailFolder
   read: boolean
   starred: boolean

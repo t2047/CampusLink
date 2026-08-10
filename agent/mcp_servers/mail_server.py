@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 AGENT_NAME = "mail-agent"
 
 # 8091 REST 客户端（base_url 从环境变量读，默认本地 8091）
-MAIL_REST_URL = os.environ.get("MAIL_REST_URL", "http://127.0.0.1:8091").rstrip("/")
+MAIL_REST_URL = os.environ.get("MAIL_REST_URL", "http://127.0.0.1:5000").rstrip("/")
 
 # 确认 TTL（对齐 mail-agent.json security.confirmationTtlSeconds=600）
 _CONFIRM_TTL_SECONDS = int(os.environ.get("MAIL_CONFIRM_TTL_SECONDS", "600"))
