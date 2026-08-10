@@ -10,6 +10,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.jspecify.annotations.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -29,6 +31,8 @@ import java.util.List;
 
 @Component
 public class AgentDelegationAuthFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentDelegationAuthFilter.class);
 
     private static final String INTERNAL_PREFIX = "/api/internal/lost-found/";
     private static final Duration MAX_TOKEN_LIFETIME = Duration.ofSeconds(60);
@@ -58,10 +62,23 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain) throws ServletException, IOException {
         String expectedAction = expectedAction(request);
         String token = bearerToken(request);
-        if (!StringUtils.hasText(sharedSecret)
-                || sharedSecret.length() < 32
-                || expectedAction == null
-                || !StringUtils.hasText(token)) {
+        if (!StringUtils.hasText(sharedSecret)) {
+            log.warn("AgentDelegationAuthFilter: sharedSecret is empty (app.agent.backend-shared-secret)");
+            reject(response);
+            return;
+        }
+        if (sharedSecret.length() < 32) {
+            log.warn("AgentDelegationAuthFilter: sharedSecret too short (len={})", sharedSecret.length());
+            reject(response);
+            return;
+        }
+        if (expectedAction == null) {
+            log.warn("AgentDelegationAuthFilter: expectedAction is null for uri={}", request.getRequestURI());
+            reject(response);
+            return;
+        }
+        if (!StringUtils.hasText(token)) {
+            log.warn("AgentDelegationAuthFilter: missing bearer token for uri={}", request.getRequestURI());
             reject(response);
             return;
         }
@@ -95,6 +112,11 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
                     || Duration.between(issuedAt.toInstant(), expiresAt.toInstant())
                     .compareTo(MAX_TOKEN_LIFETIME) > 0
                     || !replayStore.consume(tokenId, expiresAt.toInstant())) {
+                log.warn("AgentDelegationAuthFilter: claim validation failed "
+                        + "(sub={}, action={} expected={}, expIsAfterNow={}, tokenIdLen={})",
+                        userId, action, expectedAction,
+                        expiresAt != null && expiresAt.toInstant().isAfter(now),
+                        tokenId == null ? -1 : tokenId.length());
                 SecurityContextHolder.clearContext();   // 与 catch 分支一致：失败即清理，防残留认证被下游复用
                 reject(response);
                 return;
@@ -102,6 +124,7 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
 
             User user = userRepository.findById(userId).orElse(null);
             if (user == null) {
+                log.warn("AgentDelegationAuthFilter: user not found for id={}", userId);
                 SecurityContextHolder.clearContext();
                 reject(response);
                 return;
@@ -114,6 +137,7 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
         } catch (RuntimeException exception) {
+            log.warn("AgentDelegationAuthFilter: token verification failed: {}", exception.toString());
             SecurityContextHolder.clearContext();
             reject(response);
             return;
@@ -126,6 +150,9 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
         String path = request.getRequestURI().substring(INTERNAL_PREFIX.length());
         if ("POST".equals(method) && "reports/lost".equals(path)) {
             return "report_lost";
+        }
+        if ("POST".equals(method) && "reports/found".equals(path)) {
+            return "report_found";
         }
         if ("GET".equals(method) && "candidates".equals(path)) {
             return "search_found_items";
