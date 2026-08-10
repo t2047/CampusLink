@@ -363,7 +363,9 @@ class RuleEngine:
             if pending.action == "report_found":
                 found_report = ReportFoundInput.model_validate(pending.payload)
                 emit(tool_event("report_found", "started"))
-                created = await self._api.report_found(verified.user_id, verified.user_role, found_report)
+                created = await self._api.report_found(
+                    verified.user_id, verified.user_role, found_report
+                )
                 emit(tool_event("report_found", "completed"))
                 message = found_created_message(created, language)
                 return response_with_token(
