@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/English%20Version-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
 
 CampusLink 是校园 **AI Agent 平台**：以 `agent/chat_core` 编排层（FastAPI + LangGraph）为核心，
-通过 MCP 协议驱动多领域 Agent（mail / facility / lost-found / skill / utility-tools）完成
+通过 MCP 协议驱动多领域 Agent（mail / facility / lost-found / utility-tools）完成
 聊天问答与业务操作，支持 SSE 流式输出与 HITL 人工确认。
 
 **Lost & Found 是平台首个完整落地的垂直切片**：既有 Web 端完整功能（发布/搜索/认领/管理），
@@ -82,7 +82,7 @@ npm run dev
 平台核心是**校园 AI 助手**（自然语言聊天 + 多领域 Agent 调度）：
 
 - **编排层**：`agent/chat_core`（FastAPI + LangGraph；意图路由、Agent 调用、HITL 人工确认、LLM 兜底）
-- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / skill / utility-tools），
+- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / utility-tools），
   以 streamable HTTP 暴露，按 `agent/schemas/*.json` 能力声明注册
 - **前端**：React 应用首页的聊天入口（SSE 流式打字机、意图展示、HITL 确认——确认后
   经 `/api/chat/resume` 恢复挂起图并真正重调子 Agent 执行写操作，报失/认领等确认流程已可用）
@@ -171,7 +171,7 @@ PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 Spo
 project/
 ├── agent/                   Agent 体系（平台核心）
 │   ├── chat_core/           编排层（FastAPI + LangGraph；意图路由/HITL/LLM 兜底）
-│   ├── mcp_servers/         MCP Server 适配层（mail/facility/lost-found/skill/utility）
+│   ├── mcp_servers/         MCP Server 适配层（mail/facility/lost-found/utility）
 │   ├── lost_found_agent/    L&F 业务引擎（规则 + LLM 意图解析）
 │   └── schemas/             Agent 能力声明（JSON Schema）
 ├── backend/

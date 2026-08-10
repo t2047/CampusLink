@@ -15,7 +15,12 @@ export function AppShell() {
     <Box sx={{ minHeight: '100vh', bgcolor: 'grey.50' }}>
       <AppBar position="sticky">
         <Toolbar sx={{ gap: 1, flexWrap: 'wrap' }}>
-          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }}>CampusLink</Typography>
+          <Typography
+            variant="h6"
+            component={RouterLink}
+            to="/chat"
+            sx={{ flexGrow: 1, fontWeight: 700, textDecoration: 'none', color: 'inherit', '&:hover': { opacity: 0.8 } }}
+          >CampusLink</Typography>
           <Button color="inherit" component={RouterLink} to="/lost-found" startIcon={<SearchIcon />}>Browse</Button>
           <Button color="inherit" component={RouterLink} to="/lost-found/new/lost" startIcon={<AddCircleOutlineIcon />}>Report</Button>
           <Button color="inherit" component={RouterLink} to="/claims/mine" startIcon={<InboxIcon />}>Claims</Button>

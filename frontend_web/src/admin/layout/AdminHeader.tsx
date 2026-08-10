@@ -1,7 +1,7 @@
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
 import { AppBar, Button, IconButton, Stack, Toolbar, Typography } from '@mui/material'
-import { useNavigate } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 
 interface AdminHeaderProps {
@@ -21,7 +21,13 @@ export function AdminHeader({ onMenuClick, showMenuButton }: AdminHeaderProps) {
             <MenuIcon />
           </IconButton>
         )}
-        <Typography component="div" variant="h6" fontWeight={700} sx={{ flexGrow: 1 }}>
+        <Typography
+          component={RouterLink}
+          to="/chat"
+          variant="h6"
+          fontWeight={700}
+          sx={{ flexGrow: 1, textDecoration: 'none', color: 'inherit', '&:hover': { opacity: 0.8 } }}
+        >
           CampusLink Administration
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center">

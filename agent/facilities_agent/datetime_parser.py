@@ -67,14 +67,14 @@ class FacilitiesDateTimeParser:
     _AMBIGUOUS_SINGLE = re.compile(r"\bat\s+(?P<hour>\d{1,2})(?![:\d])", re.IGNORECASE)
     _ISO_DATE = re.compile(r"(?<!\d)(?P<date>\d{4}-\d{2}-\d{2})(?!\d)")
     _CHINESE_RANGE = re.compile(
-        r"(?P<period>上午|下午)?\s*(?P<start>\d{1,2})(?:点|時|时)"
+        r"(?P<period>上午|早上|早晨|清晨|下午|傍晚|晚上|中午|夜里)?\s*(?P<start>\d{1,2})(?:点|時|时)"
         r"(?:(?P<start_minute>\d{1,2})分?)?\s*(?:到|至|[-–—])\s*"
-        r"(?P<end_period>上午|下午)?\s*(?P<end>\d{1,2})(?:点|時|时)"
+        r"(?P<end_period>上午|早上|早晨|清晨|下午|傍晚|晚上|中午|夜里)?\s*(?P<end>\d{1,2})(?:点|時|时)"
         r"(?:(?P<end_minute>\d{1,2})分?)?"
     )
     _CHINESE_SINGLE = re.compile(
-        r"(?P<period>上午|下午)?\s*(?P<hour>\d{1,2})(?:点|時|时)"
-        r"(?:(?P<minute>\d{1,2})分?)?"
+        r"(?P<period>上午|早上|早晨|清晨|下午|傍晚|晚上|中午|夜里)?\s*(?P<hour>\d{1,2})(?:点|時|时)"
+        r"(?:(?P<minute>\d{1,2})\s*分(?:钟)?)?"
     )
 
     def __init__(self, now_provider: Callable[[], datetime] = singapore_now) -> None:
@@ -133,9 +133,9 @@ class FacilitiesDateTimeParser:
 
     @staticmethod
     def _chinese_meridiem(period: str | None) -> str | None:
-        if period == "上午":
+        if period in ("上午", "早上", "早晨", "清晨"):
             return "am"
-        if period == "下午":
+        if period in ("下午", "傍晚", "晚上", "中午", "夜里"):
             return "pm"
         return None
 
@@ -181,13 +181,55 @@ class FacilitiesDateTimeParser:
                     True,
                     "Please provide a future date and time.",
                 )
-            return ParsedDateTimeRange(
-                start,
-                None,
-                True,
-                "Please provide an end time.",
-            )
+            return self._with_duration_or_end(start, text)
         return None
+
+    @staticmethod
+    def _parse_duration(text: str) -> float | None:
+        """Parse a duration phrase (中文“1小时/半小时” or “1 hour / half an hour”)."""
+        match = re.search(
+            r"(?P<hours>\d+(?:\.\d+)?)\s*(?:个)?(?:小)?时"
+            r"|(?P<eng>\d+(?:\.\d+)?)\s*(?:hour|hr)s?",
+            text,
+            re.IGNORECASE,
+        )
+        if match:
+            return float(match.group("hours") or match.group("eng"))
+        if re.search(r"半小时|half\s*an?\s*hour", text, re.IGNORECASE):
+            return 0.5
+        return None
+
+    def _with_duration_or_end(
+        self, start: datetime, text: str
+    ) -> ParsedDateTimeRange:
+        duration = self._parse_duration(text)
+        if duration is not None and duration > 0:
+            return self._validate_range(
+                start, start + timedelta(hours=duration)
+            )
+        return ParsedDateTimeRange(
+            start,
+            None,
+            True,
+            "Please provide an end time.",
+        )
+
+    @staticmethod
+    def _cn_hour_to_arabic(text: str) -> str:
+        """把中文数字钟点（九点/十点/十二点）转成阿拉伯数字（仅限“X点”模式）。"""
+        cn_digits = {
+            "十一": 11, "十二": 12, "十": 10,
+            "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+            "六": 6, "七": 7, "八": 8, "九": 9,
+        }
+        def _replace(match: re.Match) -> str:
+            word = match.group(1)
+            return str(cn_digits.get(word, word))
+        return re.sub(
+            r"(?P<n>十一|十二|十|[一二三四五六七八九])(?=点|時|时)",
+            _replace,
+            text,
+        )
 
     def _validate_range(
         self, start: datetime, end: datetime
@@ -211,6 +253,7 @@ class FacilitiesDateTimeParser:
     def parse(self, text: str) -> ParsedDateTimeRange:
         target_date = self.parse_date(text)
         time_text = self._ISO_DATE.sub(" ", text)
+        time_text = self._cn_hour_to_arabic(time_text)
         chinese = self._parse_chinese_time(time_text, target_date)
         if chinese is not None:
             return chinese
@@ -257,12 +300,7 @@ class FacilitiesDateTimeParser:
                     True,
                     "Please provide a future date and time.",
                 )
-            return ParsedDateTimeRange(
-                start,
-                None,
-                True,
-                "Please provide an end time.",
-            )
+            return self._with_duration_or_end(start, time_text)
 
         if self._AMBIGUOUS_SINGLE.search(time_text):
             return ParsedDateTimeRange(
