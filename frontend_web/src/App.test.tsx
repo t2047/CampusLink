@@ -18,6 +18,8 @@ vi.mock('./api/facilities', () => ({
     getMaintenance: vi.fn().mockResolvedValue([]),
     getMaintenanceDetail: vi.fn(),
     updateMaintenance: vi.fn(),
+    searchSpaces: vi.fn().mockResolvedValue([]),
+    getSpace: vi.fn(),
   },
 }))
 vi.mock('./api/adminLostFound', () => ({
@@ -92,6 +94,25 @@ describe('admin application routes', () => {
     setDesktopViewport()
   })
   afterEach(() => cleanup())
+
+  it('lets an authenticated user open Facilities from the application navigation', async () => {
+    storeSession('USER')
+    renderApp('/lost-found')
+
+    const facilitiesLink = await screen.findByRole('link', { name: 'Facilities' })
+    fireEvent.click(facilitiesLink)
+
+    expect(await screen.findByRole('heading', { name: 'Facilities' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Search Spaces' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/facilities')
+  })
+
+  it('redirects an unauthenticated Facilities visitor to login', async () => {
+    renderApp('/facilities')
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/login')
+  })
 
   it('redirects an administrator from /admin to the dashboard', async () => {
     storeSession('ADMIN')

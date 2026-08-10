@@ -21,6 +21,16 @@ export interface Space {
   status: 'AVAILABLE' | 'OUT_OF_SERVICE' | 'INACTIVE' | string
 }
 
+export interface SpaceSearchFilters {
+  query?: string
+  building?: string
+  spaceType?: string
+  minimumCapacity?: number
+  equipment?: string[]
+  startDateTime?: string
+  endDateTime?: string
+}
+
 export interface Booking {
   success: boolean
   bookingId: number
@@ -44,6 +54,22 @@ const localDate = (date: Date) => {
 const activeBookings = (bookings: Booking[]) => bookings.filter((booking) => booking.status !== 'CANCELLED')
 
 export const facilitiesApi = {
+  searchSpaces: (filters: SpaceSearchFilters = {}) => {
+    const params = new URLSearchParams()
+    const append = (key: string, value: string | number | undefined) => {
+      if (value === undefined || String(value).trim() === '') return
+      params.append(key, String(value).trim())
+    }
+    append('query', filters.query)
+    append('building', filters.building)
+    append('spaceType', filters.spaceType)
+    append('minimumCapacity', filters.minimumCapacity)
+    filters.equipment?.forEach((item) => append('equipment', item))
+    append('startDateTime', filters.startDateTime)
+    append('endDateTime', filters.endDateTime)
+    return apiClient.get<Space[]>('/facilities/spaces', { params }).then((response) => response.data)
+  },
+  getSpace: (spaceId: number) => apiClient.get<Space>(`/facilities/spaces/${spaceId}`).then((response) => response.data),
   getDashboard: async () => {
     const [spacesResponse, bookingsResponse, maintenanceResponse] = await Promise.all([
       apiClient.get<Space[]>('/facilities/spaces'),

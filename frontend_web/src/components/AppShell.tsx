@@ -2,6 +2,7 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import InboxIcon from '@mui/icons-material/Inbox'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MailOutlineIcon from '@mui/icons-material/MailOutline'
+import MeetingRoomIcon from '@mui/icons-material/MeetingRoom'
 import SearchIcon from '@mui/icons-material/Search'
 import { AppBar, Box, Button, Container, Toolbar, Typography } from '@mui/material'
 import { Link as RouterLink, Outlet, useNavigate } from 'react-router-dom'
@@ -16,6 +17,7 @@ export function AppShell() {
       <AppBar position="sticky">
         <Toolbar sx={{ gap: 1, flexWrap: 'wrap' }}>
           <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }}>CampusLink</Typography>
+          <Button color="inherit" component={RouterLink} to="/facilities" startIcon={<MeetingRoomIcon />}>Facilities</Button>
           <Button color="inherit" component={RouterLink} to="/lost-found" startIcon={<SearchIcon />}>Browse</Button>
           <Button color="inherit" component={RouterLink} to="/lost-found/new/lost" startIcon={<AddCircleOutlineIcon />}>Report</Button>
           <Button color="inherit" component={RouterLink} to="/claims/mine" startIcon={<InboxIcon />}>Claims</Button>

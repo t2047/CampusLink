@@ -20,6 +20,9 @@ const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage'
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
+const FacilitiesLayout = lazy(() => import('./pages/facilities/FacilitiesLayout').then((module) => ({ default: module.FacilitiesLayout })))
+const SpacesPage = lazy(() => import('./pages/facilities/SpacesPage').then((module) => ({ default: module.SpacesPage })))
+const SpaceDetailsPage = lazy(() => import('./pages/facilities/SpaceDetailsPage').then((module) => ({ default: module.SpaceDetailsPage })))
 const MailPage = lazy(() => import('./pages/MailPage').then((module) => ({ default: module.MailPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
@@ -56,6 +59,10 @@ export default function App() {
       <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
+          <Route path="/facilities" element={<FacilitiesLayout />}>
+            <Route index element={<SpacesPage />} />
+            <Route path="spaces/:spaceId" element={<SpaceDetailsPage />} />
+          </Route>
           <Route path="/lost-found" element={<ReportsPage />} />
           <Route path="/lost-found/new/lost" element={<CreateReportPage reportType="LOST" />} />
           <Route path="/lost-found/new/found" element={<CreateReportPage reportType="FOUND" />} />
