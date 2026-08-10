@@ -3,8 +3,10 @@ package com.app.campusagent.lostfound.controller;
 import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
 import com.app.campusagent.lostfound.domain.ItemCategory;
+import com.app.campusagent.lostfound.domain.LostFoundClaim;
 import com.app.campusagent.lostfound.domain.LostFoundReport;
 import com.app.campusagent.lostfound.domain.ReportType;
+import com.app.campusagent.lostfound.repository.LostFoundClaimRepository;
 import com.app.campusagent.lostfound.repository.LostFoundReportRepository;
 import com.app.campusagent.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,9 @@ class LostFoundAdminSecurityIntegrationTest {
 
     @Autowired
     private LostFoundReportRepository reportRepository;
+
+    @Autowired
+    private LostFoundClaimRepository claimRepository;
 
     @Test
     void rejectsAnonymousUsers() throws Exception {
@@ -146,6 +151,66 @@ class LostFoundAdminSecurityIntegrationTest {
                         .with(authentication(principal(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray());
+    }
+
+    @Test
+    void rejectsAnonymousUsersFromClaimsEndpoints() throws Exception {
+        mockMvc.perform(get("/api/admin/lost-found/claims"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(roles = "STUDENT")
+    void rejectsStudentsFromClaimsEndpoints() throws Exception {
+        mockMvc.perform(get("/api/admin/lost-found/claims"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void allowsAdministratorToBrowseClaims() throws Exception {
+        User admin = userRepository.save(adminUser("admin-claims-sec@campuslink.com"));
+
+        mockMvc.perform(get("/api/admin/lost-found/claims")
+                        .param("page", "0")
+                        .param("size", "25")
+                        .with(authentication(principal(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+    }
+
+    @Test
+    void allowsAdministratorToApproveClaim() throws Exception {
+        User owner = userRepository.save(new User("owner-sec-claim@u.nus.edu", "encoded"));
+        User admin = userRepository.save(adminUser("admin-sec-claim@campuslink.com"));
+        User claimant = userRepository.save(new User("claimant-sec-claim@u.nus.edu", "encoded"));
+        LostFoundReport report = reportRepository.save(report(owner));
+        LostFoundClaim claim = claimRepository.save(new LostFoundClaim(
+                report, claimant, "The item has a private identifying mark."));
+        claimRepository.flush();
+
+        mockMvc.perform(post("/api/admin/lost-found/claims/{id}/approve", claim.getId())
+                        .with(authentication(principal(admin)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decisionNote\":\"Verified\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.report.status").value("CLAIMED"));
+    }
+
+    @Test
+    void rejectsStudentsFromApprovingClaim() throws Exception {
+        User owner = userRepository.save(new User("owner-sec-approve@u.nus.edu", "encoded"));
+        User claimant = userRepository.save(new User("claimant-sec-approve@u.nus.edu", "encoded"));
+        LostFoundReport report = reportRepository.save(report(owner));
+        LostFoundClaim claim = claimRepository.save(new LostFoundClaim(
+                report, claimant, "My proof."));
+        claimRepository.flush();
+
+        mockMvc.perform(post("/api/admin/lost-found/claims/{id}/approve", claim.getId())
+                        .with(authentication(principal(claimant)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decisionNote\":\"Verified\"}"))
+                .andExpect(status().isForbidden());
     }
 
     private LostFoundReport report(User owner) {
