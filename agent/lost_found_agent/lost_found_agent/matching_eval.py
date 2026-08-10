@@ -198,8 +198,7 @@ def main() -> None:
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
         args.output.write_text(text + "\n", encoding="utf-8")
-    if args.variant == "all":
-        assert comparison is not None
+    if comparison is not None:
         print(_format_report(results, comparison))
         print("\nDetailed JSON written to stdout below (pipe to a file or use --output):")
     print(text)
