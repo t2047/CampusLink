@@ -184,6 +184,8 @@ async def chat_stream(request: Request):
         "targets": [],
         "agent_plan": [],
         "utility_plan": [],
+        "utility_results": {},
+        "utility_response": None,
         "current_agent_index": 0,
         "user_id": payload.userId,
         "user_role": payload.role,

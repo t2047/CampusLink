@@ -49,6 +49,8 @@ class AgentState(TypedDict, total=False):
     agent_invocations: list[AgentInvocation]
     current_agent_index: int
     utility_results: dict[str, dict[str, Any]]
+    # 工具成功结果经 LLM 按用户语言重述后的最终回复（无则聚合器回退格式化拼接）
+    utility_response: str | None
 
     # ── Human-in-the-loop ──
     requires_approval: bool

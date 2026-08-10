@@ -81,7 +81,7 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 8. 重要防幻觉：intent_type="chat" 时你只做一般性闲聊/知识回答，**绝对禁止**
    编造校园业务事实（如失物存放地点/电话/地址、登记信息、预约状态等）。
    用户消息一旦涉及具体校园业务（物品、预约、邮件、技能），一律路由
-   domain_agent 或如实说明无法处理，不得虚构
+   agent 或如实说明无法处理，不得虚构
 
 Domain Agent 能力：
 {agent_capabilities}
@@ -421,7 +421,38 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     if failures:
         # 失败上下文：转主 Agent（LLM）兜底时使用
         update["service_failures"] = list(state.get("service_failures") or []) + failures
+    elif results:
+        # 工具全部成功 → 交给 LLM 按用户语言重述（避免用户英文提问却输出中文结果）；
+        # 重述失败回退格式化拼接（_format_utility_result），保证永远有回复
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        rephrased = await _rephrase_utility_results(user_msg, results)
+        if rephrased:
+            update["utility_response"] = rephrased
     return update if (results or failures) else {}
+
+
+async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> str | None:
+    """把工具原始结果交给 LLM，用与用户消息相同的语言重述为自然回复。
+
+    返回重述文本；LLM 调用失败返回 None（调用方回退格式化拼接）。
+    """
+    llm = chat_llm()
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "你是校园助手。以下是工具调用返回的原始结果（JSON/文本）。"
+                "请用与用户消息相同的语言，把结果组织成一段自然、简洁的回复。"
+                "不要编造结果中没有的信息，不要提及工具名等内部细节。"
+            )),
+            HumanMessage(content=(
+                f"用户消息：{user_msg}\n"
+                f"工具结果：{json.dumps(results, ensure_ascii=False, default=str)}"
+            )),
+        ])
+        content = getattr(response, "content", "") or ""
+        return content.strip() or None
+    except Exception:
+        return None
 
 
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:
@@ -546,8 +577,13 @@ def response_aggregator(state: AgentState) -> AgentState:
             continue
         parts.append(inv.get("output_response", ""))
 
-    for tool_name, result in utility_results.items():
-        parts.append(_format_utility_result(tool_name, result))
+    # Utility 结果：优先用 LLM 重述文本（语言跟随用户），否则回退逐项格式化
+    utility_response = state.get("utility_response")
+    if utility_response:
+        parts.append(utility_response)
+    else:
+        for tool_name, result in utility_results.items():
+            parts.append(_format_utility_result(tool_name, result))
 
     if not parts:
         final = "抱歉，暂时无法处理你的请求。"
