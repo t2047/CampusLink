@@ -38,6 +38,19 @@ interface ChatMessage {
   timestamp: number;
 }
 
+// crypto.randomUUID 仅在 secure context（HTTPS / localhost）可用；
+// HTTP 部署（如 http://<vm-ip>）下不存在，需兜底生成 UUID v4
+function randomUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const hex = (chars: number) =>
+    Array.from({ length: chars }, () =>
+      Math.floor(Math.random() * 16).toString(16),
+    ).join('');
+  return `${hex(8)}-${hex(4)}-4${hex(3)}-${((Math.random() * 4) | 8).toString(16)}${hex(3)}-${hex(12)}`;
+}
+
 interface PendingConfirm {
   msgId: string;
   agent: string;
@@ -139,7 +152,7 @@ export default function ChatPage() {
   const [sessionId, setSessionId] = useState<string>(() => {
     const existing = localStorage.getItem('sessionId');
     if (existing) return existing;
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     localStorage.setItem('sessionId', id);
     return id;
   });
@@ -458,7 +471,7 @@ export default function ChatPage() {
   const handleNewChat = useCallback(() => {
     closeRef.current?.close();
     closeRef.current = null;
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     localStorage.setItem('sessionId', id);
     setSessionId(id);
     setMessages([]);
