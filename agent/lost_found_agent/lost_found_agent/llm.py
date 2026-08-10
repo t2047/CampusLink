@@ -297,5 +297,7 @@ async def interpret_with_retry(
             return await interpreter.interpret(message, shared_context)
         except LlmUnavailable as exc:
             last_exc = exc
-    assert last_exc is not None
+    if last_exc is None:
+        raise LlmUnavailable("LLM interpretation failed before any retry attempt")
     raise last_exc
+    
