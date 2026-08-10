@@ -128,6 +128,9 @@ services:
     environment:
       - MCP_AGENT_NAME=facility-agent
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FACILITIES_MCP_URL=http://chat-backend:8080/mcp
+      - FACILITIES_AGENT_PORT=8082
+    command: ["python", "-m", "mcp_servers.facilities_server"]
     ports:
       - "8082:8082"
     depends_on:
