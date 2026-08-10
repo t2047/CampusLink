@@ -16,7 +16,6 @@ import com.app.campusagent.lostfound.repository.LostFoundReportRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
 
@@ -25,12 +24,15 @@ public class LostFoundClaimService {
 
     private final LostFoundClaimRepository claimRepository;
     private final LostFoundReportRepository reportRepository;
+    private final LostFoundNotificationService notificationService;
 
     public LostFoundClaimService(
             LostFoundClaimRepository claimRepository,
-            LostFoundReportRepository reportRepository) {
+            LostFoundReportRepository reportRepository,
+            LostFoundNotificationService notificationService) {
         this.claimRepository = claimRepository;
         this.reportRepository = reportRepository;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -39,6 +41,9 @@ public class LostFoundClaimService {
             CreateClaimRequest request,
             User currentUser) {
         LostFoundReport report = requireReport(reportId);
+        if (report.isAdminHidden()) {
+            throw conflict("REPORT_HIDDEN", "This report is not open for claims");
+        }
         if (report.getReportType() != ReportType.FOUND) {
             throw conflict("ONLY_FOUND_REPORTS_CAN_BE_CLAIMED", "Only found-item reports can be claimed");
         }
@@ -60,6 +65,7 @@ public class LostFoundClaimService {
                 report,
                 currentUser,
                 request.proofDescription().trim()));
+        notificationService.claimSubmitted(claim);
         return toResponse(claim, currentUser);
     }
 
@@ -77,31 +83,16 @@ public class LostFoundClaimService {
                 .toList();
     }
 
+    /**
+     * 认领审核已收归管理员：普通用户侧端点保留但一律返回 403，
+     * 实际审核逻辑见 {@link LostFoundAdminService}。
+     */
     @Transactional
     public LostFoundClaimResponse approve(
             Long claimId,
             ClaimDecisionRequest request,
             User currentUser) {
-        LostFoundClaim claim = requireClaim(claimId);
-        assertCanReview(claim, currentUser);
-        assertSubmitted(claim);
-        if (claim.getReport().getStatus() != ReportStatus.OPEN) {
-            throw conflict("REPORT_NOT_OPEN", "This report is no longer open for claims");
-        }
-
-        List<LostFoundClaim> pending = claimRepository.findByReportIdAndStatus(
-                claim.getReport().getId(), ClaimStatus.SUBMITTED);
-        String note = trimToNull(request.decisionNote());
-        claim.approve(note);
-        for (LostFoundClaim pendingClaim : pending) {
-            if (!pendingClaim.getId().equals(claimId)) {
-                pendingClaim.reject("Another claim was approved");
-            }
-        }
-        claim.getReport().markClaimed();
-        reportRepository.save(claim.getReport());
-        claimRepository.saveAll(pending);
-        return toResponse(claim, currentUser);
+        throw adminOnly();
     }
 
     @Transactional
@@ -109,11 +100,7 @@ public class LostFoundClaimService {
             Long claimId,
             ClaimDecisionRequest request,
             User currentUser) {
-        LostFoundClaim claim = requireClaim(claimId);
-        assertCanReview(claim, currentUser);
-        assertSubmitted(claim);
-        claim.reject(trimToNull(request.decisionNote()));
-        return toResponse(claimRepository.save(claim), currentUser);
+        throw adminOnly();
     }
 
     private LostFoundReport requireReport(Long reportId) {
@@ -124,27 +111,11 @@ public class LostFoundClaimService {
                         "The requested report does not exist"));
     }
 
-    private LostFoundClaim requireClaim(Long claimId) {
-        return claimRepository.findById(claimId)
-                .orElseThrow(() -> new LostFoundApiException(
-                        HttpStatus.NOT_FOUND,
-                        "CLAIM_NOT_FOUND",
-                        "The requested claim does not exist"));
-    }
-
-    private void assertCanReview(LostFoundClaim claim, User currentUser) {
-        if (!claim.getReport().getCreatedBy().getId().equals(currentUser.getId())) {
-            throw new LostFoundApiException(
-                    HttpStatus.FORBIDDEN,
-                    "CLAIM_REVIEW_FORBIDDEN",
-                    "Only the found-item reporter can review this claim");
-        }
-    }
-
-    private void assertSubmitted(LostFoundClaim claim) {
-        if (claim.getStatus() != ClaimStatus.SUBMITTED) {
-            throw conflict("CLAIM_ALREADY_DECIDED", "This claim has already been decided");
-        }
+    private LostFoundApiException adminOnly() {
+        return new LostFoundApiException(
+                HttpStatus.FORBIDDEN,
+                "CLAIM_REVIEW_ADMIN_ONLY",
+                "Only administrators can review claims");
     }
 
     private LostFoundClaimResponse toResponse(LostFoundClaim claim, User currentUser) {
@@ -167,9 +138,5 @@ public class LostFoundClaimService {
 
     private LostFoundApiException conflict(String code, String message) {
         return new LostFoundApiException(HttpStatus.CONFLICT, code, message);
-    }
-
-    private String trimToNull(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
     }
 }

@@ -1,7 +1,6 @@
 package com.app.campusagent.lostfound.dto;
 
 import com.app.campusagent.lostfound.domain.ItemCategory;
-import com.app.campusagent.lostfound.domain.ReportType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
@@ -9,8 +8,7 @@ import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
 
-public record CreateLostFoundReportRequest(
-        @NotNull ReportType reportType,
+public record UpdateLostFoundReportRequest(
         // min=2：中文物品名常为 2 字符（钥匙/钱包），与 Agent 端提取口径一致
         @NotBlank @Size(min = 2, max = 100) String itemName,
         @NotNull ItemCategory category,

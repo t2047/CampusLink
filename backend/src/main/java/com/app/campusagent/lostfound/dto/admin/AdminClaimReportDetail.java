@@ -1,13 +1,16 @@
-package com.app.campusagent.lostfound.dto.agent;
+package com.app.campusagent.lostfound.dto.admin;
 
 import com.app.campusagent.lostfound.domain.ItemCategory;
 import com.app.campusagent.lostfound.domain.ReportStatus;
+import com.app.campusagent.lostfound.domain.ReportType;
+import com.app.campusagent.lostfound.dto.LostFoundImageResponse;
 
 import java.time.LocalDate;
 import java.util.List;
 
-public record AgentCandidateResponse(
+public record AdminClaimReportDetail(
         Long id,
+        ReportType reportType,
         String itemName,
         ItemCategory category,
         String description,
@@ -16,5 +19,7 @@ public record AgentCandidateResponse(
         LocalDate eventDate,
         String timeDescription,
         ReportStatus status,
-        List<String> visualFingerprints) {
+        boolean adminHidden,
+        AdminClaimUserSummary owner,
+        List<LostFoundImageResponse> images) {
 }
