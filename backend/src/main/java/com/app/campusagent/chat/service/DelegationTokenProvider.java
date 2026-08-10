@@ -171,6 +171,17 @@ public class DelegationTokenProvider {
         return keyId;
     }
 
+    /**
+     * Returns the public verification key for in-process delegation-token consumers.
+     * The private signing key remains encapsulated by this provider.
+     */
+    public RSAPublicKey getPublicKey() {
+        if (publicKey == null) {
+            throw new IllegalStateException("DelegationTokenProvider is not initialized");
+        }
+        return publicKey;
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // 私有方法
     // ──────────────────────────────────────────────────────────────────────
