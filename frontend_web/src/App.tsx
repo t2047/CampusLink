@@ -9,7 +9,10 @@ import ChatProtectedRoute from './components/ProtectedRoute'
 import ChatPage from './pages/ChatPage'
 
 const AdminDashboardPage = lazy(() => import('./admin/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })))
-const AdminFacilitiesPage = lazy(() => import('./admin/facilities/FacilitiesPlaceholderPage').then((module) => ({ default: module.FacilitiesPlaceholderPage })))
+const FacilitiesDashboardPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.FacilitiesDashboardPage })))
+const ReservationsPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.ReservationsPage })))
+const MaintenancePage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.MaintenancePage })))
+const MaintenanceDetailPage = lazy(() => import('./admin/facilities/FacilitiesPage').then((module) => ({ default: module.MaintenanceDetailPage })))
 const AdminLostFoundPage = lazy(() => import('./admin/lostFound/AdminLostFoundPage').then((module) => ({ default: module.AdminLostFoundPage })))
 const AdminNotFoundPage = lazy(() => import('./admin/shared/AdminNotFoundPage').then((module) => ({ default: module.AdminNotFoundPage })))
 const AdminUserManagementPage = lazy(() => import('./admin/users/UserManagementPlaceholderPage').then((module) => ({ default: module.UserManagementPlaceholderPage })))
@@ -40,7 +43,10 @@ export default function App() {
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
           <Route path="/admin/lost-found" element={<AdminLostFoundPage />} />
-          <Route path="/admin/facilities" element={<AdminFacilitiesPage />} />
+          <Route path="/admin/facilities" element={<FacilitiesDashboardPage />} />
+          <Route path="/admin/facilities/reservations" element={<ReservationsPage />} />
+          <Route path="/admin/facilities/maintenance" element={<MaintenancePage />} />
+          <Route path="/admin/facilities/maintenance/:id" element={<MaintenanceDetailPage />} />
           <Route path="/admin/users" element={<AdminUserManagementPage />} />
           <Route path="/admin/*" element={<AdminNotFoundPage />} />
         </Route>
