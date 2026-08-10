@@ -64,6 +64,7 @@ services:
       - MINIO_BUCKET=${MINIO_BUCKET:-campuslink}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       - LOST_FOUND_AGENT_URL=http://lost-found-agent:8083
+      - ORCHESTRATION_BASE_URL=http://orchestration:8000
       - AGENT_BACKEND_SHARED_SECRET=${AGENT_BACKEND_SHARED_SECRET:-}
       # RSA 密钥持久化目录：挂载命名卷，容器重建不轮换（Agent 端 JWKS 缓存依赖密钥稳定）
       - DELEGATION_KEY_DIR=/app/keys
