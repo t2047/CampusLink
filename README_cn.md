@@ -36,19 +36,19 @@ openssl rand -base64 64
 # 后端会从 backend/ 读取本地 .env
 cp .env backend/.env
 
-# 启动 MySQL 和 MinIO
+# 启动基础设施、Spring Boot、Chat Core 与 MCP 服务
 docker compose up -d
 ```
 
-如需启动 Spring Boot + Lost & Found Agent 可选联调环境，还需填写 `.env.example` 中的三个 Agent 密钥（每个可用 `openssl rand -hex 32` 生成），然后执行：
+如需增加 Lost & Found 模块测试面板使用的可选 REST Agent，还需填写 `.env.example` 中的三个 Agent 密钥（每个可用 `openssl rand -hex 32` 生成），然后执行：
 
 ```bash
 docker compose --profile agent up -d --build
 ```
 
-`LOST_FOUND_LLM_API_KEY` 可以保持为空，`auto` 模式会使用规则引擎。普通 `docker compose up -d` 仍只启动 MySQL 和 MinIO。
+`LOST_FOUND_LLM_API_KEY` 可以保持为空，`auto` 模式会使用规则引擎。普通 `docker compose up -d` 会启动平台基础栈，但不会在 8083 端口暴露这个可选 REST Agent。
 
-在第二个终端启动后端：
+如需脱离 Docker 开发，可在第二个终端启动后端：
 
 ```bash
 cd backend
@@ -73,7 +73,7 @@ npm run dev
 
 访问 [http://localhost:5173](http://localhost:5173)。MinIO 控制台为 [http://localhost:9001](http://localhost:9001)，原管理员测试页保留在 [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html)。
 
-目前agent页面在http://localhost:5173/chat，尚未合并。
+统一聊天入口位于 [http://localhost:5173/chat](http://localhost:5173/chat)，Lost & Found 页面另保留模块级自然语言联调面板。
 
 `docker compose stop` 可停止基础设施但保留容器；`docker compose down` 会移除容器，但仍保留命名数据卷。
 
@@ -101,8 +101,9 @@ npm run dev
 - 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
 - 认领证明只对申请人与拾获记录发布者可见。
 - `ADMIN` 和 `SUPER_ADMIN` 可以使用只读管理页面查看统计、筛选全部记录、分页浏览和识别记录发布者。
+- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
 
-本阶段不包含 AI 匹配、通知、移动端、管理员写操作、记录编辑和删除。
+当前 Lost & Found 已接入 Agent，使用规则重排和受控的 LLM 字段提取；尚不包含 Embedding、多模态图片匹配、通知、移动端、管理员写操作、记录编辑和删除。Agent 平台说明见上文“Agent 平台（核心）”。
 
 ## API
 

@@ -1,0 +1,2 @@
+"""CampusLink minimal mail service."""
+

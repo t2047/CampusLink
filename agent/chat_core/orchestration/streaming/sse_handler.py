@@ -53,13 +53,19 @@ class OrchestrationStreamer:
         # Agent 调用事件
         for inv in self.state.get("agent_invocations", []):
             agent_name = inv.get("agent_name", "")
-            events.append(SSEEvent("agent_start", {"agent": agent_name}))
+            request_meta = (
+                {"request_id": inv["request_id"]} if inv.get("request_id") else {}
+            )
+            events.append(
+                SSEEvent("agent_start", {"agent": agent_name, **request_meta})
+            )
 
             for action in inv.get("actions_taken", []):
                 events.append(SSEEvent("agent_step", {
                     "agent": agent_name,
                     "action": action.get("action"),
                     "status": action.get("status", "ok"),
+                    **request_meta,
                 }))
 
             status = inv.get("output_status", "")
@@ -67,14 +73,18 @@ class OrchestrationStreamer:
                 events.append(SSEEvent("confirm_required", {
                     "agent": agent_name,
                     "details": inv.get("confirmation_required", {}),
+                    **request_meta,
                 }))
             elif status == "failed":
                 events.append(SSEEvent("agent_error", {
                     "agent": agent_name,
                     "message": inv.get("output_response", "调用失败"),
+                    **request_meta,
                 }))
             else:
-                events.append(SSEEvent("agent_done", {"agent": agent_name}))
+                events.append(
+                    SSEEvent("agent_done", {"agent": agent_name, **request_meta})
+                )
 
         # Utility 事件
         for tool_name, result in self.state.get("utility_results", {}).items():
@@ -124,13 +134,17 @@ def structural_events_from_update(node_name: str, update: dict[str, Any]) -> lis
         if invs:
             inv = invs[-1]  # 本次新增的调用记录
             agent = inv.get("agent_name", "")
-            events.append(SSEEvent("agent_start", {"agent": agent}))
+            request_meta = (
+                {"request_id": inv["request_id"]} if inv.get("request_id") else {}
+            )
+            events.append(SSEEvent("agent_start", {"agent": agent, **request_meta}))
 
             for action in inv.get("actions_taken", []):
                 events.append(SSEEvent("agent_step", {
                     "agent": agent,
                     "action": action.get("action"),
                     "status": action.get("status", "ok"),
+                    **request_meta,
                 }))
 
             status = inv.get("output_status", "")
@@ -138,14 +152,16 @@ def structural_events_from_update(node_name: str, update: dict[str, Any]) -> lis
                 events.append(SSEEvent("confirm_required", {
                     "agent": agent,
                     "details": inv.get("confirmation_required", {}),
+                    **request_meta,
                 }))
             elif status == "failed":
                 events.append(SSEEvent("agent_error", {
                     "agent": agent,
                     "message": inv.get("output_response", "调用失败"),
+                    **request_meta,
                 }))
             else:
-                events.append(SSEEvent("agent_done", {"agent": agent}))
+                events.append(SSEEvent("agent_done", {"agent": agent, **request_meta}))
 
     elif node_name == "utility_tool_executor":
         for tool_name, result in (update.get("utility_results", {}) or {}).items():

@@ -37,19 +37,19 @@ openssl rand -base64 64
 # The backend reads its local .env from backend/
 cp .env backend/.env
 
-# Start MySQL and MinIO
+# Start infrastructure, Spring Boot, Chat Core, and MCP services
 docker compose up -d
 ```
 
-To run the optional Spring Boot + Lost & Found Agent integration stack, also set the three Agent secrets from `.env.example` (generate each with `openssl rand -hex 32`) and run:
+To add the optional Lost & Found REST Agent used by the module test panel, also set the three Agent secrets from `.env.example` (generate each with `openssl rand -hex 32`) and run:
 
 ```bash
 docker compose --profile agent up -d --build
 ```
 
-`LOST_FOUND_LLM_API_KEY` may remain empty; `auto` mode then uses the rule engine. The normal `docker compose up -d` command remains unchanged and starts only MySQL and MinIO.
+`LOST_FOUND_LLM_API_KEY` may remain empty; `auto` mode then uses the rule engine. The normal `docker compose up -d` starts the platform base stack but does not expose the optional REST Agent on port 8083.
 
-Start the backend in a second terminal:
+For non-Docker development, start the backend in a second terminal:
 
 ```bash
 cd backend
@@ -99,8 +99,9 @@ Web workflow of the L&F sub-module (Agent integration is covered in “Agent Pla
 - Let the found-item reporter approve or reject a claim. Approval marks the report `CLAIMED` and rejects its other pending claims.
 - Keep ownership proof visible only to the claimant and the report publisher.
 - Give `ADMIN` and `SUPER_ADMIN` users a read-only operational overview with report metrics, filters, pagination, and reporter identification.
+- Let authenticated users try the real Lost & Found Agent from the main page with multi-turn input, write confirmation, search, and candidate links. Agent secrets remain server-side.
 
-AI matching, notifications, mobile UI, administrator write actions, report editing, and report deletion are outside this iteration (L&F is already Agent-integrated — see “Agent Platform (Core)”).
+Embedding and multimodal image matching, notifications, mobile UI, administrator write actions, report editing, and report deletion remain outside this iteration. Lost & Found is already Agent-integrated; see “Agent Platform (Core)”.
 
 ## API Reference
 

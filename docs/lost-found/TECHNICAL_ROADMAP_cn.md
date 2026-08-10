@@ -1,28 +1,26 @@
 # Lost & Found 技术路线与开发记录
 
-> 最后更新：2026-08-08
+> 最后更新：2026-08-10
 > 当前版本：基础 Lost & Found `1.0`，Lost & Found Agent `0.4.0`
 > 本文档必须随每个 Lost & Found PR 更新，完成项保留历史记录，不直接删除。
 
 ## 1. 当前架构与边界
 
 ```text
-React Web
-   │ JWT
-   ▼
-Spring Boot API ── MySQL
-   │              MinIO
-   │ 内部 Delegation Token（HS256，60 秒内）
-   ▼
-Lost & Found Agent（FastAPI，8083）
-   ▲
-   │ HMAC + Delegation JWT
-Chat Core / 测试客户端
+React Web ──JWT──▶ Spring Boot API ──▶ MySQL / MinIO
+    │                    │
+    │ 模块测试面板       │ 内部 HS256 Delegation Token
+    │                    ▼
+    │              Lost & Found REST Agent（8083）
+    │
+    └─统一聊天──▶ Chat Core ──RS256 Delegation Token──▶ Lost & Found MCP（8085）
+                                                              │
+                                                              └──▶ Spring Boot API
 ```
 
 - Spring Boot 是 Lost & Found 业务规则和数据写入的唯一入口。
 - Agent 不直接访问 MySQL 或 MinIO，不持有用户密码，不返回发布者联系方式。
-- 当前不接管或合并 `feature/chatcore`；通过 JSON Schema 保持后续兼容。
+- Chat Core 已合入主分支；统一聊天走 MCP/RS256，模块测试面板继续走 REST/HMAC 链路，两条入口复用同一业务 Service。
 - 用户侧基础 Web 功能和管理员只读功能已经上线。
 
 ## 2. 已完成内容
@@ -41,7 +39,10 @@ Chat Core / 测试客户端
 | 无密钥规则对话 | 已完成 | 0.3.0 | 中英文解析、多轮补充、四工具编排和 SSE |
 | 写操作确认 | 已完成 | 0.3.0 | 用户绑定、10 分钟有效、一次性使用 |
 | 可解释匹配重排 | 已完成 | 0.3.0 | 最多 100 个候选，返回达到阈值的 Top 5 |
-| 可插拔 LLM | 已完成 | 0.4.0 | DeepSeek/OpenAI-compatible，严格校验并自动降级 |
+| 可插拔 LLM | 已完成 | 0.4.0 | DeepSeek/OpenAI-compatible，严格校验；默认故障关闭，可配置规则降级 |
+| Web 自然语言测试入口 | 已完成 | Web 1.2 | 登录用户通过 Spring Boot 安全代理调用真实 Agent，共享密钥不进入浏览器 |
+| Agent Web 多轮端到端验收 | 已完成 | Web 1.2 | 覆盖补充信息、确认前零写入、创建后可见、搜索、详情、认领、审批和重复申请冲突 |
+| 中文搜索意图优先级 | 已完成 | 0.4.0 | “帮我找/搜索/查找”等明确检索措辞优先于句子中的丢失背景，防止误进入报失确认 |
 
 ## 3. Agent 对外接口
 
@@ -52,18 +53,23 @@ Chat Core / 测试客户端
 | `POST` | `/agent/invoke` | JWT + HMAC | 同步执行自然语言请求 |
 | `GET` | `/agent/stream?request_id=...` | JWT + HMAC | 读取短期 SSE 执行事件 |
 
-完整字段以 `agent/schemas/lost-found-agent.json` 为准。受保护请求的 Token `jti` 必须与 `X-Nonce` 相同；当前 Chat Core 分支尚未满足这一条件，正式集成前必须修复。
+React Lost & Found 首页提供轻量自然语言测试面板。浏览器只调用需要登录 JWT 的
+`POST /api/lost-found/agent/invoke`；Spring Boot 使用当前真实用户身份生成 30 秒有效的
+Delegation Token、Nonce 和 HMAC，再转发到 Agent。该入口用于当前模块联调，不替代后续
+Chat Core 的统一对话入口。
+
+完整字段以 `agent/schemas/lost-found-agent.json` 为准。REST 受保护请求的 HS256 Token `jti` 必须与 `X-Nonce` 相同；Chat Core 通过 MCP 适配层使用 RS256 Delegation Token 与 JWKS 验签，不复用该 REST Nonce 约束。
 
 ## 4. 环境变量与本地启动
 
-- Agent 模板：`agent/lost_found_agent/.env.example`
+- 统一配置模板：仓库根目录 `.env.example`（复制为根目录 `.env`，真实密钥不得提交）
 - `LOST_FOUND_LLM_API_KEY` 暂时可以为空，`auto` 模式会选择规则引擎。
 - `AGENT_SHARED_SECRET`、`AGENT_BACKEND_SHARED_SECRET` 和 `LOST_FOUND_CONFIRMATION_SECRET` 必须分别使用至少 32 字符的随机值。
 - 禁止在提交、日志、异常响应和测试快照中保存真实密钥。
 
 ```bash
 cd agent/lost_found_agent
-cp .env.example .env
+set -a && source ../../.env && set +a
 python3.12 -m pip install uv
 uv sync --all-extras
 uv run uvicorn lost_found_agent.main:app --port 8083
@@ -95,6 +101,8 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 - 重排权重：文字 30%、类别 30%、颜色 15%、地点 15%、日期 10%。缺失字段不计入分母，其他权重自动归一化。
 - 默认阈值为 `0.35`，可通过 `LOST_FOUND_MATCH_MIN_SCORE` 调整。当前文字使用规则相似度，尚不是 Embedding。
 - SSE 保留 5 分钟，包含开始、工具执行、补充信息、确认、Token、完成和错误事件。
+- 明确的搜索措辞优先于“丢失”背景词；已有多轮上下文在用户未明确切换意图时保持不变，避免模型在补充字段时切换工具。
+- Web 面板确认创建后自动切换到 `LOST + OPEN`、清除旧筛选并刷新列表，同时提供新记录详情链接，避免记录已写入却被旧筛选隐藏。
 
 ## 7. LLM 模式与降级策略
 
@@ -102,18 +110,20 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 - 模型仅识别四种允许意图并提取白名单字段，不能访问数据库、直接执行工具或绕过写操作确认。
 - 模型输出必须通过 Pydantic 严格校验；未知工具、额外字段、非法类别和日期均触发规则降级。
 - 每次用户调用最多执行两个后端工具；确认调用不会再次请求模型。
-- 模型超时、HTTP 限流、服务不可用和无效 JSON 均自动降级，SSE 记录 `model_fallback` 事件但不记录密钥。
+- 默认 `LOST_FOUND_LLM_FAIL_CLOSED=true`：模型超时、HTTP 限流、服务不可用、无效 JSON 或越权输出会明确失败；仅显式设为 `false` 时降级到规则模式并记录 `model_fallback`，且不会记录密钥。
 - CI 使用 Mock OpenAI-compatible Server 验证正常响应、故障降级、提示词注入和越权工具输出，无需真实 API Key。
-- 本地已使用 `deepseek-v4-flash` 完成一次只读意图与字段提取冒烟测试；`deepseek-v4-pro` 也由模型列表接口确认可用，尚未进行批量质量与成本评估。
+- 本地已使用 `deepseek-v4-flash` 完成报失、搜索、详情和认领审批的真实多轮端到端测试；`deepseek-v4-pro` 也由模型列表接口确认可用，尚未进行批量质量、P95 延迟与成本评估。
 
 ## 8. 已知限制与技术债
 
 - 规则解析主要覆盖明确意图和标签化字段，复杂自然语言将在 LLM 阶段增强。
 - Nonce、限流和 SSE 事件存储当前为单实例内存实现，横向扩容前需要 Redis。
-- 当前使用开发期 HS256 共享密钥；生产环境需要 Token Service、RS256/JWKS 和 mTLS。
+- 统一 Chat Core/MCP 链路已使用内嵌 Token Service 与 RS256/JWKS；模块测试面板的 REST 链路仍使用开发期 HS256/HMAC，生产环境还需要独立 Token Service 与 mTLS。
 - 聊天请求暂不支持图片附件。
+- 当前 Web 面板是 Lost & Found 专用测试入口，不提供跨 Agent 路由、历史会话持久化或 SSE Token 展示。
 - 当前匹配仍为结构化查询；尚无 Embedding、向量索引或多模态模型。
 - 真实模型尚未完成质量、延迟和费用验证；当前只完成 Mock 协议与故障降级验收。
+- 自然语言意图目前依赖提示词、确定性关键词保护和有限回归样本；仍需建立中英文歧义语料与准确率基线。
 
 ## 9. 后续功能清单
 
@@ -121,9 +131,10 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 |---:|---|---|---|---|---|---|
 | P0 | Agent 内部 API 与四个真实工具 | 已完成 | Spring Security、现有 Lost & Found Service | Lost & Found 后端 | 四个工具通过权限和集成测试 | Agent 0.2 |
 | P0 | 中英文规则对话和写操作确认 | 已完成 | Agent 工具 | Agent 开发 | 无密钥完成报失、搜索、详情、认领 | Agent 0.3 |
-| P0 | Chat Core 正式集成并修复 Nonce | 未开始 | Chat Core | Chat Core + Agent | 完整安全链端到端通过 | 集成迭代 |
-| P1 | 可插拔 LLM 与 Mock 联调 | 已完成 | 规则模式 | Agent 开发 | 严格校验、自动降级和安全测试通过 | Agent 0.4 |
-| P1 | 真实模型密钥联调 | 未开始 | API Key、评估样本 | Agent 开发 | 输出质量、P95 延迟和费用报告完成 | 联调迭代 |
+| P0 | Chat Core 通过 MCP 正式集成 Lost & Found | 已完成 | Chat Core、Token Service、MCP 适配层 | Chat Core + Agent | RS256 验签、HITL 恢复和真实业务调用通过 | Sprint 4 |
+| P1 | 可插拔 LLM 与 Mock 联调 | 已完成 | 规则模式 | Agent 开发 | 严格校验、故障关闭/可选降级和安全测试通过 | Agent 0.4 |
+| P1 | 真实模型密钥联调 | 开发中 | API Key、评估样本 | Agent 开发 | 输出质量、P95 延迟和费用报告完成 | 联调迭代 |
+| P1 | 中英文 NLU 回归语料与质量评估 | 未开始 | 真实对话样本、隐私脱敏 | Agent + 测试 | 四类意图准确率、字段完整率和误写入率形成可重复报告 | 联调迭代 |
 | P1 | 多语言文本 Embedding 与向量召回 | 未开始 | 向量数据库、评估集 | ML | Recall@K 达到评审目标 | 匹配 2.0 |
 | P1 | 图片 Embedding 与多模态匹配 | 未开始 | 图片模型、MinIO | ML | 返回可解释多模态 Top 5 | 匹配 2.1 |
 | P1 | 匹配反馈和排序评估数据集 | 未开始 | 用户反馈数据 | ML + 数据 | 可复现实验和版本对比 | 匹配 2.1 |
@@ -132,7 +143,7 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 | P2 | 用户编辑、关闭和删除 | 未开始 | 审计规则 | 后端 + Web | 权限、并发和状态冲突测试通过 | 业务 1.3 |
 | P2 | 管理员审核、下架和审计日志 | 未开始 | 管理员权限 | 管理后台 | 所有写操作可追溯 | 管理 1.2 |
 | P2 | Redis 分布式安全状态 | 未开始 | Redis | 平台 | 多实例限流与防重放一致 | 平台 1.1 |
-| P2 | Token Service、RS256/JWKS、mTLS | 未开始 | 基础设施 | 安全 + 平台 | 移除服务间共享签名密钥 | 平台 2.0 |
+| P2 | 独立 Token Service 与生产 mTLS | 开发中 | 当前内嵌 Token Service、RS256/JWKS | 安全 + 平台 | 独立部署并移除 REST 链路共享签名密钥 | 平台 2.0 |
 | P2 | OpenTelemetry、脱敏日志和告警 | 未开始 | 监控平台 | DevSecOps | Trace 串联且无敏感字段 | 平台 1.2 |
 | P3 | 数据保留、归档和隐私删除 | 未开始 | 产品与合规规则 | 后端 + 安全 | 自动策略和恢复演练通过 | 合规迭代 |
 | P3 | 移动端入口与推送 | 未开始 | Mobile、通知服务 | Mobile | 核心链路移动端验收通过 | Mobile 1.0 |

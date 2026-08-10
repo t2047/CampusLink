@@ -218,7 +218,9 @@ def test_invoke_utility_mcp_unreachable_error(monkeypatch):
 
         monkeypatch.setattr(client, "_call_mcp_tool", boom)
         try:
-            return await client.invoke_utility("get_current_time", {})
+            return await client.invoke_utility(
+                "get_current_time", {}, delegation_token="test-token"
+            )
         finally:
             await client.close()
 

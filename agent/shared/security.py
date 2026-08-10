@@ -166,7 +166,10 @@ class AgentSecurityMiddleware:
                     token,
                     signing_key.key,
                     algorithms=["RS256"],
-                    options={"require": ["sub", "aud", "exp", "jti"]},
+                    options={
+                        "require": ["sub", "aud", "exp", "jti"],
+                        "verify_aud": False,
+                    },
                 )
 
             # ── HS256 模式：共享密钥验签（Sprint 1-2）──
@@ -174,7 +177,10 @@ class AgentSecurityMiddleware:
                 token,
                 self.config.shared_secret,
                 algorithms=["HS256"],
-                options={"require": ["sub", "aud", "exp", "jti"]},
+                options={
+                    "require": ["sub", "aud", "exp", "jti"],
+                    "verify_aud": False,
+                },
             )
 
         except jwt.ExpiredSignatureError:

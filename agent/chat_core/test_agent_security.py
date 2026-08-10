@@ -250,7 +250,10 @@ def test_rs256_mode_uses_jwks_endpoint(monkeypatch):
     assert FakeJwksClient.last_url == "http://token-service/.well-known/jwks.json"
     assert captured["key"] == "fake-rsa-public-key"
     assert captured["algorithms"] == ["RS256"]
-    assert captured["options"] == {"require": ["sub", "aud", "exp", "jti"]}
+    assert captured["options"] == {
+        "require": ["sub", "aud", "exp", "jti"],
+        "verify_aud": False,
+    }
     assert verified.user_id == "u1"
 
 

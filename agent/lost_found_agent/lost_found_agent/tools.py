@@ -222,7 +222,7 @@ class CampusApiClient:
             except ValueError:
                 error = {}
             code = str(error.get("code") or f"CAMPUS_API_{response.status_code}")
-            message = str(error.get("message") or "Campus API 拒绝了该操作")
+            message = str(error.get("message") or error.get("error") or "Campus API 拒绝了该操作")
             raise BackendApiError(response.status_code, code, message)
         data = response.json()
         if not isinstance(data, dict):

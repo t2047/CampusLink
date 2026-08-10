@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import jwt
 from fastapi.responses import JSONResponse
@@ -28,11 +28,46 @@ from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["McpSecurityMiddleware", "TokenVerifier", "identity_from_context"]
+__all__ = [
+    "McpSecurityMiddleware",
+    "TokenVerifier",
+    "bearer_token_from_context",
+    "identity_from_context",
+    "token_and_identity_from_context",
+]
+
+TOKEN_ISSUER = "token-service"
+VALID_USER_ROLES = frozenset({"STUDENT", "ADMIN", "SUPER_ADMIN"})
+REQUIRED_ACTION = "invoke"
 
 # TokenVerifier 单例缓存（agent_name → verifier）：避免每个请求重复构造
 # PyJWKClient（会丢失 JWKS 缓存，导致每请求重新拉取公钥）
-_VERIFIERS: dict[str, "TokenVerifier"] = {}
+_VERIFIERS: dict[str, TokenVerifier] = {}
+
+
+def bearer_token_from_context(context: Any) -> str:
+    """Extract one Bearer token from the current FastMCP request context."""
+    request = getattr(getattr(context, "request_context", None), "request", None)
+    headers = getattr(request, "headers", None)
+    authorization = headers.get("Authorization", "") if headers else ""
+    if not authorization.startswith("Bearer "):
+        raise ValueError("missing bearer token")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise ValueError("missing bearer token")
+    return token
+
+
+def token_and_identity_from_context(
+    context: Any, agent_name: str
+) -> tuple[str, dict[str, Any]]:
+    """Return the original Bearer token and its verified delegation claims."""
+    token = bearer_token_from_context(context)
+    verifier = _VERIFIERS.get(agent_name)
+    if verifier is None:
+        verifier = TokenVerifier(agent_name)
+        _VERIFIERS[agent_name] = verifier
+    return token, verifier.verify_token(token)
 
 
 def identity_from_context(context: Any, agent_name: str) -> dict[str, Any]:
@@ -52,18 +87,8 @@ def identity_from_context(context: Any, agent_name: str) -> dict[str, Any]:
     Raises:
         ValueError: 缺少 Authorization 头或验签失败
     """
-    verifier = _VERIFIERS.get(agent_name)
-    if verifier is None:
-        verifier = TokenVerifier(agent_name)
-        _VERIFIERS[agent_name] = verifier
-
-    request = getattr(getattr(context, "request_context", None), "request", None)
-    headers = getattr(request, "headers", None)
-    authorization = headers.get("Authorization", "") if headers else ""
-    token = authorization.removeprefix("Bearer ").strip()
-    if not token or authorization == token:
-        raise ValueError("missing bearer token")
-    return verifier.verify_token(token)
+    _, claims = token_and_identity_from_context(context, agent_name)
+    return claims
 
 
 class TokenVerifier:
@@ -77,35 +102,51 @@ class TokenVerifier:
         self.agent_name = agent_name
         self.jwks_url = os.environ.get("TOKEN_SERVICE_JWKS_URL", "")
         self.time_window = int(os.environ.get("SECURITY_TIME_WINDOW", "30"))
-        self._jwks_client: Optional[jwt.PyJWKClient] = None
+        self._jwks_client: jwt.PyJWKClient | None = None
 
     def verify_token(self, token: str) -> dict[str, Any]:
         """RS256 验签并返回 claims；任何失败抛 ValueError。"""
         if not token:
             raise ValueError("missing bearer token")
         if not self.jwks_url:
-            raise ValueError(
-                "TOKEN_SERVICE_JWKS_URL not configured (RS256 required)"
-            )
+            raise ValueError("TOKEN_SERVICE_JWKS_URL not configured (RS256 required)")
         try:
+            header = jwt.get_unverified_header(token)
+            if header.get("alg") != "RS256":
+                raise ValueError("delegation token must use RS256")
             claims = self._verify(token)
-        except Exception:
+        except (jwt.PyJWTError, OSError, ValueError):
             # 后端重启会更换 RSA 密钥（每次启动随机生成），PyJWKClient 可能缓存了
             # 旧公钥（kid 不匹配）→ 强制刷新一次 JWKS 再验
             self._jwks_client = jwt.PyJWKClient(self.jwks_url)
-            claims = self._verify(token)
+            try:
+                header = jwt.get_unverified_header(token)
+                if header.get("alg") != "RS256":
+                    raise ValueError("delegation token must use RS256")
+                claims = self._verify(token)
+            except (jwt.PyJWTError, OSError, ValueError) as second_error:
+                raise ValueError("invalid delegation token") from second_error
 
         # PyJWT 会把 aud claim 规范化为 list（即使签发时是单个字符串）
         aud = claims.get("aud")
         if isinstance(aud, list):
             if self.agent_name not in aud:
-                raise ValueError(
-                    f"token for {aud}, not '{self.agent_name}'"
-                )
+                raise ValueError(f"token for {aud}, not '{self.agent_name}'")
         elif aud != self.agent_name:
-            raise ValueError(
-                f"token for '{aud}', not '{self.agent_name}'"
-            )
+            raise ValueError(f"token for '{aud}', not '{self.agent_name}'")
+
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject.isdigit() or int(subject) <= 0:
+            raise ValueError("delegation token subject must be a positive numeric ID")
+        if claims.get("iss") != TOKEN_ISSUER:
+            raise ValueError("invalid delegation token issuer")
+        if claims.get("role") not in VALID_USER_ROLES:
+            raise ValueError("invalid delegation token role")
+        if claims.get("intended_action") != REQUIRED_ACTION:
+            raise ValueError("invalid delegation token action")
+        jti = claims.get("jti")
+        if not isinstance(jti, str) or not jti.strip():
+            raise ValueError("delegation token jti is required")
         return claims
 
     def _verify(self, token: str) -> dict[str, Any]:
@@ -122,7 +163,20 @@ class TokenVerifier:
             token,
             signing_key.key,
             algorithms=["RS256"],
-            options={"require": ["sub", "aud", "exp"], "verify_aud": False},
+            issuer=TOKEN_ISSUER,
+            options={
+                "require": [
+                    "sub",
+                    "aud",
+                    "exp",
+                    "iat",
+                    "iss",
+                    "role",
+                    "intended_action",
+                    "jti",
+                ],
+                "verify_aud": False,
+            },
         )
 
 
@@ -156,10 +210,12 @@ class McpSecurityMiddleware(BaseHTTPMiddleware):
             request.state.user_id = claims.get("sub")
             request.state.user_role = claims.get("role")
             request.state.intended_action = claims.get("intended_action", "invoke")
-        except Exception as e:
+        except ValueError as e:
             logger.warning(
                 "McpSecurityMiddleware rejected %s %s: %s",
-                request.method, request.url.path, e,
+                request.method,
+                request.url.path,
+                e,
             )
             return JSONResponse(status_code=401, content={"detail": str(e)})
 

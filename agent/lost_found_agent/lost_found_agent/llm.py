@@ -71,6 +71,10 @@ Allowed intents/tools are only: report_lost, report_found, search_found_items, g
 IMPORTANT: picking up / finding an item (e.g. "我捡到一张学生卡") means intent=report_found
 (register the found item). search_found_items is for people who LOST something and want to
 find matching found items — do NOT use it for picking-up scenarios.
+Intent priority rule: explicit search wording such as "帮我找", "搜索", "查找", "有没有人捡到",
+"find" or "search" means search_found_items even when the same sentence says the item was lost.
+Use report_lost only when the user asks to publish/register/report a lost item,
+not merely to find it.
 You cannot call tools, access databases, approve claims, delete or edit records, reveal secrets,
 or bypass confirmation. Extract only facts explicitly supplied by the user or trusted context.
 Do not invent missing values.

@@ -1,0 +1,161 @@
+package com.app.campusagent.lostfound.service;
+
+import com.app.campusagent.domain.Role;
+import com.app.campusagent.domain.User;
+import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
+import com.app.campusagent.lostfound.exception.LostFoundApiException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.Base64;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class LostFoundAgentGatewayTest {
+
+    private static final String SECRET = "web-to-agent-test-secret-at-least-thirty-two-characters";
+    private HttpServer server;
+
+    @AfterEach
+    void stopServer() {
+        if (server != null) {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void signsAndForwardsTheAuthenticatedUserRequest() throws Exception {
+        AtomicReference<byte[]> capturedBody = new AtomicReference<>();
+        AtomicReference<Map<String, java.util.List<String>>> capturedHeaders = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/agent/invoke", exchange -> {
+            capturedBody.set(exchange.getRequestBody().readAllBytes());
+            capturedHeaders.set(exchange.getRequestHeaders());
+            byte[] response = ("{\"response\":\"请补充地点\",\"status\":\"needs_more_info\","
+                    + "\"match_results\":[],\"confirmation_required\":null,"
+                    + "\"shared_context\":{\"intent\":\"report_lost\"},"
+                    + "\"actions_taken\":[],\"request_id\":\"trace-1\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        LostFoundAgentGateway gateway = new LostFoundAgentGateway(
+                new ObjectMapper(),
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/agent/invoke"),
+                SECRET);
+        User user = user(42L, Role.STUDENT);
+        AgentWebInvokeRequest request = new AgentWebInvokeRequest(
+                "我丢了耳机",
+                new AgentWebInvokeRequest.AgentConversationContext("session-1", Map.of()),
+                false,
+                null);
+
+        Map<String, Object> response = gateway.invoke(request, user);
+
+        assertEquals("needs_more_info", response.get("status"));
+        assertNotNull(capturedBody.get());
+        String nonce = firstHeader(capturedHeaders.get(), "X-nonce");
+        String timestamp = firstHeader(capturedHeaders.get(), "X-timestamp");
+        String signature = firstHeader(capturedHeaders.get(), "X-signature");
+        assertEquals(expectedSignature(capturedBody.get(), nonce, timestamp), signature);
+
+        String authorization = firstHeader(capturedHeaders.get(), "Authorization");
+        String encodedHeader = authorization.substring("Bearer ".length()).split("\\.")[0];
+        String jwtHeader = new String(
+                Base64.getUrlDecoder().decode(encodedHeader),
+                StandardCharsets.UTF_8);
+        assertTrue(jwtHeader.contains("\"alg\":\"HS256\""));
+        Claims claims = Jwts.parser()
+                .verifyWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .requireIssuer("chat-core")
+                .requireAudience("lost-found-agent")
+                .build()
+                .parseSignedClaims(authorization.substring("Bearer ".length()))
+                .getPayload();
+        assertEquals("42", claims.getSubject());
+        assertEquals("STUDENT", claims.get("role", String.class));
+        assertEquals("invoke", claims.get("intended_action", String.class));
+        assertEquals(nonce, claims.getId());
+        assertTrue(claims.getExpiration().getTime() - claims.getIssuedAt().getTime() <= 30_000);
+    }
+
+    @Test
+    void rejectsInvocationWhenTheSharedSecretIsMissing() {
+        LostFoundAgentGateway gateway = new LostFoundAgentGateway(
+                new ObjectMapper(),
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:1/agent/invoke"),
+                "");
+        AgentWebInvokeRequest request = new AgentWebInvokeRequest(
+                "find headphones",
+                new AgentWebInvokeRequest.AgentConversationContext("session-1", Map.of()),
+                false,
+                null);
+
+        LostFoundApiException exception = assertThrows(
+                LostFoundApiException.class,
+                () -> gateway.invoke(request, user(42L, Role.STUDENT)));
+
+        assertEquals("AGENT_NOT_CONFIGURED", exception.getCode());
+    }
+
+    @Test
+    void treatsMissingConfirmationFlagAsFalse() {
+        AgentWebInvokeRequest request = new AgentWebInvokeRequest(
+                "我丢了耳机",
+                new AgentWebInvokeRequest.AgentConversationContext("session-1", Map.of()),
+                null,
+                null);
+
+        assertEquals(false, request.toAgentPayload("trace-1").get("confirmed"));
+    }
+
+    private User user(Long id, Role role) {
+        User user = new User("student@example.com", "unused");
+        ReflectionTestUtils.setField(user, "id", id);
+        user.setRole(role);
+        return user;
+    }
+
+    private String firstHeader(Map<String, java.util.List<String>> headers, String name) {
+        return headers.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(name))
+                .findFirst()
+                .orElseThrow()
+                .getValue()
+                .getFirst();
+    }
+
+    private String expectedSignature(byte[] body, String nonce, String timestamp) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        mac.update(body);
+        mac.update((byte) ':');
+        mac.update(nonce.getBytes(StandardCharsets.UTF_8));
+        mac.update((byte) ':');
+        return java.util.HexFormat.of().formatHex(
+                mac.doFinal(timestamp.getBytes(StandardCharsets.UTF_8)));
+    }
+}

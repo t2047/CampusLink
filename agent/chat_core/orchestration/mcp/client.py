@@ -33,7 +33,7 @@ except ImportError as _e:  # pragma: no cover - 依赖缺失时的清晰报错
         "Try pip install \"mcp>=1.28,<2\""
     ) from _e
 
-from .registry import DEFAULT_CONFIG_PATH, AgentConfig, ServiceRegistry
+from .registry import DEFAULT_CONFIG_PATH, ServiceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -125,13 +125,12 @@ class AgentClient:
             "message": message,
             "conversation_context": conversation_context or {},
             "confirmed": confirmed,
+            "confirmation_id": confirmation_id,
             "trace_parent": {
                 "trace_id": trace_id or str(uuid.uuid4()),
                 "parent_span_id": str(uuid.uuid4()),
             },
         }
-        if confirmation_id:
-            arguments["confirmation_id"] = confirmation_id
 
         try:
             raw = await self._call_mcp_tool(agent.mcp_url, "invoke", arguments, token)
@@ -163,7 +162,7 @@ class AgentClient:
             user_id, user_role, "utility-tools"
         )
         if not token:
-            return {"error": "安全令牌获取失败", "status": "failed", "error": "token_unavailable"}
+            return {"status": "failed", "error": "token_unavailable"}
 
         try:
             raw = await self._call_mcp_tool(utility_mcp, tool_name, params, token)
@@ -246,6 +245,7 @@ class AgentClient:
             "confirmation_required": raw.get("confirmation_required"),
             "shared_context": raw.get("shared_context", {}),
             "actions_taken": raw.get("actions_taken", []),
+            "request_id": raw.get("request_id"),
             "error": raw.get("error"),
         }
 

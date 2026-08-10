@@ -47,6 +47,26 @@ defaults:
 
 jobs:
 
+  chat-core-test:
+    name: Chat Core Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agent/chat_core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/chat_core/pyproject.toml
+      - name: Install Chat Core dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run Chat Core tests
+        run: pytest -q
+
   agent-quality:
     name: Agent Lint, Test & Dependency Audit
     runs-on: ubuntu-latest

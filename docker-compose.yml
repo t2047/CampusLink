@@ -1,8 +1,8 @@
 # Docker Compose — CampusLink（Chat Core + Lost & Found）
 #
 # Usage:
-#   docker compose up -d                 # 基础设施：MySQL + MinIO
-#   docker compose --profile agent up -d # 追加自研 Lost & Found Agent（api-server + lost-found-agent）
+#   docker compose up -d                 # 平台基础栈：基础设施 + 后端 + Chat Core/MCP
+#   docker compose --profile agent up -d # 追加 Lost & Found REST Agent 测试入口
 #   curl http://localhost:8080/actuator/health
 #   curl http://localhost:8000/health
 
@@ -41,7 +41,7 @@ services:
       retries: 10
 
   # ─── Chat Backend (Spring Boot + MVC + WebClient) ─────────
-  # 融合自 feature/chatcore 的 chat-backend 与组员 api-server（同一份后端代码）
+  # Chat Core 网关与 Lost & Found API 共用同一份 Spring Boot 后端代码
   chat-backend:
     build:
       context: .
@@ -63,6 +63,7 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
       - MINIO_BUCKET=${MINIO_BUCKET:-campuslink}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      - LOST_FOUND_AGENT_URL=http://lost-found-agent:8083
       - AGENT_BACKEND_SHARED_SECRET=${AGENT_BACKEND_SHARED_SECRET:-}
       # RSA 密钥持久化目录：挂载命名卷，容器重建不轮换（Agent 端 JWKS 缓存依赖密钥稳定）
       - DELEGATION_KEY_DIR=/app/keys
@@ -127,6 +128,12 @@ services:
     environment:
       - MCP_AGENT_NAME=facility-agent
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FACILITIES_MCP_URL=http://chat-backend:8080/mcp
+      - FACILITIES_AGENT_PORT=8082
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
+    command: ["python", "-m", "mcp_servers.facilities_server"]
     ports:
       - "8082:8082"
     depends_on:

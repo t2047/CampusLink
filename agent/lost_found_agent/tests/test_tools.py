@@ -134,7 +134,33 @@ async def test_backend_domain_error_is_mapped_without_exposing_token(settings: S
 
     assert caught.value.status_code == 409
     assert caught.value.code == "CLAIM_ALREADY_EXISTS"
+    assert str(caught.value) == "Already submitted"
     assert "Bearer" not in str(caught.value)
+
+
+async def test_backend_error_field_is_preserved_for_safe_user_feedback(settings: Settings) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "code": "CLAIM_ALREADY_EXISTS",
+                "error": "You already have an active claim for this item",
+            },
+        )
+
+    client = CampusApiClient(settings, httpx.MockTransport(handler))
+    try:
+        with pytest.raises(BackendApiError) as caught:
+            await client.claim_item(
+                "42",
+                "STUDENT",
+                ClaimItemInput(report_id=7, proof_description="A unique scratch is under the case"),
+            )
+    finally:
+        await client.close()
+
+    assert caught.value.code == "CLAIM_ALREADY_EXISTS"
+    assert str(caught.value) == "You already have an active claim for this item"
 
 
 async def test_network_failure_is_mapped_to_service_unavailable(settings: Settings) -> None:

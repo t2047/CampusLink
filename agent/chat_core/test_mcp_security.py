@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 import time
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,13 +21,12 @@ _ROOT = Path(__file__).resolve().parents[1]  # agent/
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 import jwt as pyjwt
 import pytest
-from fastapi import FastAPI
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-
 from mcp_servers.security import McpSecurityMiddleware, TokenVerifier
 
 # 模块级 RSA 密钥对（与后端 Token Service 每次启动随机生成的行为对齐）
@@ -57,12 +57,14 @@ def make_token(agent: str = "mail-agent", exp_delta: int = 60) -> str:
     now = int(time.time())
     return pyjwt.encode(
         {
-            "sub": "u1",
+            "sub": "1",
             "role": "STUDENT",
             "aud": agent,
+            "iss": "token-service",
             "iat": now,
             "exp": now + exp_delta,
             "intended_action": "invoke",
+            "jti": str(uuid.uuid4()),
         },
         _PRIVATE_KEY,
         algorithm="RS256",
@@ -75,7 +77,7 @@ def make_app() -> FastAPI:
     app.add_middleware(McpSecurityMiddleware, agent_name="mail-agent")
 
     @app.get("/ping")
-    async def ping(request):
+    async def ping(request: Request):
         return {
             "ok": True,
             "user": request.state.user_id,
@@ -95,11 +97,12 @@ def use_rs256(monkeypatch) -> None:
 # TokenVerifier
 # ──────────────────────────────────────────────────────────────────────
 
+
 def test_token_verifier_accepts_valid(monkeypatch):
     use_rs256(monkeypatch)
     verifier = TokenVerifier("mail-agent")
     claims = verifier.verify_token(make_token())
-    assert claims["sub"] == "u1"
+    assert claims["sub"] == "1"
     assert claims["role"] == "STUDENT"
 
 
@@ -113,7 +116,7 @@ def test_token_verifier_rejects_wrong_audience(monkeypatch):
 def test_token_verifier_rejects_expired(monkeypatch):
     use_rs256(monkeypatch)
     verifier = TokenVerifier("mail-agent")
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         verifier.verify_token(make_token(exp_delta=-60))
 
 
@@ -136,6 +139,7 @@ def test_token_verifier_requires_jwks_url(monkeypatch):
 # McpSecurityMiddleware（ASGI 集成）
 # ──────────────────────────────────────────────────────────────────────
 
+
 def test_middleware_rejects_without_token(monkeypatch):
     use_rs256(monkeypatch)
     client = TestClient(make_app())
@@ -151,7 +155,7 @@ def test_middleware_accepts_valid_token(monkeypatch):
         headers={"Authorization": f"Bearer {make_token()}"},
     )
     assert response.status_code == 200
-    assert response.json()["user"] == "u1"
+    assert response.json()["user"] == "1"
     assert response.json()["role"] == "STUDENT"
 
 
