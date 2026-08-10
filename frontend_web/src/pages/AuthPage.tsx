@@ -15,7 +15,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [loading, setLoading] = useState(false)
   const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
 
-  if (user) return <Navigate to={destination ?? '/lost-found'} replace />
+  if (user) return <Navigate to={destination ?? '/chat'} replace />
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -31,7 +31,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     setError('')
     try {
       await (mode === 'login' ? login(email, password) : register(email, password))
-      navigate(destination ?? '/lost-found', { replace: true })
+      navigate(destination ?? '/chat', { replace: true })
     } catch (requestError) {
       setError(apiErrorMessage(requestError))
     } finally {
@@ -46,7 +46,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         <CardContent sx={{ p: 4 }}>
           <Typography variant="h4" fontWeight={700} gutterBottom>CampusLink</Typography>
           <Typography variant="h6" gutterBottom>{isRegister ? 'Create an account' : 'Welcome back'}</Typography>
-          <Typography color="text.secondary" sx={{ mb: 3 }}>Sign in to use the campus Lost & Found service.</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>Sign in to chat with the campus AI assistant and use campus services.</Typography>
           <Stack component="form" spacing={2} onSubmit={handleSubmit}>
             {error && <Alert severity="error">{error}</Alert>}
             <TextField label="Email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />

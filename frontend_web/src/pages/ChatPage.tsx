@@ -11,7 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import {
   createChatStream,
@@ -42,26 +42,97 @@ interface PendingConfirm {
   msgId: string;
   agent: string;
   details: Record<string, unknown>;
+  /** interrupt 顶层确认提示（human_approval）；details 无 message 时回退 summary */
+  message?: string;
 }
 
 let msgCounter = 0;
 
-const SUGGESTIONS = [
-  '帮我找一下最近的邮件',
-  '明天下午有没有空的研讨室',
-  '现在几点',
-  '把 15 美元换算成人民币',
-];
+// ── i18n（en / zh；范围：Chat 页。组员页面已英文，保持不动）──
+type Lang = 'en' | 'zh';
+
+const TEXTS: Record<Lang, Record<string, string>> = {
+  en: {
+    subtitle: 'Campus AI Assistant',
+    status_streaming: 'Replying',
+    status_connected: 'Connected',
+    status_idle: 'Ready',
+    newChat: 'New Chat',
+    newChatTitle: 'Start a new conversation (clears current session)',
+    lostFound: 'Lost & Found',
+    lostFoundTitle: 'Lost & Found web subsystem',
+    admin: 'Admin',
+    adminTitle: 'Admin console (admins only)',
+    welcomeTitle: 'Start a conversation with the campus assistant',
+    welcomeSub: 'Ask about email, meeting rooms, lost & found, or the skill marketplace',
+    placeholder: 'Type a message, Enter to send, Shift+Enter for newline…',
+    stop: 'Stop',
+    send: 'Send',
+    needConfirm: 'needs confirmation:',
+    confirm: 'Confirm',
+    cancel: 'Cancel',
+    thinking: 'Thinking…',
+    errPrefix: '[Error]',
+    confirmedNote: '\n✅ Confirmed.',
+    cancelledNote: '\n❌ Cancelled.',
+    confirmStep: '⏳ Waiting for confirmation',
+    unknownError: 'Unknown error',
+    langToggle: '中文',
+  },
+  zh: {
+    subtitle: '校园 AI 助手',
+    status_streaming: '回复中',
+    status_connected: '已连接',
+    status_idle: '就绪',
+    newChat: '新对话',
+    newChatTitle: '开启新对话（清空当前会话）',
+    lostFound: '失物招领',
+    lostFoundTitle: '失物招领 Web 子系统',
+    admin: '管理后台',
+    adminTitle: '管理后台（管理员）',
+    welcomeTitle: '开始和校园助手对话吧',
+    welcomeSub: '可以问我邮件、会议室、失物招领、技能市场相关的问题',
+    placeholder: '输入消息，Enter 发送，Shift+Enter 换行…',
+    stop: '停止',
+    send: '发送',
+    needConfirm: '需要确认：',
+    confirm: '确认',
+    cancel: '取消',
+    thinking: '思考中…',
+    errPrefix: '[错误]',
+    confirmedNote: '\n✅ 操作已确认。',
+    cancelledNote: '\n❌ 操作已取消。',
+    confirmStep: '⏳ 需要确认',
+    unknownError: '未知错误',
+    langToggle: 'English',
+  },
+};
+
+const SUGGESTIONS: Record<Lang, string[]> = {
+  en: [
+    'Find my recent emails',
+    'Any free meeting rooms tomorrow afternoon?',
+    'What time is it now?',
+    'Convert $15 to CNY',
+  ],
+  zh: [
+    '帮我找一下最近的邮件',
+    '明天下午有没有空的研讨室',
+    '现在几点',
+    '把 15 美元换算成人民币',
+  ],
+};
 
 export default function ChatPage() {
   const navigate = useNavigate();
-  const { logout: authLogout } = useAuth();
+  const { user, logout: authLogout } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
 
-  // 会话 ID（多轮上下文）：localStorage 持久化，同一会话复用同一 thread_id；登出清除
-  const [sessionId] = useState(() => {
+  // 会话 ID（多轮上下文）：localStorage 持久化，同一会话复用同一 thread_id；
+  // 「新对话」按钮换新 ID 开新会话；登出清除
+  const [sessionId, setSessionId] = useState<string>(() => {
     const existing = localStorage.getItem('sessionId');
     if (existing) return existing;
     const id = crypto.randomUUID();
@@ -75,6 +146,16 @@ export default function ChatPage() {
     if (saved) return saved === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+
+  // ── 界面语言（en/zh）：localStorage 持久化，默认 en（优先英文）──
+  const [lang, setLang] = useState<Lang>(() => {
+    const saved = localStorage.getItem('lang');
+    return saved === 'zh' ? 'zh' : 'en';
+  });
+  useEffect(() => {
+    localStorage.setItem('lang', lang);
+  }, [lang]);
+  const t = useCallback((key: string) => TEXTS[lang][key] ?? key, [lang]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -176,7 +257,7 @@ export default function ChatPage() {
           appendStep(msgId, {
             agent: data.agent as string,
             status: 'error',
-            label: `${String(data.agent ?? 'Agent')} 失败：${String(data.message ?? '未知错误')}`,
+            label: `${String(data.agent ?? 'Agent')} 失败：${String(data.message ?? t('unknownError'))}`,
           });
           finish();
           break;
@@ -198,16 +279,17 @@ export default function ChatPage() {
             msgId,
             agent: String(data.agent ?? ''),
             details: (data.details as Record<string, unknown>) ?? {},
+            message: typeof data.message === 'string' ? data.message : undefined,
           };
           pendingConfirmRef.current = confirmData;
           setPendingConfirm(confirmData);
-          appendStep(msgId, { status: 'running', label: '⏳ 需要确认' });
+          appendStep(msgId, { status: 'running', label: t('confirmStep') });
           break;
         }
 
         case 'error': {
-          const msg = typeof data.message === 'string' ? data.message : '未知错误';
-          appendContent(msgId, `\n[错误] ${msg}`);
+          const msg = typeof data.message === 'string' ? data.message : t('unknownError');
+          appendContent(msgId, `\n${t('errPrefix')} ${msg}`);
           finish();
           break;
         }
@@ -276,7 +358,7 @@ export default function ChatPage() {
       } catch (err) {
         appendContent(
           assistantId,
-          `\n[错误] ${err instanceof Error ? err.message : '未知错误'}`,
+          `\n${t('errPrefix')} ${err instanceof Error ? err.message : t('unknownError')}`,
         );
         finish();
       }
@@ -304,7 +386,7 @@ export default function ChatPage() {
       // 本地提示 + 标记确认步骤
       appendContent(
         msgId,
-        `\n${approved ? '✅ 操作已确认。' : '❌ 操作已取消。'}`,
+        `\n${approved ? t('confirmedNote') : t('cancelledNote')}`,
       );
       markLastStepOk(msgId);
 
@@ -329,7 +411,7 @@ export default function ChatPage() {
       } catch (err) {
         appendContent(
           msgId,
-          `\n[错误] ${err instanceof Error ? err.message : '未知错误'}`,
+          `\n${t('errPrefix')} ${err instanceof Error ? err.message : t('unknownError')}`,
         );
         finish();
       }
@@ -354,6 +436,22 @@ export default function ChatPage() {
     localStorage.removeItem('theme');
     navigate('/login', { replace: true });
   }, [navigate, authLogout]);
+
+  // 新对话：换新 thread_id 并清空界面（旧会话仍保留在后端 checkpoint，不删除）
+  const handleNewChat = useCallback(() => {
+    closeRef.current?.close();
+    closeRef.current = null;
+    const id = crypto.randomUUID();
+    localStorage.setItem('sessionId', id);
+    setSessionId(id);
+    setMessages([]);
+    setInput('');
+    setPendingConfirm(null);
+    pendingConfirmRef.current = null;
+    setConnected(false);
+    setStreaming(false);
+    streamingRef.current = false;
+  }, []);
 
   // ── 输入框 ──────────────────────────────────
 
@@ -388,7 +486,7 @@ export default function ChatPage() {
           </div>
           <div>
             <h1 className="text-base font-bold leading-tight">Campus Link</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">校园 AI 助手</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{t('subtitle')}</p>
           </div>
           <span
             className={`ml-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -408,11 +506,53 @@ export default function ChatPage() {
                     : 'bg-slate-400 dark:bg-slate-500'
               }`}
             />
-            {streaming ? '回复中' : connected ? '已连接' : '就绪'}
+            {streaming ? t('status_streaming') : connected ? t('status_connected') : t('status_idle')}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 语言切换（en/zh） */}
+          <button
+            type="button"
+            onClick={() => setLang((l) => (l === 'zh' ? 'en' : 'zh'))}
+            title="Switch language / 切换语言"
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+          >
+            <span className="text-base leading-none">🌐</span>
+            {t('langToggle')}
+          </button>
+
+          {/* 新对话：换新 thread_id 开新会话 */}
+          <button
+            type="button"
+            onClick={handleNewChat}
+            title={t('newChatTitle')}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+          >
+            <span className="text-base leading-none">✨</span>
+            {t('newChat')}
+          </button>
+
+          {/* 前往各子系统入口 */}
+          <Link
+            to="/lost-found"
+            title={t('lostFoundTitle')}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+          >
+            <span className="text-base leading-none">🧭</span>
+            {t('lostFound')}
+          </Link>
+          {user?.role && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && (
+            <Link
+              to="/admin/dashboard"
+              title={t('adminTitle')}
+              className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+            >
+              <span className="text-base leading-none">🛠</span>
+              {t('admin')}
+            </Link>
+          )}
+
           {/* 深色模式切换 */}
           <button
             type="button"
@@ -441,13 +581,13 @@ export default function ChatPage() {
                 💬
               </div>
               <p className="text-lg font-medium text-slate-700 dark:text-slate-200">
-                开始和校园助手对话吧
+                {t('welcomeTitle')}
               </p>
               <p className="text-sm text-slate-400 dark:text-slate-500">
-                可以问我邮件、会议室、失物招领、技能市场相关的问题
+                {t('welcomeSub')}
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {SUGGESTIONS.map((hint) => (
+                {SUGGESTIONS[lang].map((hint) => (
                   <button
                     key={hint}
                     type="button"
@@ -514,26 +654,32 @@ export default function ChatPage() {
               {/* 确认操作栏 */}
               {pendingConfirm?.msgId === msg.id && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {pendingConfirm.agent} 需要确认：
-                    {typeof pendingConfirm.details === 'object' &&
-                      pendingConfirm.details !== null &&
-                      'message' in pendingConfirm.details &&
-                      String(pendingConfirm.details.message)}
-                  </span>
+                  {(() => {
+                    const d = pendingConfirm.details as Record<string, unknown> | null;
+                    const detailText =
+                      (d && typeof d.message === 'string' && d.message) ||
+                      (d && typeof d.summary === 'string' && d.summary) ||
+                      pendingConfirm.message ||
+                      '';
+                    return (
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {pendingConfirm.agent} {t('needConfirm')} {detailText}
+                      </span>
+                    );
+                  })()}
                   <button
                     type="button"
                     onClick={() => resolveConfirmation(true)}
                     className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
                   >
-                    确认
+                    {t('confirm')}
                   </button>
                   <button
                     type="button"
                     onClick={() => resolveConfirmation(false)}
                     className="rounded-lg border border-slate-300 px-3 py-1 text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                   >
-                    取消
+                    {t('cancel')}
                   </button>
                 </div>
               )}
@@ -548,7 +694,7 @@ export default function ChatPage() {
                 <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-indigo-500 [animation-delay:0.2s]" />
                 <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-indigo-500 [animation-delay:0.4s]" />
               </span>
-              <span className="text-xs text-slate-400 dark:text-slate-500">思考中…</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">{t('thinking')}</span>
             </div>
           )}
 
@@ -568,7 +714,7 @@ export default function ChatPage() {
               autoResize();
             }}
             onKeyDown={handleKeyDown}
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行…"
+            placeholder={t('placeholder')}
             className="max-h-40 min-h-[44px] flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
           />
           {streaming ? (
@@ -584,7 +730,7 @@ export default function ChatPage() {
               >
                 <rect x="6" y="6" width="12" height="12" rx="1.5" />
               </svg>
-              停止
+              {t('stop')}
             </button>
           ) : (
             <button
@@ -600,7 +746,7 @@ export default function ChatPage() {
               >
                 <path d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12zm0 0h7.5" />
               </svg>
-              发送
+              {t('send')}
             </button>
           )}
         </div>
