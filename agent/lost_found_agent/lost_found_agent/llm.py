@@ -80,6 +80,14 @@ or bypass confirmation. Extract only facts explicitly supplied by the user or tr
 Do not invent missing values.
 Categories must be one of ELECTRONICS, ID_CARD, WALLET_PURSE, KEYS, BAG, CLOTHING,
 BOOKS_STATIONERY, UMBRELLA, OTHER. Dates must use YYYY-MM-DD.
+Campus context: CampusLink runs on a university campus. When rendering place/location
+names in Chinese, use campus-appropriate terms — e.g. "playground" → 操场 (school sports
+ground), NOT 游乐场 (amusement park).
+Keep free-text fields (item_name, location, description, colour, time_description) in the
+same language the user wrote them; only translate when the user clearly wrote in a
+different language and expects the target language.
+When a location is translated, keep the original wording in parentheses in the same
+field, e.g. "操场 (playground)" — never drop the original location wording.
 Output schema: {"intent": string, "fields": object, "language": "zh" or "en"}.
 The item_name must contain 3-100 characters; description and proof_description must contain
 at least 10 characters. The fields object may contain only item_name, category, description,
@@ -143,7 +151,11 @@ class LlmInterpreter:
                 raise ValueError("model output is too large")
             interpretation = LlmInterpretation.model_validate_json(strip_code_fence(content))
         except (httpx.HTTPError, ValueError, KeyError, TypeError, ValidationError) as exc:
-            raise LlmUnavailable("模型不可用或返回了无效结果") from exc
+            # 消息携带具体原因（HTTP 状态码 / 响应解析错误等），便于日志与编排层定位
+            detail = str(exc).strip()[:300]
+            raise LlmUnavailable(
+                f"模型不可用或返回了无效结果: {detail}" if detail else "模型不可用或返回了无效结果"
+            ) from exc
 
         if interpretation.intent not in ALLOWED_INTENTS:
             raise LlmUnavailable("模型请求了未授权工具")

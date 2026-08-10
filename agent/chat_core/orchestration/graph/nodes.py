@@ -48,7 +48,6 @@ AGENT_CAPABILITIES: dict[str, str] = {
         "可用时间，创建、查询、列出或取消本人预约，以及提交、查询或列出设施报修请求"
     ),
     "lost-found-agent": "失物报失、查找、认领",
-    "skill-agent": "校园技能搜索、发布、联系",
 }
 
 UTILITY_CAPABILITIES: dict[str, str] = {
@@ -442,6 +441,38 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     return update if (results or failures) else {}
 
 
+def _looks_chinese(text: str) -> bool:
+    """启发式：文本是否含中文字符（用于判断是否需要语言重述）。"""
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text[:200])
+
+
+async def _rephrase_in_user_language(user_msg: str, text: str) -> str | None:
+    """把一段结果文本交给 LLM，用与用户消息相同的语言重述为自然回复。
+
+    返回重述文本；LLM 调用失败返回 None（调用方回退原文，保证永远有回复）。
+    """
+    if not text.strip():
+        return None
+    try:
+        llm = chat_llm()
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "你是校园助手。以下是一段系统生成的结果文本（可能是子 Agent 的"
+                "原始回复，语言可能与用户不一致）。请用与用户消息相同的语言，把内容"
+                "组织成一段自然、简洁的回复。保留所有关键事实（编号、数量、时间、"
+                "地点等），不要编造结果中没有的信息，不要提及内部细节。"
+            )),
+            HumanMessage(content=(
+                f"用户消息：{user_msg}\n"
+                f"结果文本：{text}"
+            )),
+        ])
+        content = getattr(response, "content", "") or ""
+        return content.strip() or None
+    except Exception:
+        return None
+
+
 async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> str | None:
     """把工具原始结果交给 LLM，用与用户消息相同的语言重述为自然回复。
 
@@ -558,7 +589,7 @@ def output_guardrail(state: AgentState) -> AgentState:
 # 7. 回复聚合器
 # ---------------------------------------------------------------------------
 
-def response_aggregator(state: AgentState) -> AgentState:
+async def response_aggregator(state: AgentState) -> AgentState:
     """汇总所有 Agent / Utility 结果生成最终自然语言回复。
 
     返回最小状态增量：已有最终 AIMessage 时返回 {}（避免 chat 路径重复输出）；
@@ -610,6 +641,18 @@ def response_aggregator(state: AgentState) -> AgentState:
             final = summary.content
         except Exception:
             final = "\n".join(parts)
+
+    # 语言跟随：domain Agent 的原始回复（如 L&F 的中文文案）按用户消息语言重述，
+    # 避免英文提问却返回中文；用户消息与结果语言一致时跳过（省一次 LLM 往返），
+    # 重述失败回退原文（LLM 不可用时保证有回复）
+    if final:
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        user_zh = _looks_chinese(user_msg)
+        final_zh = _looks_chinese(final)
+        if user_zh != final_zh:
+            rephrased = await _rephrase_in_user_language(user_msg, final)
+            if rephrased:
+                final = rephrased
 
     return {"messages": [AIMessage(content=final)]}
 
