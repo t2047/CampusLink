@@ -142,9 +142,7 @@ class LlmInterpreter:
         system_facts = context.get("system_facts") or {}
         today = system_facts.get("today")
         if not today:
-            today = datetime.now(UTC).astimezone(
-                timezone(timedelta(hours=8))
-            ).strftime("%Y-%m-%d")
+            today = datetime.now(UTC).astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
         trusted = dict(context)
         trusted["today"] = today
         history = context.get("recent_messages") or []

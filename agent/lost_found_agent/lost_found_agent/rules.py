@@ -363,9 +363,7 @@ class RuleEngine:
             if pending.action == "report_found":
                 report = ReportFoundInput.model_validate(pending.payload)
                 emit(tool_event("report_found", "started"))
-                created = await self._api.report_found(
-                    verified.user_id, verified.user_role, report
-                )
+                created = await self._api.report_found(verified.user_id, verified.user_role, report)
                 emit(tool_event("report_found", "completed"))
                 message = found_created_message(created, language)
                 return response_with_token(
@@ -600,9 +598,7 @@ def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
             continue
         if key == "system_facts" and isinstance(value, dict):
             # 编排层注入的系统事实包：只放行字符串值（today/now/timezone/user_language）
-            result[key] = {
-                k: v for k, v in value.items() if isinstance(v, str)
-            }
+            result[key] = {k: v for k, v in value.items() if isinstance(v, str)}
         elif key == "recent_messages" and isinstance(value, list):
             # 编排层注入的最近对话历史：只保留 role/content 字符串对
             cleaned = []
