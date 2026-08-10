@@ -5,8 +5,7 @@ import { Alert, Box, Button, Card, CardMedia, Chip, CircularProgress, Dialog, Di
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
-import { closeReport, deleteReport, getReport, submitClaim } from '../api/lostFound'
-import { EditReportDialog } from '../components/EditReportDialog'
+import { getReport, submitClaim } from '../api/lostFound'
 import { StatusChip } from '../components/StatusChip'
 import { categoryLabels, reportTypeLabels } from '../labels'
 import type { LostFoundReport } from '../types'
@@ -21,9 +20,6 @@ export function ReportDetailPage() {
   const [proof, setProof] = useState('')
   const [claiming, setClaiming] = useState(false)
   const [success, setSuccess] = useState('')
-  const [editOpen, setEditOpen] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<'close' | 'delete' | null>(null)
-  const [acting, setActing] = useState(false)
 
   useEffect(() => {
     if (!reportId) return
@@ -34,40 +30,6 @@ export function ReportDetailPage() {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [reportId])
-
-  function handleUpdated(updated: LostFoundReport) {
-    setReport(updated)
-    setSuccess('Report updated.')
-  }
-
-  async function runClose() {
-    if (!report) return
-    setActing(true)
-    setError('')
-    try {
-      setReport(await closeReport(report.id))
-      setConfirmAction(null)
-      setSuccess('Report closed.')
-    } catch (requestError) {
-      setError(apiErrorMessage(requestError))
-    } finally {
-      setActing(false)
-    }
-  }
-
-  async function runDelete() {
-    if (!report) return
-    setActing(true)
-    setError('')
-    try {
-      await deleteReport(report.id)
-      navigate('/lost-found', { replace: true })
-    } catch (requestError) {
-      setError(apiErrorMessage(requestError))
-    } finally {
-      setActing(false)
-    }
-  }
 
   async function sendClaim() {
     if (!report || proof.trim().length < 10) {
@@ -109,7 +71,6 @@ export function ReportDetailPage() {
             <Typography sx={{ mt: 3, whiteSpace: 'pre-wrap' }}>{report.description}</Typography>
             {report.reportType === 'FOUND' && report.status === 'OPEN' && !report.createdByMe && <Button fullWidth size="large" variant="contained" sx={{ mt: 4 }} onClick={() => setClaimOpen(true)}>Submit a claim</Button>}
             {report.createdByMe && report.reportType === 'FOUND' && <Button fullWidth variant="outlined" sx={{ mt: 4 }} onClick={() => navigate('/claims/received')}>Review received claims</Button>}
-            {report.createdByMe && report.status === 'OPEN' && <Stack direction="row" spacing={1} sx={{ mt: 4 }}><Button fullWidth variant="contained" onClick={() => setEditOpen(true)}>Edit</Button><Button fullWidth variant="outlined" color="info" onClick={() => setConfirmAction('close')}>Close</Button><Button fullWidth variant="outlined" color="error" onClick={() => setConfirmAction('delete')}>Delete</Button></Stack>}
           </Card>
         </Grid>
       </Grid>
@@ -118,25 +79,6 @@ export function ReportDetailPage() {
         <DialogTitle>Prove that this item belongs to you</DialogTitle>
         <DialogContent><Typography color="text.secondary" sx={{ mb: 2 }}>Describe a detail only the owner is likely to know. Your proof is only visible to you and the report publisher.</Typography><TextField autoFocus fullWidth multiline minRows={4} label="Identifying proof" inputProps={{ minLength: 10, maxLength: 1000 }} value={proof} onChange={(e) => setProof(e.target.value)} /></DialogContent>
         <DialogActions><Button onClick={() => setClaimOpen(false)} disabled={claiming}>Cancel</Button><Button variant="contained" onClick={sendClaim} disabled={claiming}>Submit claim</Button></DialogActions>
-      </Dialog>
-
-      {report.createdByMe && <EditReportDialog report={report} open={editOpen} onClose={() => setEditOpen(false)} onUpdated={handleUpdated} />}
-
-      <Dialog open={confirmAction !== null} onClose={() => !acting && setConfirmAction(null)} fullWidth maxWidth="xs">
-        <DialogTitle>{confirmAction === 'close' ? 'Close this report?' : 'Delete this report?'}</DialogTitle>
-        <DialogContent>
-          <Typography color="text.secondary">
-            {confirmAction === 'close'
-              ? 'Closing marks this report as resolved and removes it from open listings. This cannot be undone.'
-              : 'Deleting permanently removes this report, its images and any related claims. This cannot be undone.'}
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmAction(null)} disabled={acting}>Cancel</Button>
-          <Button color={confirmAction === 'delete' ? 'error' : 'primary'} variant="contained" onClick={confirmAction === 'close' ? runClose : runDelete} disabled={acting}>
-            {confirmAction === 'close' ? 'Close report' : 'Delete report'}
-          </Button>
-        </DialogActions>
       </Dialog>
     </Stack>
   )

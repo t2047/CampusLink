@@ -88,7 +88,6 @@ export interface AdminLostFoundOverview {
   lostReports: number
   foundReports: number
   submittedClaims: number
-  hiddenReports: number
 }
 
 export interface AdminLostFoundReport {
@@ -100,122 +99,13 @@ export interface AdminLostFoundReport {
   location: string
   eventDate: string
   status: ReportStatus
-  adminHidden: boolean
   createdByEmail: string
   createdAt: string
   updatedAt: string
 }
 
-export interface AdminClaimUserSummary {
-  id: number
-  email: string
-}
-
-export interface AdminClaimUserDetail {
-  id: number
-  email: string
-  role: string
-}
-
-export interface AdminClaimReportSummary {
-  id: number
-  reportType: ReportType
-  itemName: string
-  category: ItemCategory
-  colour: string | null
-  location: string
-  eventDate: string
-  status: ReportStatus
-  adminHidden: boolean
-  owner: AdminClaimUserSummary
-}
-
-export interface AdminClaimReportDetail {
-  id: number
-  reportType: ReportType
-  itemName: string
-  category: ItemCategory
-  description: string
-  colour: string | null
-  location: string
-  eventDate: string
-  timeDescription: string | null
-  status: ReportStatus
-  adminHidden: boolean
-  owner: AdminClaimUserSummary
-  images: LostFoundImage[]
-}
-
-export interface AdminClaimReviewInfo {
-  reviewed: boolean
-  decisionNote: string | null
-  reviewedAt: string | null
-}
-
-export interface AdminClaimSummary {
-  id: number
-  status: ClaimStatus
-  proofSummary: string
-  decisionNote: string | null
-  claimant: AdminClaimUserSummary
-  report: AdminClaimReportSummary
-  createdAt: string
-  updatedAt: string
-}
-
-export interface AdminClaimDetail {
-  id: number
-  status: ClaimStatus
-  proofDescription: string
-  decisionNote: string | null
-  claimant: AdminClaimUserDetail
-  report: AdminClaimReportDetail
-  review: AdminClaimReviewInfo
-  createdAt: string
-  updatedAt: string
-}
-
-export interface AdminClaimDecisionInput {
-  decisionNote?: string | null
-}
-
-export type AdminClaimRejectInput = AdminClaimDecisionInput & {
-  decisionNote: string
-}
-
-export type AuditAction =
-  | 'REPORT_CREATED'
-  | 'REPORT_UPDATED'
-  | 'REPORT_CLOSED'
-  | 'REPORT_DELETED'
-  | 'REPORT_DELISTED'
-  | 'REPORT_RESTORED'
-  | 'REPORT_DELETED_BY_ADMIN'
-  | 'REPORT_CLAIMED'
-
-export interface AdminAuditLog {
-  id: number
-  reportId: number
-  itemName: string
-  action: AuditAction
-  actorEmail: string
-  reason: string | null
-  detail: string | null
-  createdAt: string
-}
-
 export interface CreateReportInput {
   reportType: ReportType
-  itemName: string
-  category: ItemCategory
-  description: string
-  colour: string
-  location: string
-  eventDate: string
-  timeDescription: string
-}
-
-export interface UpdateReportInput {
   itemName: string
   category: ItemCategory
   description: string

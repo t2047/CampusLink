@@ -18,8 +18,6 @@ public interface LostFoundReportRepository extends
 
     long countByReportType(ReportType reportType);
 
-    long countByAdminHiddenTrue();
-
     @Override
     @EntityGraph(attributePaths = "createdBy")
     Page<LostFoundReport> findAll(Specification<LostFoundReport> specification, Pageable pageable);

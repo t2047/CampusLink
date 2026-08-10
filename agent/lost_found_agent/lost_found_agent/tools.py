@@ -24,8 +24,7 @@ ItemCategory = Literal[
 
 
 class ReportLostInput(BaseModel):
-    # 中文物品名常为 2 字符，min_length=2 与 llm.py 提取口径一致
-    item_name: str = Field(min_length=2, max_length=100)
+    item_name: str = Field(min_length=3, max_length=100)
     category: ItemCategory
     description: str = Field(min_length=10, max_length=2000)
     location: str = Field(min_length=1, max_length=200)

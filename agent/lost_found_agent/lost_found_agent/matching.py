@@ -1,4 +1,4 @@
-"""结构化、可解释的候选重排，融合文本/图片 Embedding 与规则相似度。"""
+"""无 Embedding 阶段的结构化、可解释候选重排。"""
 
 import re
 from datetime import date
@@ -8,12 +8,11 @@ from typing import Any
 from .models import MatchResult
 
 WEIGHTS = {
-    "text": 0.28,
-    "category": 0.28,
-    "colour": 0.14,
-    "location": 0.14,
-    "date": 0.06,
-    "visual": 0.10,
+    "text": 0.30,
+    "category": 0.30,
+    "colour": 0.15,
+    "location": 0.15,
+    "date": 0.10,
 }
 
 
@@ -22,12 +21,10 @@ def rank_candidates(
     candidates: list[dict[str, Any]],
     minimum_score: float,
     language: str,
-    *,
-    text_embedding: bool = True,
 ) -> list[MatchResult]:
     results: list[MatchResult] = []
     for candidate in candidates:
-        score, reasons = score_candidate(query, candidate, language, text_embedding=text_embedding)
+        score, reasons = score_candidate(query, candidate, language)
         if score < minimum_score:
             continue
         results.append(
@@ -47,11 +44,7 @@ def rank_candidates(
 
 
 def score_candidate(
-    query: dict[str, Any],
-    candidate: dict[str, Any],
-    language: str,
-    *,
-    text_embedding: bool = True,
+    query: dict[str, Any], candidate: dict[str, Any], language: str
 ) -> tuple[float, list[str]]:
     components: list[tuple[str, float, float]] = []
     query_text = " ".join(
@@ -61,13 +54,7 @@ def score_candidate(
         str(candidate.get(field, "")) for field in ("itemName", "description")
     ).strip()
     if query_text:
-        components.append(
-            (
-                "text",
-                WEIGHTS["text"],
-                text_similarity(query_text, candidate_text, text_embedding=text_embedding),
-            )
-        )
+        components.append(("text", WEIGHTS["text"], text_similarity(query_text, candidate_text)))
     if query.get("category"):
         components.append(
             (
@@ -101,9 +88,6 @@ def score_candidate(
                 date_similarity(str(event_date), str(candidate.get("eventDate", ""))),
             )
         )
-    visual_value = _visual_similarity(query, candidate)
-    if visual_value is not None:
-        components.append(("visual", WEIGHTS["visual"], visual_value))
     if not components:
         return 0.0, []
 
@@ -115,7 +99,7 @@ def score_candidate(
     return score, reasons
 
 
-def text_similarity(left: str, right: str, *, text_embedding: bool = True) -> float:
+def text_similarity(left: str, right: str) -> float:
     left_normalized = normalize(left)
     right_normalized = normalize(right)
     if not left_normalized or not right_normalized:
@@ -130,12 +114,7 @@ def text_similarity(left: str, right: str, *, text_embedding: bool = True) -> fl
         if left_normalized in right_normalized or right_normalized in left_normalized
         else 0.0
     )
-    vector = 0.0
-    if text_embedding:
-        from .embeddings import embedding_similarity
-
-        vector = embedding_similarity(left_normalized, right_normalized)
-    return max(sequence, jaccard, containment, vector)
+    return max(sequence, jaccard, containment)
 
 
 def short_text_similarity(left: str, right: str) -> float:
@@ -146,23 +125,6 @@ def short_text_similarity(left: str, right: str) -> float:
     if left_normalized in right_normalized or right_normalized in left_normalized:
         return 1.0
     return SequenceMatcher(None, left_normalized, right_normalized).ratio()
-
-
-def _visual_similarity(query: dict[str, Any], candidate: dict[str, Any]) -> float | None:
-    query_fingerprint = query.get("visual_fingerprint")
-    candidate_fingerprints = candidate.get("visualFingerprints")
-    if not isinstance(query_fingerprint, str) or not isinstance(candidate_fingerprints, list):
-        return None
-    from .embeddings import visual_similarity
-
-    best: float | None = None
-    for fingerprint in candidate_fingerprints:
-        if not isinstance(fingerprint, str):
-            continue
-        value = visual_similarity(query_fingerprint, fingerprint)
-        if value is not None and (best is None or value > best):
-            best = value
-    return best
 
 
 def date_similarity(left: str, right: str) -> float:
@@ -202,7 +164,6 @@ def reason(component: str, value: float, language: str) -> str:
             "colour": "颜色相似",
             "location": "地点接近",
             "date": "日期接近",
-            "visual": "图片特征相似",
         },
         "en": {
             "text": "Similar text description",
@@ -210,7 +171,6 @@ def reason(component: str, value: float, language: str) -> str:
             "colour": "Similar colour",
             "location": "Nearby location",
             "date": "Close date",
-            "visual": "Similar image features",
         },
     }
     label = labels["zh" if language == "zh" else "en"][component]

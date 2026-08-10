@@ -5,7 +5,6 @@ import type {
   LostFoundMetadata,
   LostFoundReport,
   PageResponse,
-  UpdateReportInput,
 } from '../types'
 
 export type ReportSearchParams = Record<string, string | number | undefined>
@@ -46,35 +45,6 @@ export async function createReport(
     },
   })
   return response.data
-}
-
-export async function updateReport(
-  reportId: number,
-  input: UpdateReportInput,
-  images: File[],
-  onProgress?: (percent: number) => void,
-): Promise<LostFoundReport> {
-  const form = new FormData()
-  form.append('report', new Blob([JSON.stringify(input)], { type: 'application/json' }))
-  images.forEach((image) => form.append('images', image))
-
-  const response = await apiClient.put<LostFoundReport>(`/lost-found/reports/${reportId}`, form, {
-    onUploadProgress: (event) => {
-      if (event.total && onProgress) {
-        onProgress(Math.round((event.loaded * 100) / event.total))
-      }
-    },
-  })
-  return response.data
-}
-
-export async function closeReport(reportId: number): Promise<LostFoundReport> {
-  const response = await apiClient.post<LostFoundReport>(`/lost-found/reports/${reportId}/close`)
-  return response.data
-}
-
-export async function deleteReport(reportId: number): Promise<void> {
-  await apiClient.delete(`/lost-found/reports/${reportId}`)
 }
 
 export async function submitClaim(

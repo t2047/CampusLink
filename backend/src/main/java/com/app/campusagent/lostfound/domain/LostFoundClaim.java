@@ -49,10 +49,6 @@ public class LostFoundClaim {
     @Column(name = "decision_note", length = 500)
     private String decisionNote;
 
-    /** 审核时间：管理员批准或拒绝时写入；历史已审核数据可为空。 */
-    @Column(name = "reviewed_at")
-    private Instant reviewedAt;
-
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -71,13 +67,11 @@ public class LostFoundClaim {
     public void approve(String note) {
         status = ClaimStatus.APPROVED;
         decisionNote = note;
-        reviewedAt = Instant.now();
     }
 
     public void reject(String note) {
         status = ClaimStatus.REJECTED;
         decisionNote = note;
-        reviewedAt = Instant.now();
     }
 
     @PrePersist
