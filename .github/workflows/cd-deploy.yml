@@ -23,12 +23,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}
-  IMAGES: |
-    campuslink-backend
-    campuslink-orchestration
-    campuslink-mcp-servers
-    campuslink-lost-found-agent
-    campuslink-web
+  IMAGES: campuslink-backend campuslink-orchestration campuslink-mcp-servers campuslink-lost-found-agent campuslink-web
 
 jobs:
   build-and-push:
