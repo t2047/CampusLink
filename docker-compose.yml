@@ -107,11 +107,16 @@ services:
     build:
       context: .
       dockerfile: agent/mcp_servers/Dockerfile
+    # 用真实 Gmail MCP 适配层（mail_server），替换镜像默认的 domain_server mock
+    command: ["uvicorn", "mcp_servers.mail_server:app", "--host", "0.0.0.0", "--port", "8081"]
     env_file:
       - .env
     environment:
       - MCP_AGENT_NAME=mail-agent
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FASTMCP_HOST=0.0.0.0
+      # Mail REST 服务跑在宿主机 5000（agent/mail_agent）；容器内 127.0.0.1 指向自身，需用 host.docker.internal
+      - MAIL_REST_URL=http://host.docker.internal:5000
     ports:
       - "8081:8081"
     depends_on:
