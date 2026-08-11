@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 from lost_found_agent.config import get_settings
 from lost_found_agent.confirmation import ConfirmationStore
-from lost_found_agent.llm import LlmInterpreter, LlmUnavailable
+from lost_found_agent.llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
 from lost_found_agent.models import ConversationContext, InvokeRequest, InvokeResponse, TraceParent
 from lost_found_agent.rate_limit import RateLimiter
 from lost_found_agent.rules import RuleEngine
@@ -209,7 +209,8 @@ async def invoke(
         interpretation = None
         if _llm_interpreter and not (payload.confirmed or payload.confirmation_id):
             try:
-                interpretation = await _llm_interpreter.interpret(
+                interpretation = await interpret_with_retry(
+                    _llm_interpreter,
                     payload.message,
                     payload.conversation_context.shared_data,
                 )

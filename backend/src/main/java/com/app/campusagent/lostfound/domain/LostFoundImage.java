@@ -39,6 +39,9 @@ public class LostFoundImage {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 
+    @Column(name = "visual_fingerprint", length = 512)
+    private String visualFingerprint;
+
     protected LostFoundImage() {
     }
 
@@ -46,15 +49,30 @@ public class LostFoundImage {
                           String originalName,
                           String contentType,
                           long fileSize,
-                          int sortOrder) {
+                          int sortOrder,
+                          String visualFingerprint) {
         this.objectKey = objectKey;
         this.originalName = originalName;
         this.contentType = contentType;
         this.fileSize = fileSize;
         this.sortOrder = sortOrder;
+        this.visualFingerprint = visualFingerprint;
+    }
+
+    public LostFoundImage(String objectKey,
+                          String originalName,
+                          String contentType,
+                          long fileSize,
+                          int sortOrder) {
+        this(objectKey, originalName, contentType, fileSize, sortOrder, null);
     }
 
     void attachTo(LostFoundReport report) {
         this.report = report;
+    }
+
+    /** 回填旧图片的视觉指纹（幂等，仅覆盖当前为空的情况）。 */
+    public void assignVisualFingerprint(String visualFingerprint) {
+        this.visualFingerprint = visualFingerprint;
     }
 }

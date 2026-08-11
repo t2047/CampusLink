@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apiClient } from './client'
-import { createReport, searchReports } from './lostFound'
+import { closeReport, createReport, deleteReport, searchReports, updateReport } from './lostFound'
 
 describe('createReport', () => {
   it('creates a multipart request with report JSON and images', async () => {
@@ -33,5 +33,43 @@ describe('createReport', () => {
         location: 'library', dateFrom: '2026-08-01', dateTo: '2026-08-06', page: 2,
       },
     })
+  })
+})
+
+describe('updateReport', () => {
+  it('sends a multipart PUT to the report endpoint', async () => {
+    const put = vi.spyOn(apiClient, 'put').mockResolvedValue({ data: { id: 42 } })
+    const image = new File(['image'], 'item.png', { type: 'image/png' })
+
+    await updateReport(42, {
+      itemName: 'White Earphones', category: 'ELECTRONICS', description: 'White earphones in a case',
+      colour: 'White', location: 'Yale-NUS Library', eventDate: '2026-08-06', timeDescription: 'Morning',
+    }, [image])
+
+    expect(put).toHaveBeenCalledWith('/lost-found/reports/42', expect.any(FormData), expect.any(Object))
+    const body = put.mock.calls[0][1] as FormData
+    expect(body.get('report')).toBeInstanceOf(Blob)
+    expect(body.getAll('images')).toEqual([image])
+  })
+})
+
+describe('closeReport', () => {
+  it('posts to the close endpoint', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { id: 42, status: 'CLOSED' } })
+
+    const result = await closeReport(42)
+
+    expect(post).toHaveBeenCalledWith('/lost-found/reports/42/close')
+    expect(result.status).toBe('CLOSED')
+  })
+})
+
+describe('deleteReport', () => {
+  it('deletes the report endpoint', async () => {
+    const del = vi.spyOn(apiClient, 'delete').mockResolvedValue({ data: {} })
+
+    await deleteReport(42)
+
+    expect(del).toHaveBeenCalledWith('/lost-found/reports/42')
   })
 })

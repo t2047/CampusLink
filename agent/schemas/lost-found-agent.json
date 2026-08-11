@@ -232,7 +232,19 @@
     "direction": "bidirectional",
     "topK": 5,
     "defaultMinimumScore": 0.35,
-    "weights": {"text": 0.30, "category": 0.30, "colour": 0.15, "location": 0.15, "date": 0.10},
+    "weights": {
+      "text": 0.28,
+      "category": 0.28,
+      "colour": 0.14,
+      "location": 0.14,
+      "date": 0.06,
+      "visual": 0.10
+    },
+    "visualFingerprint": {
+      "queryField": "visual_fingerprint",
+      "candidateField": "visualFingerprints",
+      "description": "Optional image fingerprint (VF1:...) used for explainable multimodal matching. Active only when both query and candidate carry fingerprints; missing fields are re-normalized away."
+    },
     "missingFieldsRenormalizeWeights": true
   },
   "model": {

@@ -300,6 +300,30 @@ def test_model_fields_that_violate_backend_contract_fail_closed() -> None:
     assert fake_api.calls == []
 
 
+def test_model_fields_with_nested_extra_key_fail_closed() -> None:
+    """fields 内的额外键必须触发 fail-closed，而不能被静默吞掉。"""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "search_found_items",
+                "language": "en",
+                "fields": {
+                    "keyword": "keys",
+                    "visual_fingerprint": "VF1:invalid",
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    with client:
+        result = invoke(client, settings, "search for keys", trace_id="extra-field")
+
+    assert result["status"] == "failed"
+    assert fake_api.calls == []
+
+
 def test_model_fields_that_violate_backend_contract_fall_back_when_fallback_enabled() -> None:
     """llm_fail_closed=false：契约违反降级规则引擎，仍不执行写操作。"""
 

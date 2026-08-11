@@ -54,6 +54,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Actuator（/actuator/health 供 Docker HEALTHCHECK；application.properties
+             management.* 与 SecurityConfig 放行均已配置） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- Spring Web MVC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -12,7 +12,7 @@ def test_public_health_reports_rules_mode(client: TestClient) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "lost-found-agent",
-        "version": "0.4.0",
+        "version": "0.6.0",
         "mode": "rules",
         "model_configured": False,
     }
