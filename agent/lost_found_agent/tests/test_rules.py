@@ -88,6 +88,54 @@ def test_natural_chinese_report_is_supported_by_rule_fallback(
     assert fake_api.calls == []
 
 
+def test_natural_chinese_found_report_requires_confirmation_before_writing(
+    client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    prepared = invoke(
+        client,
+        settings,
+        "我在2026-08-08于中央图书馆捡到一副黑色耳机，耳机盒上有橙色贴纸。",
+        trace_id="found-report-confirmation",
+    )
+
+    assert prepared["status"] == "needs_confirmation"
+    assert prepared["confirmation_required"]["action"] == "report_found"
+    assert prepared["shared_context"]["category"] == "ELECTRONICS"
+    assert fake_api.calls == []
+
+    completed = invoke(
+        client,
+        settings,
+        "确认登记",
+        confirmed=True,
+        confirmation_id=prepared["confirmation_required"]["confirmation_id"],
+        trace_id="found-report-execute",
+    )
+
+    assert completed["status"] == "completed"
+    assert completed["actions_taken"][0]["action"] == "report_found"
+    assert [call[0] for call in fake_api.calls] == ["report_found"]
+
+
+def test_natural_english_found_report_extracts_required_fields(
+    client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    prepared = invoke(
+        client,
+        settings,
+        "I picked up black headphones at Central Library on 2026-08-08; "
+        "the case has an orange sticker.",
+        trace_id="english-found-report",
+    )
+
+    assert prepared["status"] == "needs_confirmation"
+    assert prepared["confirmation_required"]["action"] == "report_found"
+    assert prepared["shared_context"]["item_name"] == "black headphones"
+    assert prepared["shared_context"]["location"] == "Central Library"
+    assert prepared["shared_context"]["event_date"] == "2026-08-08"
+    assert fake_api.calls == []
+
+
 def test_confirmation_is_one_time_and_bound_to_user(
     client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
 ) -> None:

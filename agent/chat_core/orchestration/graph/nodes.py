@@ -47,7 +47,7 @@ AGENT_CAPABILITIES: dict[str, str] = {
         "校园设施与空间：搜索研讨室、自习室、实验室、教室和体育场馆，查看空间详情与"
         "可用时间，创建、查询、列出或取消本人预约，以及提交、查询或列出设施报修请求"
     ),
-    "lost-found-agent": "失物报失、查找、认领",
+    "lost-found-agent": "失物报失、登记拾获、查找、认领",
 }
 
 UTILITY_CAPABILITIES: dict[str, str] = {

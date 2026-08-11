@@ -1,8 +1,8 @@
 # CampusLink Lost & Found Agent
 
-这是 Lost & Found 领域 Agent 的独立 FastAPI 服务。当前已在无模型 API Key 的情况下支持中英文报失、搜索、详情和认领，支持多轮字段补充、写操作确认和可解释 Top 5 候选重排。
+这是 Lost & Found 领域 Agent 的独立 FastAPI 服务。当前已在无模型 API Key 的情况下支持中英文报失、登记拾获、搜索、详情和认领，支持多轮字段补充、写操作确认和可解释 Top 5 候选重排。
 
-报失和认领在首次调用时只返回 10 分钟有效的确认 ID，确认前不会写数据库。确认 ID 与用户绑定且只能使用一次。
+报失、登记拾获和认领在首次调用时只返回 10 分钟有效的确认 ID，确认前不会写数据库。确认 ID 与用户绑定且只能使用一次。
 
 ## 本地运行
 
@@ -25,7 +25,7 @@ uv run uvicorn lost_found_agent.main:app --host 0.0.0.0 --port 8083
 - `rules`：始终使用规则引擎；
 - `llm`：强制使用模型，缺少 API Key 时拒绝启动。
 
-模型只负责四种允许意图的识别和字段提取，输出必须通过 Pydantic 校验。默认 `LOST_FOUND_LLM_FAIL_CLOSED=true`，模型超时、限流、无效 JSON 或越权输出会明确失败；仅在显式设为 `false` 时降级到规则引擎。报失和认领仍由服务端确认流程控制，模型不能直接写数据库或绕过确认。当前默认使用 `deepseek-v4-flash`；可将 `LOST_FOUND_LLM_MODEL` 改为 `deepseek-v4-pro`，也可配合 `LOST_FOUND_LLM_BASE_URL` 接入其他 OpenAI-compatible 服务。
+模型只负责五种允许意图的识别和字段提取，输出必须通过 Pydantic 校验。默认 `LOST_FOUND_LLM_FAIL_CLOSED=true`，模型超时、限流、无效 JSON 或越权输出会明确失败；仅在显式设为 `false` 时降级到规则引擎。报失、登记拾获和认领仍由服务端确认流程控制，模型不能直接写数据库或绕过确认。当前默认使用 `deepseek-v4-flash`；可将 `LOST_FOUND_LLM_MODEL` 改为 `deepseek-v4-pro`，也可配合 `LOST_FOUND_LLM_BASE_URL` 接入其他 OpenAI-compatible 服务。
 
 从仓库根目录可以启动整个 Agent 联调环境：
 

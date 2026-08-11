@@ -697,6 +697,39 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
                 fields["location"] = location.group(1).strip()
         if "description" not in fields and len(message.strip()) >= 10:
             fields["description"] = message.strip()
+    if intent == "report_found" and "item_name" not in fields:
+        item = re.search(
+            r"(?:我)?(?:捡到|捡了|拾到)\s*(?:了)?\s*(?:一(?:个|把|只|本|张|副))?\s*"
+            r"([^,，。;；\n]{2,30})",
+            message,
+        )
+        english_item = re.search(
+            r"(?:i\s+found|(?:i\s+)?picked\s+up)\s+(?:an?\s+|the\s+)?"
+            r"([^,;\n]{2,40}?)(?=\s+(?:at|in|on)\s|[,;\n]|$)",
+            message,
+            re.IGNORECASE,
+        )
+        matched_item = item or english_item
+        if matched_item:
+            fields["item_name"] = matched_item.group(1).strip()
+        if "location" not in fields:
+            location = re.search(
+                r"于([^,，。;；\n]{2,40}?)(?:捡到|捡了|拾到)",
+                message,
+            ) or re.search(
+                r"在([^,，。;；\n]{2,40}?)(?:捡到|捡了|拾到)",
+                message,
+            )
+            english_location = re.search(
+                r"(?:at|in)\s+([^,;\n]{2,40}?)(?=\s+on\s+\d{4}-\d{2}-\d{2}|[,;\n]|$)",
+                message,
+                re.IGNORECASE,
+            )
+            matched_location = location or english_location
+            if matched_location:
+                fields["location"] = matched_location.group(1).strip()
+        if "description" not in fields and len(message.strip()) >= 10:
+            fields["description"] = message.strip()
     if intent == "search_found_items" and "keyword" not in fields:
         search = re.search(r"(?:帮我找|查找|搜索)\s*([^,，;；\n]{2,40})", message)
         english_search = re.search(r"(?:find|search for)\s+([^,;\n]{2,40})", message, re.IGNORECASE)

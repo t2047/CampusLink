@@ -8,7 +8,7 @@ CampusLink 是校园 **AI Agent 平台**：以 `agent/chat_core` 编排层（Fas
 
 **Lost & Found 是平台首个完整落地的垂直切片**：既有 Web 端完整功能（发布/搜索/认领/管理），
 也已通过 `agent/mcp_servers/lost_found_server.py` 适配层接入 Agent 体系——用户可以用自然语言
-报失/查找/认领，写操作经用户确认后真正落库。
+报失/登记拾获/查找/认领，写操作经用户确认后真正落库。
 
 Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中。
 
@@ -101,7 +101,7 @@ npm run dev
 - 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
 - 认领证明只对申请人与拾获记录发布者可见。
 - `ADMIN` 和 `SUPER_ADMIN` 可以使用只读管理页面查看统计、筛选全部记录、分页浏览和识别记录发布者。
-- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
+- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失与登记拾获确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
 
 当前 Lost & Found 已接入 Agent，使用规则重排和受控的 LLM 字段提取；尚不包含 Embedding、多模态图片匹配、通知、移动端、管理员写操作、记录编辑和删除。Agent 平台说明见上文“Agent 平台（核心）”。
 
