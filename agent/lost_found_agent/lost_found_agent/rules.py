@@ -44,6 +44,7 @@ CATEGORIES: dict[str, str] = {
     "耳机": "ELECTRONICS",
     "手机": "ELECTRONICS",
     "电脑": "ELECTRONICS",
+    "遥控": "ELECTRONICS",
     "id card": "ID_CARD",
     "student card": "ID_CARD",
     "证件": "ID_CARD",
@@ -66,6 +67,10 @@ CATEGORIES: dict[str, str] = {
     "umbrella": "UMBRELLA",
     "雨伞": "UMBRELLA",
     "伞": "UMBRELLA",
+    # 车辆无专属类别，落入 OTHER；遥控 需在 汽车 之前命中，
+    # 使 遥控汽车 归为 ELECTRONICS 而非 OTHER。
+    "汽车": "OTHER",
+    "车辆": "OTHER",
     "other": "OTHER",
     "其他": "OTHER",
 }

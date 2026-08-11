@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apiClient } from './client'
-import { closeReport, createReport, deleteReport, searchReports, updateReport } from './lostFound'
+import {
+  closeReport,
+  createReport,
+  deleteReport,
+  searchReports,
+  suggestCategory,
+  updateReport,
+} from './lostFound'
 
 describe('createReport', () => {
   it('creates a multipart request with report JSON and images', async () => {
@@ -71,5 +78,28 @@ describe('deleteReport', () => {
     await deleteReport(42)
 
     expect(del).toHaveBeenCalledWith('/lost-found/reports/42')
+  })
+})
+
+describe('suggestCategory', () => {
+  it('posts the item name and returns the suggested category', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { category: 'ELECTRONICS' } })
+
+    const result = await suggestCategory('黑色耳机')
+
+    expect(post).toHaveBeenCalledWith('/lost-found/agent/classify', { itemName: '黑色耳机' })
+    expect(result).toBe('ELECTRONICS')
+  })
+
+  it('returns null when the agent is unsure', async () => {
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { category: null } })
+
+    await expect(suggestCategory('mystery box')).resolves.toBeNull()
+  })
+
+  it('returns null when the category key is absent', async () => {
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ data: {} })
+
+    await expect(suggestCategory('mystery box')).resolves.toBeNull()
   })
 })

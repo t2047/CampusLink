@@ -11,9 +11,9 @@ from .config import Settings, get_settings
 from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
 from .llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
-from .models import InvokeRequest, InvokeResponse
+from .models import ClassifyRequest, ClassifyResponse, InvokeRequest, InvokeResponse
 from .rate_limit import RateLimiter
-from .rules import RuleEngine
+from .rules import RuleEngine, map_category
 from .security import AgentSecurity
 from .tools import CampusApiClient
 
@@ -35,6 +35,11 @@ def create_app(
     active_llm_interpreter = None
     if active_settings.effective_mode == "llm":
         active_llm_interpreter = llm_interpreter or LlmInterpreter(active_settings)
+    # 分类建议的 LLM 兜底独立于主 mode：只要配了 key 就可用（规则未命中时兜底），
+    # 便于 rules 模式下也能智能建议分类。llm 模式复用 active_llm_interpreter 同一实例。
+    classify_interpreter = None
+    if active_settings.lost_found_llm_api_key.strip():
+        classify_interpreter = active_llm_interpreter or llm_interpreter or LlmInterpreter(active_settings)
     rule_engine = RuleEngine(
         active_api_client,
         ConfirmationStore(ttl_seconds=600),
@@ -50,6 +55,8 @@ def create_app(
                 await active_api_client.close()
             if active_llm_interpreter:
                 await active_llm_interpreter.close()
+            if classify_interpreter and classify_interpreter is not active_llm_interpreter:
+                await classify_interpreter.close()
 
     app = FastAPI(
         title="CampusLink Lost & Found Agent",
@@ -168,6 +175,23 @@ def create_app(
     async def stream(request_id: str, request: Request) -> StreamingResponse:
         await security.verify(request, "stream")
         return StreamingResponse(event_store.stream(request_id), media_type="text/event-stream")
+
+    @app.post("/agent/classify", response_model=ClassifyResponse)
+    async def classify(payload: ClassifyRequest, request: Request) -> ClassifyResponse:
+        """物品名 → 分类建议。规则优先；未命中且配置了 LLM 时兜底。
+
+        fail-open：LLM 出错/不确定一律返回 category=None（200），绝不 5xx，
+        因为分类建议只是表单预填，阻塞创建报告不可接受。
+        """
+        await security.verify(request, "classify")
+        category = map_category(payload.item_name)
+        if category is None and classify_interpreter is not None:
+            try:
+                suggestion = await classify_interpreter.classify_item(payload.item_name)
+                category = suggestion.category
+            except LlmUnavailable:
+                category = None
+        return ClassifyResponse(category=category)
 
     return app
 

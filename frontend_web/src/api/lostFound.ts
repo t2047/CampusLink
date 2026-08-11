@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type {
   CreateReportInput,
+  ItemCategory,
   LostFoundClaim,
   LostFoundMetadata,
   LostFoundReport,
@@ -71,6 +72,14 @@ export async function updateReport(
 export async function closeReport(reportId: number): Promise<LostFoundReport> {
   const response = await apiClient.post<LostFoundReport>(`/lost-found/reports/${reportId}/close`)
   return response.data
+}
+
+export async function suggestCategory(itemName: string): Promise<ItemCategory | null> {
+  const response = await apiClient.post<{ category: ItemCategory | null }>(
+    '/lost-found/agent/classify',
+    { itemName },
+  )
+  return response.data.category ?? null
 }
 
 export async function deleteReport(reportId: number): Promise<void> {

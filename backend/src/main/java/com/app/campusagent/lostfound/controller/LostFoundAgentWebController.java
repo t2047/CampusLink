@@ -1,6 +1,8 @@
 package com.app.campusagent.lostfound.controller;
 
 import com.app.campusagent.domain.User;
+import com.app.campusagent.lostfound.dto.agent.AgentClassifyResponse;
+import com.app.campusagent.lostfound.dto.agent.AgentClassifyWebRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
 import com.app.campusagent.lostfound.service.LostFoundAgentGateway;
 import jakarta.validation.Valid;
@@ -28,5 +30,12 @@ public class LostFoundAgentWebController {
             @Valid @RequestBody AgentWebInvokeRequest request,
             @AuthenticationPrincipal User currentUser) {
         return agentGateway.invoke(request, currentUser);
+    }
+
+    @PostMapping("/classify")
+    public AgentClassifyResponse classify(
+            @Valid @RequestBody AgentClassifyWebRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        return agentGateway.classify(request, currentUser);
     }
 }

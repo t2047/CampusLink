@@ -80,6 +80,18 @@ class InvokeResponse(BaseModel):
     request_id: str
 
 
+class ClassifyRequest(BaseModel):
+    """物品名分类建议请求（轻量端点，仅返回分类枚举）。"""
+
+    item_name: str = Field(min_length=1, max_length=200)
+
+
+class ClassifyResponse(BaseModel):
+    """分类建议响应；category 为 None 表示规则与 LLM 均无法判断。"""
+
+    category: str | None = None
+
+
 class VerifiedRequest(BaseModel):
     user_id: str
     user_role: str

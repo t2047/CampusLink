@@ -2,6 +2,8 @@ package com.app.campusagent.lostfound.service;
 
 import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
+import com.app.campusagent.lostfound.dto.agent.AgentClassifyResponse;
+import com.app.campusagent.lostfound.dto.agent.AgentClassifyWebRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -130,6 +132,79 @@ class LostFoundAgentGatewayTest {
                 null);
 
         assertEquals(false, request.toAgentPayload("trace-1").get("confirmed"));
+    }
+
+    @Test
+    void classifiesItemAndSignsWithClassifyAction() throws Exception {
+        AtomicReference<byte[]> capturedBody = new AtomicReference<>();
+        AtomicReference<Map<String, java.util.List<String>>> capturedHeaders = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/agent/classify", exchange -> {
+            capturedBody.set(exchange.getRequestBody().readAllBytes());
+            capturedHeaders.set(exchange.getRequestHeaders());
+            byte[] response = "{\"category\":\"ELECTRONICS\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        LostFoundAgentGateway gateway = new LostFoundAgentGateway(
+                new ObjectMapper(),
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/agent/invoke"),
+                SECRET);
+        User user = user(42L, Role.STUDENT);
+
+        AgentClassifyResponse response = gateway.classify(
+                new AgentClassifyWebRequest("黑色耳机"), user);
+
+        assertEquals("ELECTRONICS", response.category());
+        assertNotNull(capturedBody.get());
+        assertTrue(new String(capturedBody.get(), StandardCharsets.UTF_8)
+                .contains("\"item_name\":\"黑色耳机\""));
+
+        String nonce = firstHeader(capturedHeaders.get(), "X-nonce");
+        String timestamp = firstHeader(capturedHeaders.get(), "X-timestamp");
+        String signature = firstHeader(capturedHeaders.get(), "X-signature");
+        assertEquals(expectedSignature(capturedBody.get(), nonce, timestamp), signature);
+
+        String authorization = firstHeader(capturedHeaders.get(), "Authorization");
+        Claims claims = Jwts.parser()
+                .verifyWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .requireIssuer("chat-core")
+                .requireAudience("lost-found-agent")
+                .build()
+                .parseSignedClaims(authorization.substring("Bearer ".length()))
+                .getPayload();
+        assertEquals("classify", claims.get("intended_action", String.class));
+        assertEquals(nonce, claims.getId());
+    }
+
+    @Test
+    void classifiesToNullWhenAgentReturnsNullCategory() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/agent/classify", exchange -> {
+            byte[] response = "{\"category\":null}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        LostFoundAgentGateway gateway = new LostFoundAgentGateway(
+                new ObjectMapper(),
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/agent/invoke"),
+                SECRET);
+        User user = user(42L, Role.STUDENT);
+
+        AgentClassifyResponse response = gateway.classify(
+                new AgentClassifyWebRequest("mystery gadget"), user);
+
+        assertEquals(null, response.category());
     }
 
     private User user(Long id, Role role) {
