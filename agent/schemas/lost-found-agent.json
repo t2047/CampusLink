@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.4.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.5.0.json",
   "agent": "lost-found-agent",
-  "version": "1.4.0",
-  "description": "校园失物招领领域 Agent。负责报失、搜索拾获记录、查看详情和提交认领；所有写操作必须经过用户确认。",
+  "version": "1.5.0",
+  "description": "校园失物招领领域 Agent。负责报失、登记拾获、双向搜索匹配、查看详情和提交认领；报失、登记拾获和认领必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
     "type": "mcp",
@@ -22,13 +22,20 @@
     "requiredHeaders": ["Authorization", "X-Timestamp"],
     "delegationTokenAudience": "lost-found-agent",
     "tokenAlgorithm": "RS256 (JWKS)",
-    "writeConfirmationRequired": ["report_lost", "claim_item"],
+    "writeConfirmationRequired": ["report_lost", "report_found", "claim_item"],
     "confirmationTtlSeconds": 600
   },
   "capabilities": {
     "domains": ["lost_and_found"],
     "languages": ["zh", "en"],
-    "actions": ["report_lost", "search_found_items", "get_item_detail", "claim_item"],
+    "actions": [
+      "report_lost",
+      "report_found",
+      "search_found_items",
+      "search_lost_items",
+      "get_item_detail",
+      "claim_item"
+    ],
     "privacy": {
       "exposesPublisherContact": false,
       "exposesStorageObjectKey": false,
@@ -83,22 +90,28 @@
       "additionalProperties": false,
       "properties": {
         "item_id": {"type": "string"},
+        "report_type": {"type": "string", "enum": ["LOST", "FOUND"]},
         "item_name": {"type": "string"},
         "category": {"$ref": "#/$defs/category"},
         "description": {"type": "string"},
-        "found_location": {"type": "string"},
-        "found_date": {"type": "string", "format": "date"},
+        "colour": {"type": ["string", "null"]},
+        "location": {"type": "string"},
+        "event_date": {"type": "string", "format": "date"},
+        "time_description": {"type": ["string", "null"]},
+        "image_urls": {"type": "array", "items": {"type": "string", "format": "uri"}},
         "status": {"type": "string", "enum": ["OPEN", "CLAIMED", "CLOSED"]},
         "match_score": {"type": "number", "minimum": 0, "maximum": 1},
         "match_reason": {"type": "array", "items": {"type": "string"}}
       },
       "required": [
         "item_id",
+        "report_type",
         "item_name",
         "category",
         "description",
-        "found_location",
-        "found_date",
+        "location",
+        "event_date",
+        "image_urls",
         "status",
         "match_score",
         "match_reason"
@@ -125,7 +138,10 @@
           "type": ["object", "null"],
           "properties": {
             "confirmation_id": {"type": "string"},
-            "action": {"type": "string", "enum": ["report_lost", "claim_item"]},
+            "action": {
+              "type": "string",
+              "enum": ["report_lost", "report_found", "claim_item"]
+            },
             "summary": {"type": "string"},
             "expires_at": {"type": "string", "format": "date-time"}
           },
@@ -139,7 +155,14 @@
             "properties": {
               "action": {
                 "type": "string",
-                "enum": ["report_lost", "search_found_items", "get_item_detail", "claim_item"]
+                "enum": [
+                  "report_lost",
+                  "report_found",
+                  "search_found_items",
+                  "search_lost_items",
+                  "get_item_detail",
+                  "claim_item"
+                ]
               },
               "params_summary": {"type": ["string", "null"]},
               "result_summary": {"type": ["string", "null"]},
@@ -164,9 +187,19 @@
       "required": ["item_name", "category", "description", "location", "event_date"]
     },
     {
+      "name": "report_found",
+      "requiresConfirmation": true,
+      "required": ["item_name", "category", "description", "location", "event_date"]
+    },
+    {
       "name": "search_found_items",
       "requiresConfirmation": false,
       "defaults": {"report_type": "FOUND", "status": "OPEN", "limit": 100}
+    },
+    {
+      "name": "search_lost_items",
+      "requiresConfirmation": false,
+      "defaults": {"report_type": "LOST", "status": "OPEN", "limit": 100}
     },
     {"name": "get_item_detail", "requiresConfirmation": false, "required": ["report_id"]},
     {
@@ -192,7 +225,11 @@
     "retentionSeconds": 300
   },
   "matching": {
-    "candidateDefaults": {"reportType": "FOUND", "status": "OPEN", "limit": 100},
+    "candidateDefaults": {
+      "lostReportTarget": {"reportType": "FOUND", "status": "OPEN", "limit": 100},
+      "foundReportTarget": {"reportType": "LOST", "status": "OPEN", "limit": 100}
+    },
+    "direction": "bidirectional",
     "topK": 5,
     "defaultMinimumScore": 0.35,
     "weights": {
@@ -214,7 +251,14 @@
     "modes": ["auto", "rules", "llm"],
     "compatibleProtocol": "OpenAI chat completions",
     "responsibilities": ["intent_detection", "field_extraction"],
-    "allowedTools": ["report_lost", "search_found_items", "get_item_detail", "claim_item"],
+    "allowedTools": [
+      "report_lost",
+      "report_found",
+      "search_found_items",
+      "search_lost_items",
+      "get_item_detail",
+      "claim_item"
+    ],
     "maximumToolsPerInvocation": 2,
     "validatedOutput": true,
     "fallbackMode": "rules",

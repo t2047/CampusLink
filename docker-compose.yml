@@ -64,6 +64,8 @@ services:
       - MINIO_BUCKET=${MINIO_BUCKET:-campuslink}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       - LOST_FOUND_AGENT_URL=http://lost-found-agent:8083
+      # Docker 容器内不能用 localhost 访问编排层，应使用 Compose 服务名。
+      - ORCHESTRATION_BASE_URL=http://orchestration:8000
       - AGENT_BACKEND_SHARED_SECRET=${AGENT_BACKEND_SHARED_SECRET:-}
       # RSA 密钥持久化目录：挂载命名卷，容器重建不轮换（Agent 端 JWKS 缓存依赖密钥稳定）
       - DELEGATION_KEY_DIR=/app/keys
@@ -88,6 +90,10 @@ services:
       # Docker 网络内用服务名互访（.env 中的 localhost 仅限本地联调）
       - TOKEN_SERVICE_URL=http://chat-backend:8080
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      # 本地联调时复用 Lost & Found 已配置的 DeepSeek 凭据，避免维护两份密钥。
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-${LOST_FOUND_LLM_API_KEY:-}}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-${LOST_FOUND_LLM_BASE_URL:-https://api.deepseek.com}}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-${LOST_FOUND_LLM_MODEL:-deepseek-v4-flash}}
       # Sprint 3：MCP Server 端点（服务名互访）
       - MAIL_AGENT_MCP_URL=http://mail-agent-mcp:8081/mcp/
       - FACILITY_AGENT_MCP_URL=http://facility-agent-mcp:8082/mcp/
@@ -107,11 +113,16 @@ services:
     build:
       context: .
       dockerfile: agent/mcp_servers/Dockerfile
+    # 用真实 Gmail MCP 适配层（mail_server），替换镜像默认的 domain_server mock
+    command: ["uvicorn", "mcp_servers.mail_server:app", "--host", "0.0.0.0", "--port", "8081"]
     env_file:
       - .env
     environment:
       - MCP_AGENT_NAME=mail-agent
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FASTMCP_HOST=0.0.0.0
+      # Mail REST 服务跑在宿主机 5000（agent/mail_agent）；容器内 127.0.0.1 指向自身，需用 host.docker.internal
+      - MAIL_REST_URL=http://host.docker.internal:5000
     ports:
       - "8081:8081"
     depends_on:
@@ -128,6 +139,7 @@ services:
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
       - FACILITIES_MCP_URL=http://chat-backend:8080/mcp
       - FACILITIES_AGENT_PORT=8082
+      - FASTMCP_HOST=0.0.0.0
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
@@ -165,6 +177,7 @@ services:
       - .env
     environment:
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FASTMCP_HOST=0.0.0.0
     ports:
       - "8090:8090"
     depends_on:
@@ -186,7 +199,9 @@ services:
       LOST_FOUND_LLM_API_KEY: ${LOST_FOUND_LLM_API_KEY:-}
       LOST_FOUND_LLM_BASE_URL: ${LOST_FOUND_LLM_BASE_URL:-https://api.deepseek.com}
       LOST_FOUND_LLM_MODEL: ${LOST_FOUND_LLM_MODEL:-deepseek-v4-flash}
-      LOST_FOUND_LLM_TIMEOUT_SECONDS: ${LOST_FOUND_LLM_TIMEOUT_SECONDS:-10}
+      LOST_FOUND_LLM_TIMEOUT_SECONDS: ${LOST_FOUND_LLM_TIMEOUT_SECONDS:-30}
+      LOST_FOUND_LLM_FAIL_CLOSED: ${LOST_FOUND_LLM_FAIL_CLOSED:-true}
+      LOST_FOUND_MATCH_MIN_SCORE: ${LOST_FOUND_MATCH_MIN_SCORE:-0.35}
     ports:
       - "8083:8083"
     depends_on:
@@ -203,6 +218,7 @@ services:
     environment:
       - CAMPUS_API_URL=http://chat-backend:8080
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FASTMCP_HOST=0.0.0.0
     ports:
       - "8085:8085"
     # 覆盖镜像默认 healthcheck（镜像按 REST 8083 探测；本服务跑 MCP 网关 8085）
@@ -220,6 +236,8 @@ services:
     build:
       context: .
       dockerfile: frontend_web/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${WEB_PORT:-80}:80"
       - "${WEB_HTTPS_PORT:-443}:443"

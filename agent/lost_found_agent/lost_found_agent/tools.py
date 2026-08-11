@@ -60,7 +60,7 @@ class ReportFoundInput(BaseModel):
         return value
 
 
-class SearchFoundItemsInput(BaseModel):
+class SearchItemsInput(BaseModel):
     keyword: str | None = None
     category: ItemCategory | None = None
     colour: str | None = None
@@ -71,10 +71,18 @@ class SearchFoundItemsInput(BaseModel):
     size: int = Field(default=100, ge=1, le=100)
 
     @model_validator(mode="after")
-    def validate_date_range(self) -> "SearchFoundItemsInput":
+    def validate_date_range(self) -> "SearchItemsInput":
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("date_from must be on or before date_to")
         return self
+
+
+class SearchFoundItemsInput(SearchItemsInput):
+    """搜索开放的拾获记录。"""
+
+
+class SearchLostItemsInput(SearchItemsInput):
+    """搜索开放的报失记录。"""
 
 
 class GetItemDetailInput(BaseModel):
@@ -170,6 +178,28 @@ class CampusApiClient:
             "GET",
             "/api/internal/lost-found/candidates",
             "search_found_items",
+            user_id,
+            user_role,
+            params=params,
+        )
+
+    async def search_lost_items(
+        self, user_id: str, user_role: str, payload: SearchLostItemsInput
+    ) -> dict[str, Any]:
+        params: dict[str, str | int] = {"page": payload.page, "size": payload.size}
+        optional: dict[str, str | None] = {
+            "keyword": payload.keyword,
+            "category": payload.category,
+            "colour": payload.colour,
+            "location": payload.location,
+            "dateFrom": payload.date_from.isoformat() if payload.date_from else None,
+            "dateTo": payload.date_to.isoformat() if payload.date_to else None,
+        }
+        params.update({key: value for key, value in optional.items() if value is not None})
+        return await self._request(
+            "GET",
+            "/api/internal/lost-found/lost-candidates",
+            "search_lost_items",
             user_id,
             user_role,
             params=params,

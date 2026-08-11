@@ -116,6 +116,52 @@ def test_valid_model_output_requires_confirmation_and_limits_tools_to_two() -> N
     assert len(model_calls) == 1
 
 
+def test_model_report_found_requires_confirmation_before_writing() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "report_found",
+                "language": "zh",
+                "fields": {
+                    "item_name": "黑色无线耳机",
+                    "category": "ELECTRONICS",
+                    "description": "黑色无线耳机，耳机盒上贴有橙色贴纸",
+                    "location": "中央图书馆",
+                    "event_date": "2026-08-08",
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    with client:
+        prepared = invoke(
+            client,
+            settings,
+            "我捡到一件东西",
+            trace_id="llm-found-prepare",
+        )
+        assert prepared["status"] == "needs_confirmation"
+        assert prepared["confirmation_required"]["action"] == "report_found"
+        assert fake_api.calls == []
+
+        completed = invoke(
+            client,
+            settings,
+            "确认登记",
+            confirmed=True,
+            confirmation_id=prepared["confirmation_required"]["confirmation_id"],
+            trace_id="llm-found-confirm",
+        )
+
+    assert completed["status"] == "completed"
+    assert [action["action"] for action in completed["actions_taken"]] == [
+        "report_found",
+        "search_lost_items",
+    ]
+    assert [call[0] for call in fake_api.calls] == ["report_found", "search_lost_items"]
+
+
 def test_invalid_json_and_timeout_fail_closed() -> None:
     """fail-closed（默认，2026-08-09 决策）：LLM 输出不可信/超时/429 → 显式 failed，
     不降级规则引擎、不执行任何工具调用。"""

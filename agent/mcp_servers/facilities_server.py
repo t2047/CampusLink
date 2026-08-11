@@ -79,7 +79,12 @@ _tool_client_factory: ToolClientFactory = _default_tool_client_factory
 _service_factory: ServiceFactory = _default_service_factory
 _confirmation_store = ConfirmationStore()
 
-mcp = FastMCP(f"{AGENT_NAME}-server", streamable_http_path="/")
+mcp = FastMCP(
+    f"{AGENT_NAME}-server",
+    streamable_http_path="/",
+    # Docker 容器间使用服务名访问，需允许非 localhost Host 头。
+    host=os.environ.get("FASTMCP_HOST", "127.0.0.1"),
+)
 _streamable_app = mcp.streamable_http_app()
 
 

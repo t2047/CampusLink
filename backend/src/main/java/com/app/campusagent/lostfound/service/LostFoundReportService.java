@@ -149,6 +149,7 @@ public class LostFoundReportService {
 
     @Transactional(readOnly = true)
     public PageResponse<AgentCandidateResponse> searchCandidates(
+            ReportType reportType,
             String keyword,
             ItemCategory category,
             String colour,
@@ -157,17 +158,19 @@ public class LostFoundReportService {
             LocalDate dateTo,
             Pageable pageable) {
         Specification<LostFoundReport> specification = specification(
-                ReportType.FOUND,
-                keyword,
-                category,
-                colour,
-                location,
-                dateFrom,
-                dateTo,
-                ReportStatus.OPEN);
+            reportType,
+            keyword,
+            category,
+            colour,
+            location,
+            dateFrom,
+            dateTo,
+            ReportStatus.OPEN);
+
         return PageResponse.from(reportRepository.findAll(specification, pageable)
                 .map(report -> new AgentCandidateResponse(
                         report.getId(),
+                        report.getReportType(),
                         report.getItemName(),
                         report.getCategory(),
                         report.getDescription(),
@@ -176,8 +179,12 @@ public class LostFoundReportService {
                         report.getEventDate(),
                         report.getTimeDescription(),
                         report.getStatus(),
-                        visualFingerprints(report))));
-    }
+                        report.getImages().stream()
+                                .sorted(Comparator.comparingInt(LostFoundImage::getSortOrder))
+                                .map(image -> storageService.createPresignedGetUrl(
+                                        image.getObjectKey()))
+                                .toList())));
+}
 
     @Transactional(readOnly = true)
     public LostFoundReportResponse getById(Long reportId, User currentUser) {

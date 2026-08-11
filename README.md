@@ -99,7 +99,7 @@ Web workflow of the L&F sub-module (Agent integration is covered in “Agent Pla
 - Let the found-item reporter approve or reject a claim. Approval marks the report `CLAIMED` and rejects its other pending claims.
 - Keep ownership proof visible only to the claimant and the report publisher.
 - Give `ADMIN` and `SUPER_ADMIN` users a read-only operational overview with report metrics, filters, pagination, and reporter identification.
-- Let authenticated users try the real Lost & Found Agent from the main page with multi-turn input, write confirmation, search, and candidate links. Agent secrets remain server-side.
+- Let authenticated users try the real Lost & Found Agent from the main page with multi-turn lost/found reporting, write confirmation, search, and candidate links. Agent secrets remain server-side.
 
 Embedding and multimodal image matching, notifications, mobile UI, administrator write actions, report editing, and report deletion remain outside this iteration. Lost & Found is already Agent-integrated; see “Agent Platform (Core)”.
 

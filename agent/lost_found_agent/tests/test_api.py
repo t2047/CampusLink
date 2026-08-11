@@ -26,7 +26,9 @@ def test_public_capabilities_do_not_expose_secrets(client: TestClient) -> None:
     assert data["capabilities"]["write_confirmation_required"] is True
     assert data["capabilities"]["actions"] == [
         "report_lost",
+        "report_found",
         "search_found_items",
+        "search_lost_items",
         "get_item_detail",
         "claim_item",
     ]

@@ -7,11 +7,15 @@ export interface AgentConversationContext {
 
 export interface AgentMatchResult {
   item_id: string
+  report_type: 'LOST' | 'FOUND'
   item_name: string
   category: string
   description: string
-  found_location: string
-  found_date: string
+  colour?: string | null
+  location: string
+  event_date: string
+  time_description?: string | null
+  image_urls: string[]
   status: string
   match_score: number
   match_reason: string[]
@@ -19,13 +23,13 @@ export interface AgentMatchResult {
 
 export interface AgentConfirmationRequired {
   confirmation_id: string
-  action: 'report_lost' | 'claim_item'
+  action: 'report_lost' | 'report_found' | 'claim_item'
   summary: string
   expires_at: string
 }
 
 export interface AgentActionTaken {
-  action: 'report_lost' | 'search_found_items' | 'get_item_detail' | 'claim_item'
+  action: 'report_lost' | 'report_found' | 'search_found_items' | 'search_lost_items' | 'get_item_detail' | 'claim_item'
   status: 'success' | 'failed' | 'skipped'
   params_summary?: string | null
   result_summary?: string | null

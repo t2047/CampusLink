@@ -23,6 +23,7 @@ from .tools import (
     ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
+    SearchLostItemsInput,
 )
 
 Intent = Literal[
@@ -64,6 +65,7 @@ CATEGORIES: dict[str, str] = {
     "文具": "BOOKS_STATIONERY",
     "umbrella": "UMBRELLA",
     "雨伞": "UMBRELLA",
+    "伞": "UMBRELLA",
     "other": "OTHER",
     "其他": "OTHER",
 }
@@ -368,18 +370,28 @@ class RuleEngine:
                     verified.user_id, verified.user_role, found_report
                 )
                 emit(tool_event("report_found", "completed"))
-                message = found_created_message(created, language)
+                query = found_report.model_dump(mode="json")
+                matches, search_action = await self._search_candidates(
+                    query,
+                    verified,
+                    language,
+                    emit,
+                    target_report_type="LOST",
+                )
+                message = found_created_message(created, matches, language)
                 return response_with_token(
                     message,
-                    "completed",
+                    "match_found" if matches else "completed",
                     request_id,
                     emit,
+                    match_results=matches,
                     actions_taken=[
                         ActionTaken(
                             action="report_found",
                             result_summary=f"report_id={created.get('id')}",
                             status="success",
-                        )
+                        ),
+                        search_action,
                     ],
                 )
 
@@ -448,11 +460,7 @@ class RuleEngine:
         except BackendApiError as exc:
             return backend_error_response(exc, request_id, language, emit)
         if matches:
-            message = (
-                f"找到 {len(matches)} 个匹配度较高的候选物品。"
-                if language == "zh"
-                else f"Found {len(matches)} strong candidate item(s)."
-            )
+            message = match_results_message(matches, language)
             status = "match_found"
         else:
             message = (
@@ -477,6 +485,7 @@ class RuleEngine:
         verified: VerifiedRequest,
         language: str,
         emit: Emit,
+        target_report_type: Literal["LOST", "FOUND"] = "FOUND",
     ) -> tuple[list[Any], ActionTaken]:
         event_date = parse_date(query.get("event_date"))
         date_from = parse_date(query.get("date_from"))
@@ -484,22 +493,39 @@ class RuleEngine:
         if event_date:
             date_from = date_from or event_date - timedelta(days=30)
             date_to = date_to or event_date + timedelta(days=30)
-        search = SearchFoundItemsInput(
-            category=query.get("category"),
-            date_from=date_from,
-            date_to=date_to,
-            page=0,
-            size=100,
-        )
-        emit(tool_event("search_found_items", "started"))
-        result = await self._api.search_found_items(verified.user_id, verified.user_role, search)
-        emit(tool_event("search_found_items", "completed"))
+        search_values = {
+            "category": query.get("category"),
+            "date_from": date_from,
+            "date_to": date_to,
+            "page": 0,
+            "size": 100,
+        }
+        if target_report_type == "LOST":
+            action_name = "search_lost_items"
+            search = SearchLostItemsInput(**search_values)
+            emit(tool_event(action_name, "started"))
+            result = await self._api.search_lost_items(
+                verified.user_id,
+                verified.user_role,
+                search,
+            )
+            emit(tool_event(action_name, "completed"))
+        else:
+            action_name = "search_found_items"
+            found_search = SearchFoundItemsInput(**search_values)
+            emit(tool_event(action_name, "started"))
+            result = await self._api.search_found_items(
+                verified.user_id,
+                verified.user_role,
+                found_search,
+            )
+            emit(tool_event(action_name, "completed"))
         content = result.get("content", [])
         candidates = content if isinstance(content, list) else []
         matches = rank_candidates(query, candidates, self._minimum_score, language)
         action = ActionTaken(
-            action="search_found_items",
-            params_summary="FOUND + OPEN, size=100",
+            action=action_name,
+            params_summary=f"{target_report_type} + OPEN, size=100",
             result_summary=f"candidates={len(candidates)}, matches={len(matches)}",
             status="success",
         )
@@ -561,7 +587,7 @@ def detect_intent(message: str, previous: Any = None) -> Intent:
 
 
 def detect_explicit_intent(message: str) -> Intent | None:
-    """识别用户本轮明确表达的意图；检索措辞优先于物品丢失背景。"""
+    """识别用户本轮明确表达的意图，并避免将有歧义的“找到”直接判为搜索。"""
     lowered = message.lower()
     if re.search(r"\bclaim\b|\bownership\b", lowered) or "认领" in message:
         return "claim_item"
@@ -569,15 +595,29 @@ def detect_explicit_intent(message: str) -> Intent | None:
         keyword in message for keyword in ("详情", "查看记录")
     ):
         return "get_item_detail"
+
+    # “找到”既可能表示失主搜索，也可能表示拾获者发现物品。只有同时表达
+    # 创建、登记或发布时，规则层才明确将其识别为拾获登记；其余模糊情况交给 LLM。
+    explicit_search = any(
+        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
+    )
+    found_publication = (
+        not explicit_search
+        and any(keyword in message for keyword in ("创建", "登记", "发布", "上报", "记录"))
+        and any(keyword in message for keyword in ("找到", "捡到", "捡了", "拾到"))
+    )
+    if found_publication:
+        return "report_found"
+
     if re.search(r"\bsearch\b|\bfind\b|\bfound item", lowered) or any(
-        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到", "找到")
+        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
     ):
         return "search_found_items"
     if re.search(r"\bi lost\b|\breport(?:ed)? lost\b|\blost my\b", lowered) or any(
         keyword in message for keyword in ("我丢了", "丢了", "丢失", "遗失", "报失")
     ):
         return "report_lost"
-    # 捡到/拾到物品 → 登记捡到报告（report_found）；"找到"保留给失主搜索
+    # “捡到/拾到”含义明确；单独的“找到”交给 LLM 结合上下文判断。
     if re.search(r"\bpick(?:ed)? up\b|\bfound\b", lowered) or any(
         keyword in message for keyword in ("捡到", "捡了", "拾到")
     ):
@@ -663,6 +703,8 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
         fields["event_date"] = iso_dates[0]
         if len(iso_dates) > 1:
             fields["date_from"], fields["date_to"] = iso_dates[:2]
+    elif "前天" in message or "day before yesterday" in message.lower():
+        fields["event_date"] = (date.today() - timedelta(days=2)).isoformat()
     elif "昨天" in message or "yesterday" in message.lower():
         fields["event_date"] = (date.today() - timedelta(days=1)).isoformat()
     elif "今天" in message or "today" in message.lower():
@@ -696,6 +738,39 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
             )
             if location:
                 fields["location"] = location.group(1).strip()
+        if "description" not in fields and len(message.strip()) >= 10:
+            fields["description"] = message.strip()
+    if intent == "report_found" and "item_name" not in fields:
+        item = re.search(
+            r"(?:我)?(?:找到|捡到|捡了|拾到)\s*(?:了)?\s*(?:一(?:个|把|只|本|张|副))?\s*"
+            r"([^,，。;；\n]{2,30})",
+            message,
+        )
+        english_item = re.search(
+            r"(?:i\s+found|(?:i\s+)?picked\s+up)\s+(?:an?\s+|the\s+)?"
+            r"([^,;\n]{2,40}?)(?=\s+(?:at|in|on)\s|[,;\n]|$)",
+            message,
+            re.IGNORECASE,
+        )
+        matched_item = item or english_item
+        if matched_item:
+            fields["item_name"] = matched_item.group(1).strip()
+        if "location" not in fields:
+            location = re.search(
+                r"于([^,，。;；\n]{2,40}?)(?:找到|捡到|捡了|拾到)",
+                message,
+            ) or re.search(
+                r"在([^,，。;；\n]{2,40}?)(?:找到|捡到|捡了|拾到)",
+                message,
+            )
+            english_location = re.search(
+                r"(?:at|in)\s+([^,;\n]{2,40}?)(?=\s+on\s+\d{4}-\d{2}-\d{2}|[,;\n]|$)",
+                message,
+                re.IGNORECASE,
+            )
+            matched_location = location or english_location
+            if matched_location:
+                fields["location"] = matched_location.group(1).strip()
         if "description" not in fields and len(message.strip()) >= 10:
             fields["description"] = message.strip()
     if intent == "search_found_items" and "keyword" not in fields:
@@ -778,23 +853,56 @@ def report_summary(report: ReportLostInput | ReportFoundInput, language: str) ->
 def report_created_message(created: dict[str, Any], matches: list[Any], language: str) -> str:
     report_id = created.get("id")
     if language == "zh":
-        suffix = f"并找到 {len(matches)} 个潜在匹配。" if matches else "暂时未找到高匹配候选。"
-        return f"报失记录 #{report_id} 已创建，{suffix}"
-    suffix = (
-        f"and found {len(matches)} potential match(es)." if matches else "with no strong match yet."
-    )
-    return f"Lost report #{report_id} was created {suffix}"
+        if matches:
+            return f"报失记录 #{report_id} 已创建。\n{match_results_message(matches, language)}"
+        return f"报失记录 #{report_id} 已创建，暂时未找到高匹配候选。"
+    if matches:
+        return f"Lost report #{report_id} was created.\n{match_results_message(matches, language)}"
+    return f"Lost report #{report_id} was created with no strong match yet."
 
 
-def found_created_message(created: dict[str, Any], language: str) -> str:
-    """捡到（FOUND）报告创建成功文案（暂不匹配失主：后端无 LOST 候选端点）。"""
+def found_created_message(created: dict[str, Any], matches: list[Any], language: str) -> str:
+    """拾获记录创建成功后，附带可能对应的开放报失记录。"""
     report_id = created.get("id")
     if language == "zh":
-        return f"捡到物品记录 #{report_id} 已登记，失主报失后会匹配到这条记录。"
-    return (
-        f"Found report #{report_id} was registered; "
-        "it will be matched when the owner files a lost report."
+        if matches:
+            return f"捡到物品记录 #{report_id} 已登记。\n{match_results_message(matches, language)}"
+        return f"捡到物品记录 #{report_id} 已登记，暂时未找到高匹配的报失记录。"
+    if matches:
+        details = match_results_message(matches, language)
+        return f"Found report #{report_id} was registered.\n{details}"
+    return f"Found report #{report_id} was registered with no strong lost-report match yet."
+
+
+def match_results_message(matches: list[Any], language: str) -> str:
+    """生成所有客户端都能直接展示的候选摘要，结构化结果仍单独返回。"""
+    heading = (
+        f"找到 {len(matches)} 个匹配度较高的候选物品："
+        if language == "zh"
+        else f"Found {len(matches)} strong candidate item(s):"
     )
+    lines = [heading]
+    for index, match in enumerate(matches, start=1):
+        score = round(float(match.match_score) * 100)
+        colour = match.colour or ("未填写" if language == "zh" else "not provided")
+        reasons = (
+            "；".join(match.match_reason) if language == "zh" else "; ".join(match.match_reason)
+        )
+        if language == "zh":
+            lines.append(
+                f"{index}. #{match.item_id} [{match.report_type}] {match.item_name}；"
+                f"类别 {match.category}；颜色 {colour}；地点 {match.location}；"
+                f"日期 {match.event_date}；匹配度 {score}%\n"
+                f"   描述：{match.description}\n   匹配原因：{reasons}"
+            )
+        else:
+            lines.append(
+                f"{index}. #{match.item_id} [{match.report_type}] {match.item_name}; "
+                f"category {match.category}; colour {colour}; location {match.location}; "
+                f"date {match.event_date}; score {score}%\n"
+                f"   Description: {match.description}\n   Reasons: {reasons}"
+            )
+    return "\n".join(lines)
 
 
 def detail_message(detail: dict[str, Any], language: str) -> str:

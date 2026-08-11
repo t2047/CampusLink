@@ -157,6 +157,9 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
         if ("GET".equals(method) && "candidates".equals(path)) {
             return "search_found_items";
         }
+        if ("GET".equals(method) && "lost-candidates".equals(path)) {
+            return "search_lost_items";
+        }
         if ("GET".equals(method) && path.matches("reports/\\d+")) {
             return "get_item_detail";
         }

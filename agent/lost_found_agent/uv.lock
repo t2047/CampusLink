@@ -99,7 +99,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "mcp" },
-    { name = "pillow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },

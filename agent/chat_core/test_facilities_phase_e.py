@@ -105,6 +105,12 @@ def test_facilities_capability_describes_full_read_write_lifecycle():
     assert "邮件" not in capability
 
 
+def test_lost_found_capability_includes_found_item_registration():
+    capability = AGENT_CAPABILITIES["lost-found-agent"]
+    for phrase in ("报失", "登记拾获", "查找", "认领"):
+        assert phrase in capability
+
+
 def test_router_rejects_hallucinated_agent_target(monkeypatch):
     fake = FakeLLM("domain_agent", ["facility-agent", "unknown-agent"])
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
