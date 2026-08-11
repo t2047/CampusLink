@@ -245,6 +245,7 @@ class AgentClient:
             "confirmation_required": raw.get("confirmation_required"),
             "shared_context": raw.get("shared_context", {}),
             "actions_taken": raw.get("actions_taken", []),
+            "match_results": raw.get("match_results", []),
             "request_id": raw.get("request_id"),
             "error": raw.get("error"),
         }

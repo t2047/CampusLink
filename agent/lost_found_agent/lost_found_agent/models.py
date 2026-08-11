@@ -35,11 +35,15 @@ class InvokeRequest(BaseModel):
 
 class MatchResult(BaseModel):
     item_id: str
+    report_type: Literal["LOST", "FOUND"]
     item_name: str
     category: str
     description: str
-    found_location: str
-    found_date: str
+    colour: str | None = None
+    location: str
+    event_date: str
+    time_description: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
     status: str
     match_score: float = Field(ge=0, le=1)
     match_reason: list[str] = Field(default_factory=list)
@@ -57,6 +61,7 @@ class ActionTaken(BaseModel):
         "report_lost",
         "report_found",
         "search_found_items",
+        "search_lost_items",
         "get_item_detail",
         "claim_item",
     ]

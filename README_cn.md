@@ -11,6 +11,7 @@ CampusLink 是校园 **AI Agent 平台**：以 `agent/chat_core` 编排层（Fas
 报失/登记拾获/查找/认领，写操作经用户确认后真正落库。
 
 Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中。
+需要复现 Web、Chat Core 和 Lost & Found Agent 完整链路时，请按[本地完整复现指南](docs/lost-found/LOCAL_REPRODUCTION_cn.md)操作。
 
 ## 技术栈
 

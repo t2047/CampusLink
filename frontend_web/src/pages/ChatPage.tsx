@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import type { AgentMatchResult } from '../api/lostFoundAgent';
 import {
   createChatStream,
   createChatResumeStream,
@@ -35,6 +36,7 @@ interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'error';
   content: string;
   steps: AgentStep[];
+  matches: AgentMatchResult[];
   timestamp: number;
 }
 
@@ -91,6 +93,7 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     confirmedNote: '\n✅ Confirmed.',
     cancelledNote: '\n❌ Cancelled.',
     confirmStep: '⏳ Waiting for confirmation',
+    completed: 'completed',
     unknownError: 'Unknown error',
     langToggle: '中文',
   },
@@ -120,6 +123,7 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     confirmedNote: '\n✅ 操作已确认。',
     cancelledNote: '\n❌ 操作已取消。',
     confirmStep: '⏳ 需要确认',
+    completed: '已完成',
     unknownError: '未知错误',
     langToggle: 'English',
   },
@@ -219,6 +223,12 @@ export default function ChatPage() {
     );
   }, []);
 
+  const setMatchResults = useCallback((msgId: string, matches: AgentMatchResult[]) => {
+    setMessages((prev) =>
+      prev.map((message) => (message.id === msgId ? { ...message, matches } : message)),
+    );
+  }, []);
+
   const markLastStepOk = useCallback((msgId: string) => {
     setMessages((prev) =>
       prev.map((m) => {
@@ -230,6 +240,38 @@ export default function ChatPage() {
       }),
     );
   }, []);
+
+  const settleRunningStep = useCallback(
+    (
+      msgId: string,
+      selector: { agent?: string; tool?: string },
+      settled: AgentStep,
+    ) => {
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== msgId) return message;
+          let matchingIndex = -1;
+          message.steps.forEach((step, index) => {
+            const agentMatches = selector.agent == null || step.agent === selector.agent;
+            const toolMatches = selector.tool == null || step.tool === selector.tool;
+            if (step.status === 'running' && agentMatches && toolMatches) {
+              matchingIndex = index;
+            }
+          });
+          if (matchingIndex < 0) {
+            return { ...message, steps: [...message.steps, settled] };
+          }
+          return {
+            ...message,
+            steps: message.steps.map((step, index) =>
+              index === matchingIndex ? settled : step,
+            ),
+          };
+        }),
+      );
+    },
+    [],
+  );
 
   const finish = useCallback(() => {
     streamingRef.current = false;
@@ -278,18 +320,36 @@ export default function ChatPage() {
           break;
         }
 
-        case 'agent_done':
-          markLastStepOk(msgId);
+        case 'agent_done': {
+          const agent = String(data.agent ?? 'Agent');
+          settleRunningStep(
+            msgId,
+            { agent },
+            { agent, status: 'ok', label: `${agent} ${t('completed')}` },
+          );
           break;
+        }
 
-        case 'agent_error':
-          appendStep(msgId, {
-            agent: data.agent as string,
-            status: 'error',
-            label: `${String(data.agent ?? 'Agent')} 失败：${String(data.message ?? t('unknownError'))}`,
-          });
+        case 'match_results': {
+          const items = Array.isArray(data.items) ? data.items as AgentMatchResult[] : [];
+          if (items.length > 0) setMatchResults(msgId, items);
+          break;
+        }
+
+        case 'agent_error': {
+          const agent = String(data.agent ?? 'Agent');
+          settleRunningStep(
+            msgId,
+            { agent },
+            {
+              agent,
+              status: 'error',
+              label: `${agent} 失败：${String(data.message ?? t('unknownError'))}`,
+            },
+          );
           finish();
           break;
+        }
 
         case 'utility_start':
           appendStep(msgId, {
@@ -299,9 +359,15 @@ export default function ChatPage() {
           });
           break;
 
-        case 'utility_result':
-          markLastStepOk(msgId);
+        case 'utility_result': {
+          const tool = String(data.tool ?? '工具');
+          settleRunningStep(
+            msgId,
+            { tool },
+            { tool, status: 'ok', label: `${tool} ${t('completed')}` },
+          );
           break;
+        }
 
         case 'confirm_required': {
           const confirmData: PendingConfirm = {
@@ -339,7 +405,7 @@ export default function ChatPage() {
           break;
       }
     },
-    [appendContent, appendStep, finish, markLastStepOk, t],
+    [appendContent, appendStep, finish, setMatchResults, settleRunningStep, t],
   );
 
   // ── 发送 ────────────────────────────────────
@@ -355,6 +421,7 @@ export default function ChatPage() {
         role: 'user',
         content: msg,
         steps: [],
+        matches: [],
         timestamp: Date.now(),
       };
       const assistantMsg: ChatMessage = {
@@ -362,6 +429,7 @@ export default function ChatPage() {
         role: 'assistant',
         content: '',
         steps: [],
+        matches: [],
         timestamp: Date.now(),
       };
 
@@ -716,6 +784,52 @@ export default function ChatPage() {
                     msg.id === lastAssistant?.id && (
                       <span className="typing-cursor" />
                     )}
+                </div>
+              )}
+
+              {msg.role === 'assistant' && msg.matches.length > 0 && (
+                <div className="grid w-full gap-3 sm:grid-cols-2">
+                  {msg.matches.map((match) => (
+                    <article
+                      key={`${msg.id}-match-${match.item_id}`}
+                      className="overflow-hidden rounded-xl border border-indigo-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
+                    >
+                      {match.image_urls[0] && (
+                        <img
+                          src={match.image_urls[0]}
+                          alt={match.item_name}
+                          className="h-36 w-full object-cover"
+                        />
+                      )}
+                      <div className="space-y-2 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <Link
+                            to={`/lost-found/${match.item_id}`}
+                            className="font-semibold text-indigo-600 hover:underline dark:text-indigo-300"
+                          >
+                            #{match.item_id} [{match.report_type}] {match.item_name}
+                          </Link>
+                          <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                            {Math.round(match.match_score * 100)}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {match.category}{match.colour ? ` · ${match.colour}` : ''} · {match.location} · {match.event_date}
+                        </p>
+                        <p className="text-sm text-slate-700 dark:text-slate-200">{match.description}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {match.match_reason.map((reason) => (
+                            <span
+                              key={`${match.item_id}-${reason}`}
+                              className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                            >
+                              {reason}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
                 </div>
               )}
 

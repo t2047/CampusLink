@@ -30,11 +30,17 @@ def rank_candidates(
         results.append(
             MatchResult(
                 item_id=str(candidate["id"]),
+                report_type=str(candidate.get("reportType", "FOUND")),
                 item_name=str(candidate.get("itemName", "")),
                 category=str(candidate.get("category", "OTHER")),
                 description=str(candidate.get("description", "")),
-                found_location=str(candidate.get("location", "")),
-                found_date=str(candidate.get("eventDate", "")),
+                colour=(str(candidate["colour"]) if candidate.get("colour") else None),
+                location=str(candidate.get("location", "")),
+                event_date=str(candidate.get("eventDate", "")),
+                time_description=str(candidate["timeDescription"])
+                if candidate.get("timeDescription")
+                else None,
+                image_urls=[str(url) for url in candidate.get("imageUrls", []) if url],
                 status=str(candidate.get("status", "OPEN")),
                 match_score=round(score, 4),
                 match_reason=reasons,

@@ -30,6 +30,7 @@ class AgentInvocation(TypedDict, total=False):
     confirmation_required: dict[str, Any] | None
     shared_context: dict[str, Any]        # 跨 Agent 传递的结构化数据
     actions_taken: list[dict[str, Any]]   # [{action, status, result}]
+    match_results: list[dict[str, Any]]   # 可供前端直接渲染的候选详情
     request_id: str | None                # Domain Agent request ID（排障关联）
     error: str | None
 
