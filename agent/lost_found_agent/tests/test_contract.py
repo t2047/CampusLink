@@ -18,7 +18,7 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
         "claim_item",
     ]
 
-    assert schema["version"] == "1.6.0"
+    assert schema["version"] == "1.7.0"
     assert schema["security"]["writeConfirmationRequired"] == [
         "report_lost",
         "report_found",
@@ -32,6 +32,29 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
     assert sum(schema["matching"]["weights"].values()) == 1
     assert schema["model"]["maximumToolsPerInvocation"] == 2
     assert schema["model"]["fallbackMode"] == "rules"
+
+
+def test_search_input_accepts_image_payload() -> None:
+    schema_path = Path(__file__).parents[2] / "schemas" / "lost-found-agent.json"
+    root = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft202012Validator({"$ref": "#/$defs/searchInput", "$defs": root["$defs"]})
+    assert root["search"]["input"] == {"$ref": "#/$defs/searchInput"}
+    assert root["search"]["output"] == {"$ref": "#/$defs/searchOutput"}
+    sample: dict[str, object] = {
+        "report_type": "FOUND",
+        "keyword": "耳机",
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-11",
+        "images": [
+            {
+                "object_key": "lost-found-staging/abc.png",
+                "visual_fingerprint": "VF1:xxx",
+                "url": "/api/lost-found/images/staging/abc.png",
+            }
+        ],
+    }
+
+    validator.validate(sample)
 
 
 def test_invoke_input_accepts_staged_images() -> None:

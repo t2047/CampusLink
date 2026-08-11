@@ -5,6 +5,7 @@ import com.app.campusagent.lostfound.dto.StagedImageResponse;
 import com.app.campusagent.lostfound.dto.agent.AgentClassifyResponse;
 import com.app.campusagent.lostfound.dto.agent.AgentClassifyWebRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
+import com.app.campusagent.lostfound.dto.agent.AgentWebSearchRequest;
 import com.app.campusagent.lostfound.service.LostFoundAgentGateway;
 import com.app.campusagent.lostfound.service.LostFoundImageStagingService;
 import jakarta.validation.Valid;
@@ -51,5 +52,12 @@ public class LostFoundAgentWebController {
             @Valid @RequestBody AgentClassifyWebRequest request,
             @AuthenticationPrincipal User currentUser) {
         return agentGateway.classify(request, currentUser);
+    }
+
+    @PostMapping("/search")
+    public Map<String, Object> search(
+            @Valid @RequestBody AgentWebSearchRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        return agentGateway.search(request, currentUser);
     }
 }

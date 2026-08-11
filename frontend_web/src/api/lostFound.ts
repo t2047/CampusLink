@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { AgentMatchResult } from './lostFoundAgent'
 import type {
   CreateReportInput,
   ItemCategory,
@@ -6,13 +7,52 @@ import type {
   LostFoundMetadata,
   LostFoundReport,
   PageResponse,
+  ReportType,
   UpdateReportInput,
 } from '../types'
 
 export type ReportSearchParams = Record<string, string | number | undefined>
 
+export interface AgentImageSearchInput {
+  objectKey: string
+  visualFingerprint: string
+  url: string
+}
+
+export type AgentImageSearchStatus = 'match_found' | 'no_match' | 'failed'
+
+/** Browse 以图搜物响应：与 Agent 面板同图结果逐字节一致（后端仅透传 Agent 打分）。 */
+export interface AgentImageSearchResponse {
+  status: AgentImageSearchStatus
+  match_results: AgentMatchResult[]
+  request_id: string
+  message?: string | null
+}
+
+export interface AgentImageSearchRequest {
+  reportType: ReportType
+  keyword?: string
+  category?: string
+  colour?: string
+  location?: string
+  dateFrom?: string
+  dateTo?: string
+  images: AgentImageSearchInput[]
+}
+
 export async function getMetadata(): Promise<LostFoundMetadata> {
   const response = await apiClient.get<LostFoundMetadata>('/lost-found/metadata')
+  return response.data
+}
+
+/** Browse 以图搜物：带视觉指纹 + 可选筛选调用 Agent 轻量搜索端点。 */
+export async function searchByImage(
+  request: AgentImageSearchRequest,
+): Promise<AgentImageSearchResponse> {
+  const response = await apiClient.post<AgentImageSearchResponse>(
+    '/lost-found/agent/search',
+    request,
+  )
   return response.data
 }
 

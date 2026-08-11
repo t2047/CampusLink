@@ -65,7 +65,7 @@ public record AgentWebInvokeRequest(
         return payload;
     }
 
-    private static Map<String, Object> agentImagePayload(AgentImage image) {
+    static Map<String, Object> agentImagePayload(AgentImage image) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("object_key", image.objectKey());
         item.put("visual_fingerprint", image.visualFingerprint());

@@ -524,49 +524,15 @@ class RuleEngine:
         emit: Emit,
         target_report_type: Literal["LOST", "FOUND"] = "FOUND",
     ) -> tuple[list[Any], ActionTaken]:
-        event_date = parse_date(query.get("event_date"))
-        date_from = parse_date(query.get("date_from"))
-        date_to = parse_date(query.get("date_to"))
-        if event_date:
-            date_from = date_from or event_date - timedelta(days=30)
-            date_to = date_to or event_date + timedelta(days=30)
-        search_values = {
-            "category": query.get("category"),
-            "date_from": date_from,
-            "date_to": date_to,
-            "page": 0,
-            "size": 100,
-        }
-        if target_report_type == "LOST":
-            action_name = "search_lost_items"
-            search = SearchLostItemsInput(**search_values)
-            emit(tool_event(action_name, "started"))
-            result = await self._api.search_lost_items(
-                verified.user_id,
-                verified.user_role,
-                search,
-            )
-            emit(tool_event(action_name, "completed"))
-        else:
-            action_name = "search_found_items"
-            found_search = SearchFoundItemsInput(**search_values)
-            emit(tool_event(action_name, "started"))
-            result = await self._api.search_found_items(
-                verified.user_id,
-                verified.user_role,
-                found_search,
-            )
-            emit(tool_event(action_name, "completed"))
-        content = result.get("content", [])
-        candidates = content if isinstance(content, list) else []
-        matches = rank_candidates(query, candidates, self._minimum_score, language)
-        action = ActionTaken(
-            action=action_name,
-            params_summary=f"{target_report_type} + OPEN, size=100",
-            result_summary=f"candidates={len(candidates)}, matches={len(matches)}",
-            status="success",
+        return await search_candidates(
+            self._api,
+            query,
+            verified,
+            self._minimum_score,
+            language,
+            emit,
+            target_report_type,
         )
-        return matches, action
 
     async def _detail(
         self,
@@ -610,6 +576,65 @@ class RuleEngine:
                 )
             ],
         )
+
+
+async def search_candidates(
+    api_client: CampusApiClient,
+    query: dict[str, Any],
+    verified: VerifiedRequest,
+    minimum_score: float,
+    language: str,
+    emit: Emit,
+    target_report_type: Literal["LOST", "FOUND"] = "FOUND",
+) -> tuple[list[Any], ActionTaken]:
+    """\u5019\u9009\u68c0\u7d22 + \u6253\u5206\u3002Browse \u4ee5\u56fe\u641c\u7269\u4e0e chat \u53cc\u5411\u5339\u914d\u5171\u7528\u540c\u4e00\u5957\u94fe\u8def\uff0c
+    \u4fdd\u8bc1\u4e24\u7aef\u6253\u5206\u9010\u5b57\u8282\u4e00\u81f4\uff08\u539f RuleEngine._search_candidates \u62bd\u53d6\uff09\u3002
+
+    \u4ec5\u5f53\u67e5\u8be2\u542b event_date \u65f6\u624d\u505a \u00b130 \u5929\u7a97\u53e3\u515c\u5e95\uff1b\u663e\u5f0f date_from/date_to \u539f\u6837\u900f\u4f20\u3002
+    """
+    event_date = parse_date(query.get("event_date"))
+    date_from = parse_date(query.get("date_from"))
+    date_to = parse_date(query.get("date_to"))
+    if event_date:
+        date_from = date_from or event_date - timedelta(days=30)
+        date_to = date_to or event_date + timedelta(days=30)
+    search_values = {
+        "category": query.get("category"),
+        "date_from": date_from,
+        "date_to": date_to,
+        "page": 0,
+        "size": 100,
+    }
+    if target_report_type == "LOST":
+        action_name = "search_lost_items"
+        search = SearchLostItemsInput(**search_values)
+        emit(tool_event(action_name, "started"))
+        result = await api_client.search_lost_items(
+            verified.user_id,
+            verified.user_role,
+            search,
+        )
+        emit(tool_event(action_name, "completed"))
+    else:
+        action_name = "search_found_items"
+        found_search = SearchFoundItemsInput(**search_values)
+        emit(tool_event(action_name, "started"))
+        result = await api_client.search_found_items(
+            verified.user_id,
+            verified.user_role,
+            found_search,
+        )
+        emit(tool_event(action_name, "completed"))
+    content = result.get("content", [])
+    candidates = content if isinstance(content, list) else []
+    matches = rank_candidates(query, candidates, minimum_score, language)
+    action = ActionTaken(
+        action=action_name,
+        params_summary=f"{target_report_type} + OPEN, size=100",
+        result_summary=f"candidates={len(candidates)}, matches={len(matches)}",
+        status="success",
+    )
+    return matches, action
 
 
 def detect_language(message: str) -> str:

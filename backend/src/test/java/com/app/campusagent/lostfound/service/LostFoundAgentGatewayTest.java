@@ -5,6 +5,7 @@ import com.app.campusagent.domain.User;
 import com.app.campusagent.lostfound.dto.agent.AgentClassifyResponse;
 import com.app.campusagent.lostfound.dto.agent.AgentClassifyWebRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
+import com.app.campusagent.lostfound.dto.agent.AgentWebSearchRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -21,6 +22,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Base64;
@@ -209,6 +211,71 @@ class LostFoundAgentGatewayTest {
                 new AgentClassifyWebRequest("mystery gadget"), user);
 
         assertEquals(null, response.category());
+    }
+
+    @Test
+    void searchesAndSignsWithSearchAction() throws Exception {
+        AtomicReference<byte[]> capturedBody = new AtomicReference<>();
+        AtomicReference<Map<String, java.util.List<String>>> capturedHeaders = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/agent/search", exchange -> {
+            capturedBody.set(exchange.getRequestBody().readAllBytes());
+            capturedHeaders.set(exchange.getRequestHeaders());
+            byte[] response = ("{\"status\":\"match_found\",\"match_results\":[],"
+                    + "\"request_id\":\"trace-search\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        LostFoundAgentGateway gateway = new LostFoundAgentGateway(
+                new ObjectMapper(),
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/agent/invoke"),
+                SECRET);
+        User user = user(42L, Role.STUDENT);
+        AgentWebSearchRequest request = new AgentWebSearchRequest(
+                "FOUND",
+                "耳机",
+                null,
+                "black",
+                "中央图书馆",
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 11),
+                List.of(new AgentWebInvokeRequest.AgentImage(
+                        "lost-found-staging/k.png",
+                        "VF1:fp",
+                        "/api/lost-found/images/staging/k.png")));
+
+        Map<String, Object> response = gateway.search(request, user);
+
+        assertEquals("match_found", response.get("status"));
+        String body = new String(capturedBody.get(), StandardCharsets.UTF_8);
+        assertTrue(body.contains("\"report_type\":\"FOUND\""));
+        assertTrue(body.contains("\"keyword\":\"耳机\""));
+        assertTrue(body.contains("\"date_from\":\"2026-08-01\""));
+        assertTrue(body.contains("\"object_key\":\"lost-found-staging/k.png\""));
+        assertTrue(body.contains("\"visual_fingerprint\":\"VF1:fp\""));
+
+        String nonce = firstHeader(capturedHeaders.get(), "X-nonce");
+        String timestamp = firstHeader(capturedHeaders.get(), "X-timestamp");
+        String signature = firstHeader(capturedHeaders.get(), "X-signature");
+        assertEquals(expectedSignature(capturedBody.get(), nonce, timestamp), signature);
+
+        String authorization = firstHeader(capturedHeaders.get(), "Authorization");
+        Claims claims = Jwts.parser()
+                .verifyWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .requireIssuer("chat-core")
+                .requireAudience("lost-found-agent")
+                .build()
+                .parseSignedClaims(authorization.substring("Bearer ".length()))
+                .getPayload();
+        assertEquals("42", claims.getSubject());
+        assertEquals("search", claims.get("intended_action", String.class));
+        assertEquals(nonce, claims.getId());
     }
 
     private User user(Long id, Role role) {

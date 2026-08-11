@@ -1,8 +1,9 @@
 """Agent 对外契约模型。"""
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 AgentStatus = Literal[
     "completed",
@@ -100,6 +101,40 @@ class ClassifyResponse(BaseModel):
     """分类建议响应；category 为 None 表示规则与 LLM 均无法判断。"""
 
     category: str | None = None
+
+
+SearchStatus = Literal["match_found", "no_match", "failed"]
+
+
+class SearchRequest(BaseModel):
+    """Browse 以图搜物的轻量搜索请求：不经聊天/LLM，直接走候选检索与 rank_candidates 打分。
+
+    report_type 决定候选方向（FOUND 视图搜 FOUND 候选，LOST 视图搜 LOST 候选），
+    与 chat flow 的 search_found_items / search_lost_items 语义一致。"""
+
+    report_type: Literal["FOUND", "LOST"]
+    keyword: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=50)
+    colour: str | None = Field(default=None, max_length=50)
+    location: str | None = Field(default=None, max_length=200)
+    date_from: date | None = None
+    date_to: date | None = None
+    images: list[AgentImage] = Field(min_length=1, max_length=5)
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "SearchRequest":
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must be on or before date_to")
+        return self
+
+
+class SearchResponse(BaseModel):
+    """轻量搜索结果；match_results 与聊天 flow 的 MatchResult 结构一致。"""
+
+    status: SearchStatus
+    match_results: list[MatchResult] = Field(default_factory=list)
+    request_id: str
+    message: str | None = None
 
 
 class VerifiedRequest(BaseModel):

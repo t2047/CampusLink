@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -11,11 +12,18 @@ from .config import Settings, get_settings
 from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
 from .llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
-from .models import ClassifyRequest, ClassifyResponse, InvokeRequest, InvokeResponse
+from .models import (
+    ClassifyRequest,
+    ClassifyResponse,
+    InvokeRequest,
+    InvokeResponse,
+    SearchRequest,
+    SearchResponse,
+)
 from .rate_limit import RateLimiter
-from .rules import RuleEngine, map_category
+from .rules import RuleEngine, map_category, search_candidates
 from .security import AgentSecurity
-from .tools import CampusApiClient
+from .tools import BackendApiError, CampusApiClient
 
 
 def create_app(
@@ -192,6 +200,56 @@ def create_app(
             except LlmUnavailable:
                 category = None
         return ClassifyResponse(category=category)
+
+    @app.post("/agent/search", response_model=SearchResponse)
+    async def agent_search(payload: SearchRequest, request: Request) -> SearchResponse:
+        """Browse 以图搜物：按图 + 可选筛选检索候选并打分。
+
+        不经聊天/LLM，直接复用 search_candidates 链路（与 Agent 面板同图结果一致）；
+        language 固定 zh 使理由文案与面板一致；不注入 event_date，避免 ±30 天窗口兜底。
+        """
+        verified = await security.verify(request, "search")
+        request_id = verified.trace_id or str(uuid4())
+        # 只放入非空字段：score_candidate 会把缺失字段按 str() 拼进 text 分量，
+        # 若 key 以 None 存在会注入 "None" 幽灵文本（与 chat flow 的 query 构造一致）。
+        query: dict[str, Any] = {
+            field: value
+            for field, value in (
+                ("keyword", payload.keyword),
+                ("category", payload.category),
+                ("colour", payload.colour),
+                ("location", payload.location),
+                ("date_from", payload.date_from),
+                ("date_to", payload.date_to),
+            )
+            if value is not None
+        }
+        fingerprints = [
+            image.visual_fingerprint for image in payload.images if image.visual_fingerprint
+        ]
+        if fingerprints:
+            query["visual_fingerprints"] = fingerprints
+        try:
+            matches, _action = await search_candidates(
+                active_api_client,
+                query,
+                verified,
+                active_settings.lost_found_match_min_score,
+                "zh",
+                lambda event: None,
+                target_report_type=payload.report_type,
+            )
+        except BackendApiError as exc:
+            return SearchResponse(
+                status="failed",
+                request_id=request_id,
+                message=f"Campus API ({exc.code}): {exc}",
+            )
+        return SearchResponse(
+            status="match_found" if matches else "no_match",
+            match_results=matches,
+            request_id=request_id,
+        )
 
     return app
 

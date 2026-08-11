@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-11
 > 创建分支：`feature/lost-found-image-matching`（基线 b20ac26）
-> 状态：**阶段 1（图片显示修复）与阶段 2（Agent 图片上传 + 图片匹配）已完成并通过真实运行验证**，阶段 3（Browse 以图搜物）未开始（本文件是后续开发的唯一事实来源，随每个阶段 PR 更新）
+> 状态：**阶段 1（图片显示修复）、阶段 2（Agent 图片上传 + 图片匹配）与阶段 3（Browse 以图搜物）均已完成**，阶段 1/2/3 均通过真实运行验证（阶段 3 冒烟见 §9，含"同图 Not Found"根因排查）（本文件是后续开发的唯一事实来源，随每个阶段 PR 更新）
 
 ## 1. 背景与需求
 
@@ -166,6 +166,25 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 - Browse 上传图片可搜到视觉相似的 FOUND/LOST 记录；与 Agent 面板同图搜索结果一致。
 - 图片搜索与文字筛选可组合使用；图片可移除、可更换。
 
+**实现（2026-08-11，阶段 3）**：架构决策＝**Agent 新增轻量搜索路由 `POST /agent/search`，直接复用 `matching.rank_candidates` 打分**（不做 Java 侧打分重实现），保证与 Agent 面板逐字节一致。数据流：
+
+```text
+ReportsPage（暂存图走已有 POST /agent/upload-image）
+  → POST /api/lost-found/agent/search（新，authenticated 任意登录角色）
+  → LostFoundAgentGateway.search()（HS256 delegation token，intended_action="search"）
+  → POST /agent/search（新 FastAPI 路由，security.verify(request, "search")）
+  → 模块级 search_candidates()（从 RuleEngine._search_candidates 抽取，逻辑原样）
+  → CampusApiClient.search_found/lost_items → 内部 GET candidates → rank_candidates()
+  → SearchResponse{status, match_results, request_id} 原样透传前端
+```
+
+设计要点：
+- **复用而非复制**：`rules.py` 把 `RuleEngine._search_candidates` 抽取为模块级 `search_candidates(api_client, query, verified, minimum_score, language, emit, target_report_type)`，聊天流程与 Browse 搜索共用同一函数（含 ±30 天窗口、size=100、in-memory rank）。
+- **查询构造**：`/agent/search` 的 query 只放入非空字段，`visual_fingerprints` 列表激活 `_visual_similarity`；不注入 `event_date`（Browse 用显式 `date_from/date_to` 硬过滤，date 分量不参与，与聊天显式日期时一致）。**关键坑**：`score_candidate` 对缺失字段按 `str()` 拼 text 分量，若 query 里以 `None` 存在会注入 `"None"` 幽灵文本——路由必须省略空字段（已加回归测试锁定）。
+- **方向语义**：`report_type` = Browse 当前 reportType 切换（FOUND 视图搜 FOUND 候选，LOST 视图搜 LOST 候选），与 Agent `search_found_items`/`search_lost_items` 一致。
+- **前端**：单图暂存（复用 `uploadAgentImage` + 类型/大小校验），`toReportCard()` 把 `AgentMatchResult` 映射为 `ReportCard` 兼容对象；图搜结果无分页（≤5）；无匹配/失败有独立状态提示；切换视图/重置清空已选图。
+- **契约**：Agent schema 1.6.0 → 1.7.0（新增 `searchInput`/`searchOutput` 与顶层 `search` 段）；`/agent/capabilities` **不**加 `search` action（与 `classify` 一致，属轻量 HTTP 路由而非 MCP action）。
+
 ## 5. 契约变更清单
 
 | 契约 | 变更 |
@@ -180,6 +199,10 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 | 暂存图预览 | 新增 `GET /api/lost-found/images/staging/{objectName}`（随机 UUID 文件名，不可枚举）✅ 阶段 2 |
 | 内部 API `reports/lost|found` 创建 | 支持关联已暂存 objectKey（`createFromStaged` 新增服务路径，原纯 JSON 路径保留）✅ 阶段 2 |
 | 前端 `AgentInvokeRequest` | 新增 `images` ✅ 阶段 2 |
+| Agent `SearchRequest` / `SearchResponse` | 新增轻量搜索端点 `POST /agent/search`（`intended_action=search`）；`SearchRequest{report_type, keyword, category, colour, location, date_from, date_to, images[]}`；`SearchResponse{status: match_found\|no_match\|failed, match_results, request_id, message?}` ✅ 阶段 3 |
+| Web `AgentWebSearchRequest` | 新增 `POST /api/lost-found/agent/search`（authenticated）→ gateway `search()` 签发 `intended_action=search` 的 Delegation Token；`images` 复用 `AgentWebInvokeRequest.AgentImage`（`agentImagePayload` 改包级 static）✅ 阶段 3 |
+| Agent JSON Schema | 版本 1.6.0 → 1.7.0，新增 `$defs.searchInput`/`$defs.searchOutput` 与顶层 `search` 段 ✅ 阶段 3 |
+| 前端 `searchByImage` | `api/lostFound.ts` 新增 `searchByImage()`（POST `/lost-found/agent/search`）+ `AgentImageSearchResponse`/`AgentImageSearchInput` 类型 ✅ 阶段 3 |
 
 ## 6. 安全与边界
 
@@ -208,7 +231,7 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 | 2A | Agent 面板图片上传（前端） | ✅ 已完成 2026-08-11 | Web | 含暂存预览/移除/多轮共享 |
 | 2B | Spring Boot 暂存/代理/内部 API | ✅ 已完成 2026-08-11 | Lost & Found 后端 | 含暂存 TTL 清理 |
 | 2C | Agent 匹配端到端（Python） | ✅ 已完成 2026-08-11 | Agent 开发 | 候选端返回指纹 + 查询端注入指纹（含多图 best） |
-| 3 | Browse 以图搜物 | 未开始 | Web + 后端 | 依赖阶段 2 |
+| 3 | Browse 以图搜物 | ✅ 已完成 2026-08-11 | Web + 后端 + Agent | Agent 新增 /agent/search 轻量路由，复用 matching.py 打分保证一致 |
 
 阶段 1 改动文件：
 - 新增 `backend/.../controller/LostFoundImageController.java`（图片代理端点）
@@ -223,6 +246,11 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 - 后端：新增 `LostFoundImageStagingService`（暂存上传/读取/列出，MinIO `lost-found-staging/` 前缀）、`LostFoundImageStagingCleanupJob`（TTL 清理）、`LostFoundImageRules`（从 `LostFoundReportService` 抽出的共享图片校验）；`LostFoundAgentWebController.uploadImage`（`POST /agent/upload-image`）；`LostFoundImageController.downloadStaged`（暂存预览 `GET /images/staging/{objectName}`）；`AgentWebInvokeRequest.images`；`AgentCreateLostReportRequest` / `AgentCreateFoundReportRequest.imageKeys`；`LostFoundAgentInternalController` 走 `createFromStaged`；`AgentCandidateResponse.visualFingerprints` + `searchCandidates()` 组装；`LostFoundImageRepository.existsByObjectKey`；`CampusAgentApplication` 加 `@EnableScheduling`
 - Agent：`models.py` 新增 `AgentImage` + `InvokeRequest.images`；`rules.py` 把 `payload.images` 并入 context（`images`/`visual_fingerprints` 白名单 + 多轮共享）并放行纯图搜索；`matching.py` 查询端支持多图指纹取 best；`tools.py` `ReportLostInput`/`ReportFoundInput` 增加 `images`/`visual_fingerprints`，`report_lost/found` 把 `imageKeys` 写入内部 API body；`schemas/lost-found-agent.json` 升 1.6.0 并同步 `images` 输入
 - 前端：`lostFoundAgent.ts` 新增 `StagedAgentImage` + `uploadAgentImage()`；`LostFoundAgentPanel.tsx` 图片选择/暂存上传/预览/移除/消息气泡展示/发送与确认带 `images`
+
+阶段 3 改动文件：
+- Agent：`models.py` 新增 `SearchRequest`/`SearchResponse`（`SearchStatus`，`date_from/date_to` 用 `datetime.date` + `model_validator` 校验区间）；`rules.py` 把 `RuleEngine._search_candidates` 抽取为模块级 `search_candidates()`（聊天流程与 Browse 共用）；`main.py` 新增 `POST /agent/search`（`security.verify(request,"search")`，query 只放非空字段）；`schemas/lost-found-agent.json` 升 1.7.0（`searchInput`/`searchOutput`/`search` 段）
+- 后端：新增 `dto/agent/AgentWebSearchRequest`（`reportType` + 可选筛选 + `images`，`toAgentPayload` snake_case）；`AgentWebInvokeRequest.agentImagePayload` 改包级 static 复用；`LostFoundAgentGateway` 新增 `searchUri` + `search()`（`intended_action="search"`）；`LostFoundAgentWebController` 新增 `POST /search`
+- 前端：`lostFound.ts` 新增 `searchByImage()` + `AgentImageSearchInput`/`AgentImageSearchResponse`/`AgentImageSearchStatus`；`ReportsPage.tsx` 「Search by image」上传按钮/暂存/预览/移除、`runImageSearch()`（图片优先分支，不触发普通列表 effect）、`toReportCard()` 映射、图搜结果无分页、无匹配/失败状态提示
 
 更新规则：每个阶段 PR 必须更新"开发进度跟踪"、契约变更与风险清单；API 变化同步 JSON Schema 与自动化契约测试。
 
@@ -292,3 +320,30 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 | 纯图搜索（`帮我找这个` + 同一张图） | **`match_found`**，命中 #30，score=1.0，理由含**图片特征相似**；`shared_context` 无 `keyword` ✓ |
 | 对照组：纯蓝图搜索 | **`no_match`**（正确不命中红色报告 #30，视觉分量确实判别）✓ |
 | 清理 | 删除验证报告 #30 → 204 → 复查 404 ✓ |
+
+### 阶段 3 自动化测试验证结果（2026-08-11）
+
+| 验证项 | 结果 |
+|---|---|
+| Agent 完整测试套件 | `107 passed` ✓（新增 `test_search_route.py` 7 用例：同指纹纯图 score 1.0 / keyword 参与 in-memory 排序 / 无关指纹 no_match / LOST 方向 / 错 `intended_action` 403 / 缺 images 422 / 日期区间倒置 422；`test_contract.py` 版本断言 1.7.0 + search 段校验） |
+| 后端完整测试套件 | `Tests run: 249, Failures: 0, Errors: 0` ✓（新增 `LostFoundAgentGatewayTest.searchesAndSignsWithSearchAction`、`LostFoundAgentSearchControllerTest`（200 / 非法 422 不调 gateway）、`AgentWebSearchRequestTest`（snake_case 映射、空字段省略）） |
+| 前端 | `tsc -b + vite build` ✓；`vitest 175 passed` ✓（新增 `ReportsPage` 图搜 4 用例 + `lostFound.searchByImage` 1 用例） |
+
+### 阶段 3 真实运行冒烟（2026-08-11，已执行）
+
+**根因排查（"Browse 以图搜物同图 Not Found"）**：部署形态的 `chat-backend` / `lost-found-agent` / `lost-found-mcp` 镜像是**过期镜像**——构建于 22:30（提交 ccd1c38），未包含阶段 3 的搜索代码：agent 容器 openapi 只有 `/agent/capabilities /agent/classify /agent/invoke /agent/stream /health`，没有 `/agent/search`；backend 容器 jar 内没有 `AgentWebSearchRequest` 类。于是 Browse 图搜请求在 gateway 处即失败，即使上传的图片与报告图片完全一致也拿不到任何候选。→ 用当前工作区代码重建镜像后（`docker compose --profile agent up -d --build chat-backend lost-found-agent lost-found-mcp`，核对 Created 更新、未复用缓存）问题消失。
+
+对 live 栈（chat-backend 8080 / lost-found-agent 8083 / MySQL / MinIO / 本机 vite dev 5173）执行：
+
+| 验证项 | 结果 |
+|---|---|
+| 重建后 agent openapi | 包含 `/agent/search` ✓；`POST /api/lost-found/agent/search` 未带 JWT 返回 401（端点存在）✓ |
+| 注册新用户 → 登录取 JWT | ✓ |
+| 取报告 #29 图片字节（`GET /api/lost-found/images/9`）→ `POST /agent/upload-image` 暂存 | 指纹 `VF1:AAAAPQ…`，与 DB `lost_found_images` id=9 的 `visual_fingerprint` **逐字节一致（348 字符 EXACT MATCH）** ✓ |
+| 同图 FOUND 图搜（经 vite dev 5173 代理，与浏览器同链路） | `match_found`，命中 #29 `score=1.0`，理由含**图片特征相似** ✓ |
+| 对照组：纯蓝 64×64 PNG 图搜 | `no_match`（视觉分量判别正确，不误命中）✓ |
+| LOST 方向：同图 `reportType=LOST` 图搜 | `match_found`，命中 #23 `score=1.0` ✓ |
+| 暂存图预览 `GET /api/lost-found/images/staging/{uuid}.png`（无鉴权 `<img>`） | 200 `image/png` ✓ |
+| 全链路自动化测试（工作区代码） | Agent `107 passed` / 后端 `Tests run: 249, Failures: 0` / 前端 `vitest 175 passed` + `tsc -b` ✓ |
+
+**结论**：阶段 3 的"Browse 以图搜物"在真实运行验证下可用，且与 Agent 面板共用同一打分链路（同指纹 score 1.0、理由文案一致）。"同图 Not Found"根因是**部署镜像过期**而非代码缺陷；本次已重建镜像并复验通过。遗留说明：WSL 本机还有一份 `[::1]:8080` 的后端（`wslrelay`）也带有新端点，属开发环境旁路；若部署只跑 docker 栈，无影响。

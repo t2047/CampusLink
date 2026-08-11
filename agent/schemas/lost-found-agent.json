@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.6.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.7.0.json",
   "agent": "lost-found-agent",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "校园失物招领领域 Agent。负责报失、登记拾获、双向搜索匹配、查看详情和提交认领；报失、登记拾获和认领必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
@@ -188,11 +188,55 @@
         "request_id": {"type": "string"}
       },
       "required": ["response", "status", "request_id"]
+    },
+    "searchInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "report_type": {"type": "string", "enum": ["FOUND", "LOST"]},
+        "keyword": {"type": ["string", "null"], "maxLength": 100},
+        "category": {"type": ["string", "null"], "maxLength": 50},
+        "colour": {"type": ["string", "null"], "maxLength": 50},
+        "location": {"type": ["string", "null"], "maxLength": 200},
+        "date_from": {"type": ["string", "null"], "format": "date"},
+        "date_to": {"type": ["string", "null"], "format": "date"},
+        "images": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object_key": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visual_fingerprint": {"type": ["string", "null"]},
+              "url": {"type": ["string", "null"]}
+            },
+            "required": ["object_key"]
+          }
+        }
+      },
+      "required": ["report_type", "images"]
+    },
+    "searchOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {"type": "string", "enum": ["match_found", "no_match", "failed"]},
+        "match_results": {"type": "array", "items": {"$ref": "#/$defs/matchResult"}},
+        "request_id": {"type": "string"},
+        "message": {"type": ["string", "null"]}
+      },
+      "required": ["status", "request_id"]
     }
   },
   "invoke": {
     "input": {"$ref": "#/$defs/invokeInput"},
     "output": {"$ref": "#/$defs/invokeOutput"}
+  },
+  "search": {
+    "input": {"$ref": "#/$defs/searchInput"},
+    "output": {"$ref": "#/$defs/searchOutput"}
   },
   "internalTools": [
     {

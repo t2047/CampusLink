@@ -4,6 +4,7 @@ import {
   closeReport,
   createReport,
   deleteReport,
+  searchByImage,
   searchReports,
   suggestCategory,
   updateReport,
@@ -78,6 +79,34 @@ describe('deleteReport', () => {
     await deleteReport(42)
 
     expect(del).toHaveBeenCalledWith('/lost-found/reports/42')
+  })
+})
+
+describe('searchByImage', () => {
+  it('posts the image search payload to the agent search endpoint', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { status: 'match_found', match_results: [], request_id: 'trace-search' },
+    })
+
+    await searchByImage({
+      reportType: 'FOUND',
+      keyword: '耳机',
+      images: [{
+        objectKey: 'lost-found-staging/k.png',
+        visualFingerprint: 'VF1:fp',
+        url: '/api/lost-found/images/staging/k.png',
+      }],
+    })
+
+    expect(post).toHaveBeenCalledWith('/lost-found/agent/search', {
+      reportType: 'FOUND',
+      keyword: '耳机',
+      images: [{
+        objectKey: 'lost-found-staging/k.png',
+        visualFingerprint: 'VF1:fp',
+        url: '/api/lost-found/images/staging/k.png',
+      }],
+    })
   })
 })
 

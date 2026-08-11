@@ -4,6 +4,7 @@ import com.app.campusagent.domain.User;
 import com.app.campusagent.lostfound.dto.agent.AgentClassifyResponse;
 import com.app.campusagent.lostfound.dto.agent.AgentClassifyWebRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
+import com.app.campusagent.lostfound.dto.agent.AgentWebSearchRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +45,7 @@ public class LostFoundAgentGateway {
     private final HttpClient httpClient;
     private final URI invokeUri;
     private final URI classifyUri;
+    private final URI searchUri;
     private final String sharedSecret;
 
     @Autowired
@@ -83,6 +85,7 @@ public class LostFoundAgentGateway {
         this.httpClient = httpClient;
         this.invokeUri = invokeUri;
         this.classifyUri = classifyUri;
+        this.searchUri = URI.create(invokeUri.toString().replace("/agent/invoke", "/agent/search"));
         this.sharedSecret = sharedSecret;
     }
 
@@ -126,6 +129,30 @@ public class LostFoundAgentGateway {
         Map<String, Object> payload = callAgent(classifyUri, body, "classify", currentUser, traceId);
         Object category = payload.get("category");
         return new AgentClassifyResponse(category instanceof String ? (String) category : null);
+    }
+
+    /** Browse 以图搜物：把查询（含视觉指纹）安全代理给 Agent 的轻量搜索端点。 */
+    public Map<String, Object> search(AgentWebSearchRequest request, User currentUser) {
+        ensureConfigured();
+        String traceId = UUID.randomUUID().toString();
+        byte[] body;
+        try {
+            body = objectMapper.writeValueAsBytes(request.toAgentPayload());
+        } catch (JsonProcessingException exception) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response",
+                    exception);
+        }
+        Map<String, Object> payload = callAgent(searchUri, body, "search", currentUser, traceId);
+        if (!(payload.get("status") instanceof String)) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response");
+        }
+        return payload;
     }
 
     private Map<String, Object> callAgent(
