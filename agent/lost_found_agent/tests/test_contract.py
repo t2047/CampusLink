@@ -13,11 +13,12 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
         "report_lost",
         "report_found",
         "search_found_items",
+        "search_lost_items",
         "get_item_detail",
         "claim_item",
     ]
 
-    assert schema["version"] == "1.4.0"
+    assert schema["version"] == "1.5.0"
     assert schema["security"]["writeConfirmationRequired"] == [
         "report_lost",
         "report_found",

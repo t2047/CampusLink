@@ -37,7 +37,7 @@ function newSessionId() {
 
 function createdReportId(response: AgentInvokeResponse) {
   const summary = response.actions_taken.find(
-    (action) => action.action === 'report_lost' && action.status === 'success',
+    (action) => ['report_lost', 'report_found'].includes(action.action) && action.status === 'success',
   )?.result_summary
   const match = summary?.match(/^report_id=(\d+)$/)
   return match ? Number(match[1]) : undefined
@@ -66,7 +66,7 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
         matches: response.match_results,
       },
     ])
-    if (response.actions_taken.some((action) => action.action === 'report_lost' && action.status === 'success')) {
+    if (response.actions_taken.some((action) => ['report_lost', 'report_found'].includes(action.action) && action.status === 'success')) {
       const reportId = createdReportId(response)
       setLatestCreatedReportId(reportId)
       onReportCreated?.(reportId)
@@ -161,14 +161,25 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
                   <Typography variant="caption" sx={{ opacity: 0.72 }}>{message.status}</Typography>
                 )}
                 {message.matches?.map((match) => (
-                  <Box key={match.item_id} sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Box key={match.item_id} sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                    {match.image_urls[0] && (
+                      <Box
+                        component="img"
+                        src={match.image_urls[0]}
+                        alt={match.item_name}
+                        sx={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 1, mb: 1 }}
+                      />
+                    )}
                     <Stack direction="row" justifyContent="space-between" gap={1}>
                       <Link component={RouterLink} to={`/lost-found/${match.item_id}`} fontWeight={700}>
-                        #{match.item_id} {match.item_name}
+                        #{match.item_id} [{match.report_type}] {match.item_name}
                       </Link>
                       <Typography variant="body2">{Math.round(match.match_score * 100)}%</Typography>
                     </Stack>
-                    <Typography variant="body2">{match.found_location} · {match.found_date}</Typography>
+                    <Typography variant="body2">
+                      {match.category}{match.colour ? ` · ${match.colour}` : ''} · {match.location} · {match.event_date}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">{match.description}</Typography>
                     <Typography variant="caption">{match.match_reason.join('；')}</Typography>
                   </Box>
                 ))}

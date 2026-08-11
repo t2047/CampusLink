@@ -85,6 +85,48 @@ class LostFoundAgentInternalSecurityIntegrationTest {
     }
 
     @Test
+    void foundReportCanSearchOpenLostCandidatesWithDisplayFields() throws Exception {
+        mockMvc.perform(post("/api/internal/lost-found/reports/lost")
+                        .header("Authorization", "Bearer " + token(
+                                user.getId(), "campus-api", "report_lost", 0, 30,
+                                UUID.randomUUID().toString()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "itemName": "Red umbrella",
+                                  "category": "UMBRELLA",
+                                  "description": "Red folding umbrella with a white handle label",
+                                  "colour": "Red",
+                                  "location": "UHC",
+                                  "eventDate": "2026-08-09"
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/internal/lost-found/lost-candidates")
+                        .param("category", "UMBRELLA")
+                        .header("Authorization", "Bearer " + token(
+                                user.getId(), "campus-api", "search_lost_items", 0, 30,
+                                UUID.randomUUID().toString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].reportType").value("LOST"))
+                .andExpect(jsonPath("$.content[0].itemName").value("Red umbrella"))
+                .andExpect(jsonPath("$.content[0].colour").value("Red"))
+                .andExpect(jsonPath("$.content[0].location").value("UHC"))
+                .andExpect(jsonPath("$.content[0].eventDate").value("2026-08-09"))
+                .andExpect(jsonPath("$.content[0].imageUrls").isArray());
+    }
+
+    @Test
+    void lostCandidateEndpointRejectsFoundSearchToken() throws Exception {
+        mockMvc.perform(get("/api/internal/lost-found/lost-candidates")
+                        .header("Authorization", "Bearer " + token(
+                                user.getId(), "campus-api", "search_found_items", 0, 30,
+                                UUID.randomUUID().toString())))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void rejectsWrongAudience() throws Exception {
         mockMvc.perform(get("/api/internal/lost-found/candidates")
                         .header("Authorization", "Bearer " + token(

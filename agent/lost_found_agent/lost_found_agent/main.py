@@ -79,6 +79,7 @@ def create_app(
                     "report_lost",
                     "report_found",
                     "search_found_items",
+                    "search_lost_items",
                     "get_item_detail",
                     "claim_item",
                 ],

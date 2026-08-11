@@ -153,4 +153,45 @@ describe('LostFoundAgentPanel', () => {
     })
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
   })
+
+  it('renders bidirectional match details and a report link', async () => {
+    invoke.mockResolvedValueOnce({
+      ...baseResponse,
+      response: '找到 1 个匹配度较高的候选物品。',
+      status: 'match_found',
+      match_results: [{
+        item_id: '88',
+        report_type: 'LOST',
+        item_name: '红色折叠伞',
+        category: 'UMBRELLA',
+        description: '红色折叠伞，白色手柄上贴有姓名标签',
+        colour: '红色',
+        location: 'UHC',
+        event_date: '2026-08-09',
+        time_description: '下午',
+        image_urls: ['https://images.example.test/88.jpg'],
+        status: 'OPEN',
+        match_score: 0.91,
+        match_reason: ['物品类别一致', '颜色相似'],
+      }],
+      actions_taken: [{ action: 'search_lost_items', status: 'success' }],
+    })
+    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+
+    fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
+      target: { value: '我捡到一把红色雨伞' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect(await screen.findByRole('link', { name: '#88 [LOST] 红色折叠伞' })).toHaveAttribute(
+      'href',
+      '/lost-found/88',
+    )
+    expect(screen.getByText(/UMBRELLA · 红色 · UHC/)).toBeInTheDocument()
+    expect(screen.getByText('红色折叠伞，白色手柄上贴有姓名标签')).toBeInTheDocument()
+    expect(screen.getByAltText('红色折叠伞')).toHaveAttribute(
+      'src',
+      'https://images.example.test/88.jpg',
+    )
+  })
 })

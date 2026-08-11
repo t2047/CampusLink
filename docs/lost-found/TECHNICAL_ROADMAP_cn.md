@@ -91,6 +91,7 @@ docker compose --profile agent up -d --build
 | `POST` | `/api/internal/lost-found/reports/lost` | `report_lost` | 用 JSON 创建无图片 LOST 记录 |
 | `POST` | `/api/internal/lost-found/reports/found` | `report_found` | 用 JSON 创建无图片 FOUND 记录 |
 | `GET` | `/api/internal/lost-found/candidates` | `search_found_items` | 只返回 `FOUND + OPEN` 候选记录 |
+| `GET` | `/api/internal/lost-found/lost-candidates` | `search_lost_items` | 只返回 `LOST + OPEN` 候选记录 |
 | `GET` | `/api/internal/lost-found/reports/{id}` | `get_item_detail` | 读取详情，不返回联系方式或对象 Key |
 | `POST` | `/api/internal/lost-found/reports/{id}/claims` | `claim_item` | 复用现有认领业务规则 |
 
@@ -101,8 +102,9 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 - `conversation_context.shared_data` 仅保留白名单字段，用于中英文多轮补充。
 - 报失和登记拾获都需要物品名、类别、详细描述、地点和日期；认领需要记录 ID 和不少于 10 字符的证明。
 - 报失、登记拾获和认领首次调用不写数据库；确认 ID 与用户绑定、10 分钟有效且一次性使用。
-- 报失确认创建记录后自动搜索 `FOUND + OPEN`，最多取 100 条并返回 Top 5。
-- 登记拾获确认后创建 `FOUND + OPEN` 记录；当前不会反向搜索 LOST 记录。
+- 报失确认创建记录后自动搜索 `FOUND + OPEN`；登记拾获确认创建记录后自动反向搜索 `LOST + OPEN`。两个方向都最多取 100 条并返回 Top 5。
+- 双向匹配共用同一套可解释排序权重与阈值，候选结果包含记录类型、物品名称、类别、颜色、描述、地点、日期、图片预签名 URL、匹配分数和匹配原因，不返回发布者联系方式。
+- REST 测试面板和 Chat Core 都可渲染候选详情卡片；纯文本客户端也会收到完整候选摘要。
 - 重排权重：文字 30%、类别 30%、颜色 15%、地点 15%、日期 10%。缺失字段不计入分母，其他权重自动归一化。
 - 默认阈值为 `0.35`，可通过 `LOST_FOUND_MATCH_MIN_SCORE` 调整。当前文字使用规则相似度，尚不是 Embedding。
 - SSE 保留 5 分钟，包含开始、工具执行、补充信息、确认、Token、完成和错误事件。
@@ -129,7 +131,6 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 - 当前匹配仍为结构化查询；尚无 Embedding、向量索引或多模态模型。
 - 真实模型尚未完成质量、延迟和费用验证；当前只完成 Mock 协议与故障降级验收。
 - 自然语言意图目前依赖提示词、确定性关键词保护和有限回归样本；仍需建立中英文歧义语料与准确率基线。
-- `report_found` 当前只登记 FOUND 记录，不会反向检索可能对应的 LOST 报告；补齐前需要定义 LOST 候选内部接口与双向匹配规则。
 
 ## 9. 后续功能清单
 
@@ -141,7 +142,7 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 | P1 | 可插拔 LLM 与 Mock 联调 | 已完成 | 规则模式 | Agent 开发 | 严格校验、故障关闭/可选降级和安全测试通过 | Agent 0.4 |
 | P1 | 真实模型密钥联调 | 开发中 | API Key、评估样本 | Agent 开发 | 输出质量、P95 延迟和费用报告完成 | 联调迭代 |
 | P1 | 中英文 NLU 回归语料与质量评估 | 未开始 | 真实对话样本、隐私脱敏 | Agent + 测试 | 五类意图准确率、字段完整率和误写入率形成可重复报告 | 联调迭代 |
-| P1 | FOUND 创建后的 LOST 反向候选匹配 | 未开始 | LOST 候选内部 API、双向匹配规则 | Agent + Lost & Found 后端 | 登记拾获后返回可解释的 LOST Top 5，且不泄露失主隐私 | 匹配 1.1 |
+| P1 | FOUND 创建后的 LOST 反向候选匹配 | 已完成 | LOST 候选内部 API、双向匹配规则 | Agent + Lost & Found 后端 | 登记拾获后返回可解释的 LOST Top 5，REST 与 Chat Core 均展示候选详情且不泄露失主隐私 | 匹配 1.1 |
 | P1 | 多语言文本 Embedding 与向量召回 | 未开始 | 向量数据库、评估集 | ML | Recall@K 达到评审目标 | 匹配 2.0 |
 | P1 | 图片 Embedding 与多模态匹配 | 未开始 | 图片模型、MinIO | ML | 返回可解释多模态 Top 5 | 匹配 2.1 |
 | P1 | 匹配反馈和排序评估数据集 | 未开始 | 用户反馈数据 | ML + 数据 | 可复现实验和版本对比 | 匹配 2.1 |

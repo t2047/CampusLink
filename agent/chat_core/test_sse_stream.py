@@ -26,6 +26,7 @@ import json
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 import orchestration.main as main
+from orchestration.streaming.sse_handler import structural_events_from_update
 
 
 class FakeGraph:
@@ -131,3 +132,34 @@ def test_updates_only_falls_back_once(monkeypatch):
     """仅 updates（messages 全程未捕获）：流末补发完整回复一次。"""
     tokens = _run([_chat_update(CONTENT)], monkeypatch)
     assert tokens == [CONTENT]
+
+
+def test_agent_update_emits_structured_match_results():
+    match = {
+        "item_id": "8",
+        "report_type": "LOST",
+        "item_name": "红色雨伞",
+        "category": "UMBRELLA",
+        "description": "红色折叠伞，白色手柄",
+        "location": "UHC",
+        "event_date": "2026-08-09",
+        "image_urls": [],
+        "status": "OPEN",
+        "match_score": 0.91,
+        "match_reason": ["物品类别一致"],
+    }
+    update = {
+        "agent_invocations": [{
+            "agent_name": "lost-found-agent",
+            "output_status": "match_found",
+            "actions_taken": [{"action": "search_lost_items", "status": "success"}],
+            "match_results": [match],
+            "request_id": "request-8",
+        }]
+    }
+
+    events = structural_events_from_update("agent_invoker", update)
+
+    match_event = next(event for event in events if event.event == "match_results")
+    assert match_event.data["items"] == [match]
+    assert match_event.data["agent"] == "lost-found-agent"

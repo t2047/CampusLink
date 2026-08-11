@@ -14,6 +14,7 @@ from lost_found_agent.tools import (
     ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
+    SearchLostItemsInput,
 )
 
 
@@ -23,6 +24,7 @@ from lost_found_agent.tools import (
         ("POST", "/api/internal/lost-found/reports/lost", "report_lost"),
         ("POST", "/api/internal/lost-found/reports/found", "report_found"),
         ("GET", "/api/internal/lost-found/candidates", "search_found_items"),
+        ("GET", "/api/internal/lost-found/lost-candidates", "search_lost_items"),
         ("GET", "/api/internal/lost-found/reports/7", "get_item_detail"),
         ("POST", "/api/internal/lost-found/reports/7/claims", "claim_item"),
     ],
@@ -67,6 +69,12 @@ async def test_each_tool_uses_expected_route_and_scoped_token(
                 "42",
                 "STUDENT",
                 SearchFoundItemsInput(category="ELECTRONICS", location="Library"),
+            )
+        elif action == "search_lost_items":
+            await client.search_lost_items(
+                "42",
+                "STUDENT",
+                SearchLostItemsInput(category="ELECTRONICS", location="Library"),
             )
         elif action == "get_item_detail":
             await client.get_item_detail("42", "STUDENT", GetItemDetailInput(report_id=7))

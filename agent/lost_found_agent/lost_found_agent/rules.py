@@ -23,6 +23,7 @@ from .tools import (
     ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
+    SearchLostItemsInput,
 )
 
 Intent = Literal[
@@ -368,18 +369,28 @@ class RuleEngine:
                     verified.user_id, verified.user_role, found_report
                 )
                 emit(tool_event("report_found", "completed"))
-                message = found_created_message(created, language)
+                query = found_report.model_dump(mode="json")
+                matches, search_action = await self._search_candidates(
+                    query,
+                    verified,
+                    language,
+                    emit,
+                    target_report_type="LOST",
+                )
+                message = found_created_message(created, matches, language)
                 return response_with_token(
                     message,
-                    "completed",
+                    "match_found" if matches else "completed",
                     request_id,
                     emit,
+                    match_results=matches,
                     actions_taken=[
                         ActionTaken(
                             action="report_found",
                             result_summary=f"report_id={created.get('id')}",
                             status="success",
-                        )
+                        ),
+                        search_action,
                     ],
                 )
 
@@ -448,11 +459,7 @@ class RuleEngine:
         except BackendApiError as exc:
             return backend_error_response(exc, request_id, language, emit)
         if matches:
-            message = (
-                f"找到 {len(matches)} 个匹配度较高的候选物品。"
-                if language == "zh"
-                else f"Found {len(matches)} strong candidate item(s)."
-            )
+            message = match_results_message(matches, language)
             status = "match_found"
         else:
             message = (
@@ -477,6 +484,7 @@ class RuleEngine:
         verified: VerifiedRequest,
         language: str,
         emit: Emit,
+        target_report_type: Literal["LOST", "FOUND"] = "FOUND",
     ) -> tuple[list[Any], ActionTaken]:
         event_date = parse_date(query.get("event_date"))
         date_from = parse_date(query.get("date_from"))
@@ -484,22 +492,39 @@ class RuleEngine:
         if event_date:
             date_from = date_from or event_date - timedelta(days=30)
             date_to = date_to or event_date + timedelta(days=30)
-        search = SearchFoundItemsInput(
-            category=query.get("category"),
-            date_from=date_from,
-            date_to=date_to,
-            page=0,
-            size=100,
-        )
-        emit(tool_event("search_found_items", "started"))
-        result = await self._api.search_found_items(verified.user_id, verified.user_role, search)
-        emit(tool_event("search_found_items", "completed"))
+        search_values = {
+            "category": query.get("category"),
+            "date_from": date_from,
+            "date_to": date_to,
+            "page": 0,
+            "size": 100,
+        }
+        if target_report_type == "LOST":
+            action_name = "search_lost_items"
+            search = SearchLostItemsInput(**search_values)
+            emit(tool_event(action_name, "started"))
+            result = await self._api.search_lost_items(
+                verified.user_id,
+                verified.user_role,
+                search,
+            )
+            emit(tool_event(action_name, "completed"))
+        else:
+            action_name = "search_found_items"
+            found_search = SearchFoundItemsInput(**search_values)
+            emit(tool_event(action_name, "started"))
+            result = await self._api.search_found_items(
+                verified.user_id,
+                verified.user_role,
+                found_search,
+            )
+            emit(tool_event(action_name, "completed"))
         content = result.get("content", [])
         candidates = content if isinstance(content, list) else []
         matches = rank_candidates(query, candidates, self._minimum_score, language)
         action = ActionTaken(
-            action="search_found_items",
-            params_summary="FOUND + OPEN, size=100",
+            action=action_name,
+            params_summary=f"{target_report_type} + OPEN, size=100",
             result_summary=f"candidates={len(candidates)}, matches={len(matches)}",
             status="success",
         )
@@ -825,23 +850,58 @@ def report_summary(report: ReportLostInput | ReportFoundInput, language: str) ->
 def report_created_message(created: dict[str, Any], matches: list[Any], language: str) -> str:
     report_id = created.get("id")
     if language == "zh":
-        suffix = f"并找到 {len(matches)} 个潜在匹配。" if matches else "暂时未找到高匹配候选。"
-        return f"报失记录 #{report_id} 已创建，{suffix}"
-    suffix = (
-        f"and found {len(matches)} potential match(es)." if matches else "with no strong match yet."
-    )
-    return f"Lost report #{report_id} was created {suffix}"
+        if matches:
+            return f"报失记录 #{report_id} 已创建。\n{match_results_message(matches, language)}"
+        return f"报失记录 #{report_id} 已创建，暂时未找到高匹配候选。"
+    if matches:
+        return f"Lost report #{report_id} was created.\n{match_results_message(matches, language)}"
+    return f"Lost report #{report_id} was created with no strong match yet."
 
 
-def found_created_message(created: dict[str, Any], language: str) -> str:
-    """捡到（FOUND）报告创建成功文案（暂不匹配失主：后端无 LOST 候选端点）。"""
+def found_created_message(created: dict[str, Any], matches: list[Any], language: str) -> str:
+    """拾获记录创建成功后，附带可能对应的开放报失记录。"""
     report_id = created.get("id")
     if language == "zh":
-        return f"捡到物品记录 #{report_id} 已登记，失主报失后会匹配到这条记录。"
-    return (
-        f"Found report #{report_id} was registered; "
-        "it will be matched when the owner files a lost report."
+        if matches:
+            return f"捡到物品记录 #{report_id} 已登记。\n{match_results_message(matches, language)}"
+        return f"捡到物品记录 #{report_id} 已登记，暂时未找到高匹配的报失记录。"
+    if matches:
+        details = match_results_message(matches, language)
+        return f"Found report #{report_id} was registered.\n{details}"
+    return f"Found report #{report_id} was registered with no strong lost-report match yet."
+
+
+def match_results_message(matches: list[Any], language: str) -> str:
+    """生成所有客户端都能直接展示的候选摘要，结构化结果仍单独返回。"""
+    heading = (
+        f"找到 {len(matches)} 个匹配度较高的候选物品："
+        if language == "zh"
+        else f"Found {len(matches)} strong candidate item(s):"
     )
+    lines = [heading]
+    for index, match in enumerate(matches, start=1):
+        score = round(float(match.match_score) * 100)
+        colour = match.colour or ("未填写" if language == "zh" else "not provided")
+        reasons = (
+            "；".join(match.match_reason)
+            if language == "zh"
+            else "; ".join(match.match_reason)
+        )
+        if language == "zh":
+            lines.append(
+                f"{index}. #{match.item_id} [{match.report_type}] {match.item_name}；"
+                f"类别 {match.category}；颜色 {colour}；地点 {match.location}；"
+                f"日期 {match.event_date}；匹配度 {score}%\n"
+                f"   描述：{match.description}\n   匹配原因：{reasons}"
+            )
+        else:
+            lines.append(
+                f"{index}. #{match.item_id} [{match.report_type}] {match.item_name}; "
+                f"category {match.category}; colour {colour}; location {match.location}; "
+                f"date {match.event_date}; score {score}%\n"
+                f"   Description: {match.description}\n   Reasons: {reasons}"
+            )
+    return "\n".join(lines)
 
 
 def detail_message(detail: dict[str, Any], language: str) -> str:

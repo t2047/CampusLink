@@ -155,8 +155,11 @@ def test_model_report_found_requires_confirmation_before_writing() -> None:
         )
 
     assert completed["status"] == "completed"
-    assert [action["action"] for action in completed["actions_taken"]] == ["report_found"]
-    assert [call[0] for call in fake_api.calls] == ["report_found"]
+    assert [action["action"] for action in completed["actions_taken"]] == [
+        "report_found",
+        "search_lost_items",
+    ]
+    assert [call[0] for call in fake_api.calls] == ["report_found", "search_lost_items"]
 
 
 def test_invalid_json_and_timeout_fail_closed() -> None:
