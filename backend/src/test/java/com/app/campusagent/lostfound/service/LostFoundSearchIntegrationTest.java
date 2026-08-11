@@ -93,11 +93,10 @@ class LostFoundSearchIntegrationTest {
                 0,
                 "VF1:expected-fingerprint"));
 
-        reportRepository.saveAndFlush(report);
+        LostFoundReport saved = reportRepository.saveAndFlush(report);
+        Long imageId = saved.getImages().getFirst().getId();
 
         ObjectStorageService storageService = mock(ObjectStorageService.class);
-        when(storageService.createPresignedGetUrl("lost-found/bottle.png"))
-                .thenReturn("https://example.test/lost-found/bottle.png");
 
         LostFoundReportService service = new LostFoundReportService(
                 reportRepository,
@@ -120,7 +119,7 @@ class LostFoundSearchIntegrationTest {
         assertThat(result.content().getFirst().reportType())
                 .isEqualTo(ReportType.FOUND);
         assertThat(result.content().getFirst().imageUrls())
-                .containsExactly("https://example.test/lost-found/bottle.png");
+                .containsExactly("/api/lost-found/images/" + imageId);
     }
     @Test
     void publicSearchAndCandidatesExcludeHiddenReports() {

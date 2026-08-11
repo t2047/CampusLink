@@ -103,11 +103,10 @@ class LostFoundReportServiceTest {
         MockMultipartFile image = png("item.png");
         when(storageService.upload(image))
                 .thenReturn(new StoredObject("lost-found/key.png", "item.png", "image/png", image.getSize()));
-        when(storageService.createPresignedGetUrl("lost-found/key.png"))
-                .thenReturn("http://minio/item.png");
         when(reportRepository.saveAndFlush(any())).thenAnswer(invocation -> {
             LostFoundReport report = invocation.getArgument(0);
             setField(report, "id", 11L);
+            setField(report.getImages().getFirst(), "id", 7L);
             setField(report, "createdAt", java.time.Instant.now());
             setField(report, "updatedAt", java.time.Instant.now());
             return report;
@@ -116,7 +115,7 @@ class LostFoundReportServiceTest {
         var response = service.create(request(ReportType.FOUND), List.of(image), user);
 
         assertThat(response.images()).hasSize(1);
-        assertThat(response.images().getFirst().url()).isEqualTo("http://minio/item.png");
+        assertThat(response.images().getFirst().url()).isEqualTo("/api/lost-found/images/7");
     }
 
     @Test
@@ -240,10 +239,9 @@ class LostFoundReportServiceTest {
         MockMultipartFile newImage = png("new.png");
         when(storageService.upload(newImage))
                 .thenReturn(new StoredObject("lost-found/new.png", "new.png", "image/png", newImage.getSize()));
-        when(storageService.createPresignedGetUrl("lost-found/new.png"))
-                .thenReturn("http://minio/new.png");
         when(reportRepository.save(any())).thenAnswer(invocation -> {
             LostFoundReport saved = invocation.getArgument(0);
+            setField(saved.getImages().getFirst(), "id", 8L);
             setField(saved, "updatedAt", java.time.Instant.now());
             return saved;
         });
@@ -251,7 +249,7 @@ class LostFoundReportServiceTest {
         var response = service.update(10L, updateRequest(), List.of(newImage), user);
 
         assertThat(response.images()).hasSize(1);
-        assertThat(response.images().getFirst().url()).isEqualTo("http://minio/new.png");
+        assertThat(response.images().getFirst().url()).isEqualTo("/api/lost-found/images/8");
     }
 
     @Test

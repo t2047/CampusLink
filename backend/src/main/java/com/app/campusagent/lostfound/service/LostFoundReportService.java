@@ -181,8 +181,7 @@ public class LostFoundReportService {
                         report.getStatus(),
                         report.getImages().stream()
                                 .sorted(Comparator.comparingInt(LostFoundImage::getSortOrder))
-                                .map(image -> storageService.createPresignedGetUrl(
-                                        image.getObjectKey()))
+                                .map(image -> LostFoundImageResponse.of(image).url())
                                 .toList())));
 }
 
@@ -400,12 +399,7 @@ public class LostFoundReportService {
     private LostFoundReportResponse toResponse(LostFoundReport report, User currentUser) {
         List<LostFoundImageResponse> images = report.getImages().stream()
                 .sorted(Comparator.comparingInt(LostFoundImage::getSortOrder))
-                .map(image -> new LostFoundImageResponse(
-                        image.getId(),
-                        storageService.createPresignedGetUrl(image.getObjectKey()),
-                        image.getContentType(),
-                        image.getFileSize(),
-                        image.getSortOrder()))
+                .map(LostFoundImageResponse::of)
                 .toList();
 
         return new LostFoundReportResponse(

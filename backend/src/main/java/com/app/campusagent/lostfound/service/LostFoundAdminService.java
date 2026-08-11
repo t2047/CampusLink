@@ -26,7 +26,6 @@ import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.app.campusagent.lostfound.repository.LostFoundAuditLogRepository;
 import com.app.campusagent.lostfound.repository.LostFoundClaimRepository;
 import com.app.campusagent.lostfound.repository.LostFoundReportRepository;
-import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
@@ -55,7 +54,6 @@ public class LostFoundAdminService {
     private final LostFoundAuditService auditService;
     private final LostFoundReportService reportService;
     private final LostFoundNotificationService notificationService;
-    private final ObjectStorageService storageService;
 
     public LostFoundAdminService(
             LostFoundReportRepository reportRepository,
@@ -63,15 +61,13 @@ public class LostFoundAdminService {
             LostFoundAuditLogRepository auditLogRepository,
             LostFoundAuditService auditService,
             LostFoundReportService reportService,
-            LostFoundNotificationService notificationService,
-            ObjectStorageService storageService) {
+            LostFoundNotificationService notificationService) {
         this.reportRepository = reportRepository;
         this.claimRepository = claimRepository;
         this.auditLogRepository = auditLogRepository;
         this.auditService = auditService;
         this.reportService = reportService;
         this.notificationService = notificationService;
-        this.storageService = storageService;
     }
 
     @Transactional(readOnly = true)
@@ -458,12 +454,7 @@ public class LostFoundAdminService {
         LostFoundReport report = claim.getReport();
         List<LostFoundImageResponse> images = report.getImages().stream()
                 .sorted(Comparator.comparingInt(LostFoundImage::getSortOrder))
-                .map(image -> new LostFoundImageResponse(
-                        image.getId(),
-                        storageService.createPresignedGetUrl(image.getObjectKey()),
-                        image.getContentType(),
-                        image.getFileSize(),
-                        image.getSortOrder()))
+                .map(LostFoundImageResponse::of)
                 .toList();
         boolean reviewed = claim.getStatus() != ClaimStatus.SUBMITTED;
         return new AdminClaimDetailResponse(
