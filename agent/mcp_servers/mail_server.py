@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 AGENT_NAME = "mail-agent"
 
 # 8091 REST 客户端（base_url 从环境变量读，默认本地 8091）
-MAIL_REST_URL = os.environ.get("MAIL_REST_URL", "http://127.0.0.1:8091").rstrip("/")
+MAIL_REST_URL = os.environ.get("MAIL_REST_URL", "http://127.0.0.1:5000").rstrip("/")
 
 # 确认 TTL（对齐 mail-agent.json security.confirmationTtlSeconds=600）
 _CONFIRM_TTL_SECONDS = int(os.environ.get("MAIL_CONFIRM_TTL_SECONDS", "600"))
@@ -298,7 +298,12 @@ def _fmt_message(brief: dict[str, Any]) -> str:
 # MCP invoke 工具
 # ──────────────────────────────────────────────────────────────────────
 
-mcp = FastMCP(f"{AGENT_NAME}-server", streamable_http_path="/")
+mcp = FastMCP(
+    f"{AGENT_NAME}-server",
+    streamable_http_path="/",
+    # Docker 容器间用服务名访问时 Host 头非 localhost，默认 127.0.0.1 会触发 DNS rebinding 防护（421）
+    host=os.environ.get("FASTMCP_HOST", "127.0.0.1"),
+)
 _streamable_app = mcp.streamable_http_app()
 
 
@@ -402,15 +407,21 @@ async def _search_first(user_id: str, query: str, size: int = 5) -> dict[str, An
     for word in words:
         if len(word) < 2:
             continue
-        result = await _rest.list_messages(user_id, folder="inbox", q=word, size=size)
+        try:
+            result = await _rest.list_messages(user_id, folder="inbox", q=word, size=size)
+        except httpx.HTTPError:
+            continue
         if result.get("total_elements", 0) > 0:
             content = result.get("content", [])
             if content:
                 return content[0]
     # 兜底：整串
-    result = await _rest.list_messages(user_id, folder="inbox", q=query, size=size)
-    content = result.get("content", [])
-    return content[0] if content else None
+    try:
+        result = await _rest.list_messages(user_id, folder="inbox", q=query, size=size)
+        content = result.get("content", [])
+        return content[0] if content else None
+    except httpx.HTTPError:
+        return None
 
 
 async def _handle_search(user_id: str, params: dict[str, Any], request_id: str) -> str:
@@ -424,14 +435,20 @@ async def _handle_search(user_id: str, params: dict[str, Any], request_id: str) 
         for word in words:
             if len(word) < 2:
                 continue
-            result = await _rest.list_messages(user_id, folder="inbox", q=word, size=20)
+            try:
+                result = await _rest.list_messages(user_id, folder="inbox", q=word, size=20)
+            except httpx.HTTPError:
+                continue
             if result.get("total_elements", 0) > 0:
                 messages = result.get("content", [])
                 total = result.get("total_elements", 0)
                 used_query = word
                 break
         if not messages:
-            result = await _rest.list_messages(user_id, folder="inbox", q=query, size=20)
+            try:
+                result = await _rest.list_messages(user_id, folder="inbox", q=query, size=20)
+            except httpx.HTTPError:
+                result = {"content": [], "total_elements": 0}
             messages = result.get("content", [])
             total = result.get("total_elements", 0)
     else:

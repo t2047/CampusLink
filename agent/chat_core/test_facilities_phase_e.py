@@ -105,6 +105,12 @@ def test_facilities_capability_describes_full_read_write_lifecycle():
     assert "邮件" not in capability
 
 
+def test_lost_found_capability_includes_found_item_registration():
+    capability = AGENT_CAPABILITIES["lost-found-agent"]
+    for phrase in ("报失", "登记拾获", "查找", "认领"):
+        assert phrase in capability
+
+
 def test_router_rejects_hallucinated_agent_target(monkeypatch):
     fake = FakeLLM("domain_agent", ["facility-agent", "unknown-agent"])
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
@@ -287,11 +293,14 @@ def test_conversation_context_keeps_session_and_domain_namespaces():
     )
 
     assert context["session_id"] == "stable-thread"
-    assert context["shared_data"] == {
-        "mail": {"message_id": "m1"},
-        "facilities": {"last_booking_id": 123},
-        "lost_found": {"last_item_id": 456},
-    }
+    shared = context["shared_data"]
+    assert shared["mail"] == {"message_id": "m1"}
+    assert shared["facilities"] == {"last_booking_id": 123}
+    assert shared["lost_found"] == {"last_item_id": 456}
+    # 编排层统一注入的系统事实包（日期格式 YYYY-MM-DD，不绑定具体日期）
+    assert shared["system_facts"]["timezone"] == "Asia/Singapore"
+    assert len(shared["system_facts"]["today"]) == 10
+    assert isinstance(shared["recent_messages"], list)
 
 
 @pytest.mark.parametrize(

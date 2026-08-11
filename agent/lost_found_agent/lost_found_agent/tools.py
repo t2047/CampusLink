@@ -40,6 +40,25 @@ class ReportLostInput(BaseModel):
         return value
 
 
+class ReportFoundInput(BaseModel):
+    """捡到（FOUND）报告：字段与报失对称（捡到物品登记）。"""
+
+    item_name: str = Field(min_length=3, max_length=100)
+    category: ItemCategory
+    description: str = Field(min_length=10, max_length=2000)
+    location: str = Field(min_length=1, max_length=200)
+    event_date: date
+    colour: str | None = Field(default=None, max_length=50)
+    time_description: str | None = Field(default=None, max_length=100)
+
+    @field_validator("event_date")
+    @classmethod
+    def event_date_cannot_be_future(cls, value: date) -> date:
+        if value > date.today():
+            raise ValueError("event_date cannot be in the future")
+        return value
+
+
 class SearchFoundItemsInput(BaseModel):
     keyword: str | None = None
     category: ItemCategory | None = None
@@ -100,6 +119,26 @@ class CampusApiClient:
             "POST",
             "/api/internal/lost-found/reports/lost",
             "report_lost",
+            user_id,
+            user_role,
+            json={
+                "itemName": payload.item_name,
+                "category": payload.category,
+                "description": payload.description,
+                "colour": payload.colour,
+                "location": payload.location,
+                "eventDate": payload.event_date.isoformat(),
+                "timeDescription": payload.time_description,
+            },
+        )
+
+    async def report_found(
+        self, user_id: str, user_role: str, payload: ReportFoundInput
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/api/internal/lost-found/reports/found",
+            "report_found",
             user_id,
             user_role,
             json={

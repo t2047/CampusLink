@@ -92,14 +92,12 @@ services:
       - MAIL_AGENT_MCP_URL=http://mail-agent-mcp:8081/mcp/
       - FACILITY_AGENT_MCP_URL=http://facility-agent-mcp:8082/mcp/
       - LOSTFOUND_AGENT_MCP_URL=http://lost-found-mcp:8085/mcp/
-      - SKILL_AGENT_MCP_URL=http://skill-agent-mcp:8084/mcp/
       - UTILITY_TOOLS_MCP_URL=http://utility-mcp:8090/mcp/
     depends_on:
       - chat-backend
       - mail-agent-mcp
       - facility-agent-mcp
       - lost-found-mcp
-      - skill-agent-mcp
       - utility-mcp
 
   # ─── MCP Servers (Sprint 3) ─────────────────────────────────
@@ -109,11 +107,16 @@ services:
     build:
       context: .
       dockerfile: agent/mcp_servers/Dockerfile
+    # 用真实 Gmail MCP 适配层（mail_server），替换镜像默认的 domain_server mock
+    command: ["uvicorn", "mcp_servers.mail_server:app", "--host", "0.0.0.0", "--port", "8081"]
     env_file:
       - .env
     environment:
       - MCP_AGENT_NAME=mail-agent
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
+      - FASTMCP_HOST=0.0.0.0
+      # Mail REST 服务跑在宿主机 5000（agent/mail_agent）；容器内 127.0.0.1 指向自身，需用 host.docker.internal
+      - MAIL_REST_URL=http://host.docker.internal:5000
     ports:
       - "8081:8081"
     depends_on:
@@ -141,7 +144,7 @@ services:
 
   lostfound-agent-mcp:
     # 退役（Sprint 4）：L&F 已由 lost-found-mcp（组员业务 MCP 适配层）承担，
-    # 脚手架对 lost-found 无意义。mail/facility/skill 仍使用本服务。
+    # 脚手架对 lost-found 无意义。mail/facility 仍使用本服务。
     # 注意：8083 已由 lost-found-agent（REST）占用，本 legacy 服务映射到主机 8086
     build:
       context: .
@@ -157,20 +160,6 @@ services:
       - chat-backend
     # 注意：本服务不再被编排层引用（LOSTFOUND_AGENT_MCP_URL 指向 lost-found-mcp:8085）
     profiles: ["legacy"]
-
-  skill-agent-mcp:
-    build:
-      context: .
-      dockerfile: agent/mcp_servers/Dockerfile
-    env_file:
-      - .env
-    environment:
-      - MCP_AGENT_NAME=skill-agent
-      - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
-    ports:
-      - "8084:8084"
-    depends_on:
-      - chat-backend
 
   utility-mcp:
     build:
@@ -231,7 +220,34 @@ services:
     depends_on:
       - chat-backend
 
+  # ─── 前端（nginx 静态托管 + /api 反向代理）────────────
+  web:
+    build:
+      context: .
+      dockerfile: frontend_web/Dockerfile
+    ports:
+      - "${WEB_PORT:-80}:80"
+      - "${WEB_HTTPS_PORT:-443}:443"
+    environment:
+      - CERT_DOMAIN=${CERT_DOMAIN:-campuslink.local}
+    volumes:
+      # 可写：ensure-cert.sh 需写入自签占位证书；certbot 容器共享同一卷写真证书
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - chat-backend
+
+  # ─── certbot（一次性：签发/续期 Let's Encrypt 证书）────────
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+
 volumes:
   mysql_data:
   minio_data:
   delegation_keys:
+  certbot_conf:
+  certbot_www:

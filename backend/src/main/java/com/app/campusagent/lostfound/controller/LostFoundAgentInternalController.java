@@ -9,6 +9,7 @@ import com.app.campusagent.lostfound.dto.LostFoundClaimResponse;
 import com.app.campusagent.lostfound.dto.LostFoundReportResponse;
 import com.app.campusagent.lostfound.dto.PageResponse;
 import com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse;
+import com.app.campusagent.lostfound.dto.agent.AgentCreateFoundReportRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentCreateLostReportRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.app.campusagent.lostfound.service.LostFoundClaimService;
@@ -52,6 +53,23 @@ public class LostFoundAgentInternalController {
             @AuthenticationPrincipal User currentUser) {
         CreateLostFoundReportRequest serviceRequest = new CreateLostFoundReportRequest(
                 ReportType.LOST,
+                request.itemName(),
+                request.category(),
+                request.description(),
+                request.colour(),
+                request.location(),
+                request.eventDate(),
+                request.timeDescription());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(reportService.create(serviceRequest, List.of(), currentUser));
+    }
+
+    @PostMapping("/reports/found")
+    public ResponseEntity<LostFoundReportResponse> reportFound(
+            @Valid @RequestBody AgentCreateFoundReportRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        CreateLostFoundReportRequest serviceRequest = new CreateLostFoundReportRequest(
+                ReportType.FOUND,
                 request.itemName(),
                 request.category(),
                 request.description(),

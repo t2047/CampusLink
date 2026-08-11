@@ -135,7 +135,7 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
           <Box>
             <Typography id="agent-test-heading" variant="h6" fontWeight={700}>Try the Lost & Found Agent</Typography>
             <Typography variant="body2" color="text.secondary">
-              Describe an item naturally, for example: “我昨天在图书馆丢了一副黑色耳机”。
+              Describe an item naturally
             </Typography>
           </Box>
           <Chip label="Test" size="small" color="primary" variant="outlined" sx={{ ml: 'auto' }} />

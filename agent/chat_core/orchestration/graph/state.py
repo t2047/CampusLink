@@ -50,6 +50,8 @@ class AgentState(TypedDict, total=False):
     agent_invocations: list[AgentInvocation]
     current_agent_index: int
     utility_results: dict[str, dict[str, Any]]
+    # 工具成功结果经 LLM 按用户语言重述后的最终回复（无则聚合器回退格式化拼接）
+    utility_response: str | None
 
     # ── Human-in-the-loop ──
     requires_approval: bool
@@ -58,6 +60,10 @@ class AgentState(TypedDict, total=False):
     # 确认后的重调标记：{"agent_name": ..., "confirmation_id": ...}，
     # agent_invoker 下次调用该 Agent 时携带 confirmed=True + confirmation_id
     pending_confirmation: dict[str, Any] | None
+    # 澄清循环（编排层主动信息收集）：子 Agent 返回 needs_more_info 后记录
+    # {"agent_name": ..., "missing_fields": [...], "attempts": n}，下一轮用户
+    # 消息跳过意图分类直接回同一 Agent（补充信息）；attempts 达上限终止
+    pending_info: dict[str, Any] | None
 
     # ── 安全上下文 ──
     user_id: str | None

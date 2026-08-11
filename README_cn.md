@@ -3,12 +3,12 @@
 [![English](https://img.shields.io/badge/English%20Version-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
 
 CampusLink 是校园 **AI Agent 平台**：以 `agent/chat_core` 编排层（FastAPI + LangGraph）为核心，
-通过 MCP 协议驱动多领域 Agent（mail / facility / lost-found / skill / utility-tools）完成
+通过 MCP 协议驱动多领域 Agent（mail / facility / lost-found / utility-tools）完成
 聊天问答与业务操作，支持 SSE 流式输出与 HITL 人工确认。
 
 **Lost & Found 是平台首个完整落地的垂直切片**：既有 Web 端完整功能（发布/搜索/认领/管理），
 也已通过 `agent/mcp_servers/lost_found_server.py` 适配层接入 Agent 体系——用户可以用自然语言
-报失/查找/认领，写操作经用户确认后真正落库。
+报失/登记拾获/查找/认领，写操作经用户确认后真正落库。
 
 Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中。
 
@@ -82,7 +82,7 @@ npm run dev
 平台核心是**校园 AI 助手**（自然语言聊天 + 多领域 Agent 调度）：
 
 - **编排层**：`agent/chat_core`（FastAPI + LangGraph；意图路由、Agent 调用、HITL 人工确认、LLM 兜底）
-- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / skill / utility-tools），
+- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / utility-tools），
   以 streamable HTTP 暴露，按 `agent/schemas/*.json` 能力声明注册
 - **前端**：React 应用首页的聊天入口（SSE 流式打字机、意图展示、HITL 确认——确认后
   经 `/api/chat/resume` 恢复挂起图并真正重调子 Agent 执行写操作，报失/认领等确认流程已可用）
@@ -101,7 +101,7 @@ npm run dev
 - 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
 - 认领证明只对申请人与拾获记录发布者可见。
 - `ADMIN` 和 `SUPER_ADMIN` 可以使用只读管理页面查看统计、筛选全部记录、分页浏览和识别记录发布者。
-- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
+- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失与登记拾获确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
 
 当前 Lost & Found 已接入 Agent，使用规则重排和受控的 LLM 字段提取；尚不包含 Embedding、多模态图片匹配、通知、移动端、管理员写操作、记录编辑和删除。Agent 平台说明见上文“Agent 平台（核心）”。
 
@@ -163,7 +163,7 @@ npm test
 npm run build
 ```
 
-PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。当前尚未指定部署环境，因此不会擅自启用 CD。
+PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。CD 流水线（`cd-deploy.yml`）在推送到 `main` 时通过 SSH 部署到单台 DigitalOcean Droplet——配置见 `DEPLOYMENT.md`。
 
 ## 项目结构
 
@@ -171,7 +171,7 @@ PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 Spo
 project/
 ├── agent/                   Agent 体系（平台核心）
 │   ├── chat_core/           编排层（FastAPI + LangGraph；意图路由/HITL/LLM 兜底）
-│   ├── mcp_servers/         MCP Server 适配层（mail/facility/lost-found/skill/utility）
+│   ├── mcp_servers/         MCP Server 适配层（mail/facility/lost-found/utility）
 │   ├── lost_found_agent/    L&F 业务引擎（规则 + LLM 意图解析）
 │   └── schemas/             Agent 能力声明（JSON Schema）
 ├── backend/

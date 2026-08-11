@@ -77,6 +77,7 @@ def create_app(
                 "domains": ["lost_and_found"],
                 "actions": [
                     "report_lost",
+                    "report_found",
                     "search_found_items",
                     "get_item_detail",
                     "claim_item",

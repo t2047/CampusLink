@@ -11,6 +11,7 @@ from lost_found_agent.tools import (
     CampusApiClient,
     ClaimItemInput,
     GetItemDetailInput,
+    ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
 )
@@ -20,6 +21,7 @@ from lost_found_agent.tools import (
     ("method", "path", "action"),
     [
         ("POST", "/api/internal/lost-found/reports/lost", "report_lost"),
+        ("POST", "/api/internal/lost-found/reports/found", "report_found"),
         ("GET", "/api/internal/lost-found/candidates", "search_found_items"),
         ("GET", "/api/internal/lost-found/reports/7", "get_item_detail"),
         ("POST", "/api/internal/lost-found/reports/7/claims", "claim_item"),
@@ -41,6 +43,18 @@ async def test_each_tool_uses_expected_route_and_scoped_token(
                 "42",
                 "STUDENT",
                 ReportLostInput(
+                    item_name="Black headphones",
+                    category="ELECTRONICS",
+                    description="Black wireless headphones in a fabric case",
+                    location="Central Library",
+                    event_date=date(2026, 8, 8),
+                ),
+            )
+        elif action == "report_found":
+            await client.report_found(
+                "42",
+                "STUDENT",
+                ReportFoundInput(
                     item_name="Black headphones",
                     category="ELECTRONICS",
                     description="Black wireless headphones in a fabric case",

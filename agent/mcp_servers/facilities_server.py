@@ -27,7 +27,10 @@ if str(_ROOT) not in sys.path:
 from dotenv import find_dotenv, load_dotenv
 from facilities_agent.confirmation import ConfirmationStore
 from facilities_agent.deepseek_planner import DeepSeekPlanner
-from facilities_agent.mcp_tool_client import FacilitiesMcpToolClient
+from facilities_agent.mcp_tool_client import (
+    DEFAULT_FACILITIES_MCP_URL,
+    FacilitiesMcpToolClient,
+)
 from facilities_agent.models import InvokeRequest, InvokeResponse
 from facilities_agent.planner import FacilitiesPlanner, PlannerError
 from facilities_agent.result_mapper import map_technical_error
@@ -142,7 +145,7 @@ async def _invoke_adapter(
                 "VALIDATION_ERROR",
                 "The Facilities invoke request is invalid.",
             )
-    )
+        )
 
     try:
         planner = None if request.confirmed else _planner_factory(request)
@@ -154,6 +157,10 @@ async def _invoke_adapter(
                 request_id=request_id,
             )
     except (ToolClientError, PlannerError) as error:
+        logger.warning(
+            "Facilities invoke failed: request_id=%s code=%s detail=%s",
+            request_id, getattr(error, "code", "?"), error,
+        )
         response = map_technical_error(error, {}, request_id)
     except Exception:
         logger.exception("Facilities invoke failed: request_id=%s", request_id)
@@ -187,14 +194,26 @@ async def invoke(
         JSON containing response, status, confirmation_required, shared_context,
         actions_taken, request_id, and error.
     """
-    return await _invoke_adapter(
-        message,
-        conversation_context,
-        confirmed,
-        confirmation_id,
-        trace_parent,
-        context,
-    )
+    try:
+        return await _invoke_adapter(
+            message,
+            conversation_context,
+            confirmed,
+            confirmation_id,
+            trace_parent,
+            context,
+        )
+    except Exception:  # noqa: BLE001 - 任何未预期异常都转为 failed 响应，
+        # 绝不向 mcp SDK 抛异常（SDK 在工具异常路径存在 cancel-scope 时序 bug，
+        # 会导致 streamable HTTP session 崩溃、SSE 流中断、前端一直“回复中”）。
+        logger.exception("Unhandled exception in facilities invoke")
+        return _serialize(
+            _failed_response(
+                f"facility-invoke-{uuid.uuid4().hex}",
+                "FACILITIES_ADAPTER_ERROR",
+                "The facilities service is temporarily unavailable.",
+            )
+        )
 
 
 @contextlib.asynccontextmanager
@@ -220,6 +239,13 @@ async def health() -> dict[str, object]:
 def main() -> None:
     import uvicorn
 
+    if not os.environ.get("FACILITIES_MCP_URL"):
+        print(
+            "[facility-agent] WARNING: 未设置 FACILITIES_MCP_URL，将使用默认后端地址 "
+            f"{DEFAULT_FACILITIES_MCP_URL}（后端 Spring AI MCP）。"
+            "若 backend 不在本机 8080，请设置 FACILITIES_MCP_URL（如 http://<host>:8080/mcp）。",
+            file=sys.stderr,
+        )
     port = int(os.environ.get("FACILITIES_AGENT_PORT", str(DEFAULT_PORT)))
     uvicorn.run(
         "mcp_servers.facilities_server:app",

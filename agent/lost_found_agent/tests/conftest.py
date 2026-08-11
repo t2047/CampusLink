@@ -14,6 +14,7 @@ from lost_found_agent.tools import (  # noqa: E402
     CampusApiClient,
     ClaimItemInput,
     GetItemDetailInput,
+    ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
 )
@@ -32,6 +33,12 @@ class FakeCampusApiClient(CampusApiClient):
     ) -> dict[str, object]:
         self.calls.append(("report_lost", user_id, payload))
         return {"id": 101, "reportType": "LOST", "itemName": payload.item_name}
+
+    async def report_found(
+        self, user_id: str, user_role: str, payload: ReportFoundInput
+    ) -> dict[str, object]:
+        self.calls.append(("report_found", user_id, payload))
+        return {"id": 102, "reportType": "FOUND", "itemName": payload.item_name}
 
     async def search_found_items(
         self, user_id: str, user_role: str, payload: SearchFoundItemsInput
@@ -68,6 +75,9 @@ def settings() -> Settings:
         lost_found_confirmation_secret="c" * 64,
         agent_rate_limit_per_minute=20,
         agent_rate_limit_per_session=20,
+        # 规则引擎测试必须锁定 rules 模式：auto 会依赖环境里的 LLM key，
+        # 一旦 CI/本地注入了 LOST_FOUND_LLM_API_KEY 就变 llm 模式导致行为漂移
+        lost_found_agent_mode="rules",
     )
 
 

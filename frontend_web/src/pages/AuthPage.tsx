@@ -14,7 +14,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
-  const defaultDestination = user && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) ? '/admin/dashboard' : '/lost-found'
+  const defaultDestination = user && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) ? '/admin/dashboard' : '/chat'
 
   if (user) return <Navigate to={destination ?? defaultDestination} replace />
 
@@ -33,7 +33,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     try {
       await (mode === 'login' ? login(email, password) : register(email, password))
       const storedUser = JSON.parse(sessionStorage.getItem(USER_KEY) ?? '{}') as { role?: string }
-      const nextDestination = ['ADMIN', 'SUPER_ADMIN'].includes(storedUser.role ?? '') ? '/admin/dashboard' : '/lost-found'
+      const nextDestination = ['ADMIN', 'SUPER_ADMIN'].includes(storedUser.role ?? '') ? '/admin/dashboard' : '/chat'
       navigate(destination ?? nextDestination, { replace: true })
     } catch (requestError) {
       setError(apiErrorMessage(requestError))
@@ -49,7 +49,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         <CardContent sx={{ p: 4 }}>
           <Typography variant="h4" fontWeight={700} gutterBottom>CampusLink</Typography>
           <Typography variant="h6" gutterBottom>{isRegister ? 'Create an account' : 'Welcome back'}</Typography>
-          <Typography color="text.secondary" sx={{ mb: 3 }}>Sign in to use the campus Lost & Found service.</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>Sign in to chat with the campus AI assistant and use campus services.</Typography>
           <Stack component="form" spacing={2} onSubmit={handleSubmit}>
             {error && <Alert severity="error">{error}</Alert>}
             <TextField label="Email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />

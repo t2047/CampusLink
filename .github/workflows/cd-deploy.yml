@@ -1,0 +1,87 @@
+# ─── CampusLink CD：CI 构建镜像推 GHCR → SSH 到云 VM 拉取部署 ───
+# 前提：
+#   - VM 已按 DEPLOYMENT.md 初始化（/opt/campuslink 已克隆、.env 已配置
+#     且含 REGISTRY=ghcr.io/<github-owner>）
+#   - GHCR 包设为 public（Settings → Packages → Make public），VM 免登录拉取
+#   - GitHub Secrets：
+#       VM_HOST     VM IP 或域名
+#       VM_USER     SSH 用户（root 或 sudo 用户）
+#       VM_SSH_KEY  SSH 私钥
+# 触发：推送 main 或手动（workflow_dispatch）
+# 效果：VM 只需 docker pull（B2s/2vCPU 即可），不在服务器上构建
+
+name: CD Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGES: campuslink-backend campuslink-orchestration campuslink-mcp-servers campuslink-lost-found-agent campuslink-web
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: meta
+        run: |
+          echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        run: |
+          set -e
+          for svc in ${{ env.IMAGES }}; do
+            case "$svc" in
+              campuslink-backend)          dockerfile=backend/Dockerfile;          context=. ;;
+              campuslink-orchestration)    dockerfile=agent/chat_core/Dockerfile;  context=. ;;
+              campuslink-mcp-servers)      dockerfile=agent/mcp_servers/Dockerfile; context=. ;;
+              campuslink-lost-found-agent) dockerfile=agent/lost_found_agent/Dockerfile; context=./agent ;;
+              campuslink-web)              dockerfile=frontend_web/Dockerfile;     context=. ;;
+            esac
+            docker build -f "$dockerfile" \
+              -t "$REGISTRY/$svc:latest" \
+              -t "$REGISTRY/$svc:${{ steps.meta.outputs.tag }}" "$context"
+            docker push "$REGISTRY/$svc:latest"
+            docker push "$REGISTRY/$svc:${{ steps.meta.outputs.tag }}"
+          done
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Pull and restart on VM
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/campuslink
+            git pull --ff-only
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
+            docker image prune -f
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps

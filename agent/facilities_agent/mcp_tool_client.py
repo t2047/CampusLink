@@ -31,7 +31,10 @@ from .tool_client import (
 )
 
 FACILITIES_MCP_URL_ENV = "FACILITIES_MCP_URL"
-DEFAULT_FACILITIES_MCP_URL = "http://chat-backend:8080/mcp"
+# 默认指向本机 backend（Spring AI MCP 8080 /mcp）：
+# - 本地联调：backend 起在本机 8080 时零配置可用；
+# - Docker：compose 用环境变量覆盖为服务名（http://chat-backend:8080/mcp）
+DEFAULT_FACILITIES_MCP_URL = "http://127.0.0.1:8080/mcp"
 DEFAULT_MCP_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 SessionScopeFactory = Callable[
