@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @Transactional
@@ -72,30 +73,55 @@ class LostFoundSearchIntegrationTest {
     }
 
     @Test
-    void searchCandidatesExposesStoredVisualFingerprints() {
+    void searchCandidatesExposesImageUrls() {
         User owner = userRepository.save(new User("owner2@u.nus.edu", "encoded"));
         LostFoundReport report = report(
-                ReportType.FOUND, "Blue Water Bottle", ItemCategory.OTHER,
-                "A blue water bottle left at the sports hall.", "Blue", "Sports Hall",
-                LocalDate.now().minusDays(1), owner);
+                ReportType.FOUND,
+                "Blue Water Bottle",
+                ItemCategory.OTHER,
+                "A blue water bottle left at the sports hall.",
+                "Blue",
+                "Sports Hall",
+                LocalDate.now().minusDays(1),
+                owner);
+
         report.addImage(new LostFoundImage(
-                "lost-found/bottle.png", "bottle.png", "image/png", 1024L, 0,
+                "lost-found/bottle.png",
+                "bottle.png",
+                "image/png",
+                1024L,
+                0,
                 "VF1:expected-fingerprint"));
+
         reportRepository.saveAndFlush(report);
 
+        ObjectStorageService storageService = mock(ObjectStorageService.class);
+        when(storageService.createPresignedGetUrl("lost-found/bottle.png"))
+                .thenReturn("https://example.test/lost-found/bottle.png");
+
         LostFoundReportService service = new LostFoundReportService(
-                reportRepository, mock(ObjectStorageService.class),
-                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                reportRepository,
+                storageService,
+                mock(LostFoundClaimRepository.class),
+                mock(LostFoundNotificationRepository.class),
                 mock(LostFoundAuditService.class));
+
         var result = service.searchCandidates(
-                "water", null, null, null, null, null,
+                ReportType.FOUND,
+                "water",
+                null,
+                null,
+                null,
+                null,
+                null,
                 PageRequest.of(0, 20));
 
         assertThat(result.content()).hasSize(1);
-        assertThat(result.content().getFirst().visualFingerprints())
-                .containsExactly("VF1:expected-fingerprint");
+        assertThat(result.content().getFirst().reportType())
+                .isEqualTo(ReportType.FOUND);
+        assertThat(result.content().getFirst().imageUrls())
+                .containsExactly("https://example.test/lost-found/bottle.png");
     }
-
     @Test
     void publicSearchAndCandidatesExcludeHiddenReports() {
         User owner = userRepository.save(new User("owner-hidden@u.nus.edu", "encoded"));
@@ -124,7 +150,7 @@ class LostFoundSearchIntegrationTest {
                 .doesNotContain("Hidden Headphones");
 
         var candidates = service.searchCandidates(
-                null, null, null, null, null, null, PageRequest.of(0, 20));
+                ReportType.FOUND, null, null, null, null, null, null, PageRequest.of(0, 20));
         assertThat(candidates.content())
                 .extracting(com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse::itemName)
                 .doesNotContain("Hidden Headphones");
