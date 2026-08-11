@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
@@ -57,13 +58,17 @@ class LostFoundReportServiceTest {
     @Mock
     private LostFoundAuditService auditService;
 
+    @Mock
+    private LostFoundImageStagingService stagingService;
+
     private LostFoundReportService service;
     private User user;
 
     @BeforeEach
     void setUp() throws Exception {
         service = new LostFoundReportService(
-                reportRepository, storageService, claimRepository, notificationRepository, auditService);
+                reportRepository, storageService, claimRepository,
+                notificationRepository, auditService, stagingService);
         user = new User("student@u.nus.edu", "encoded");
         setField(user, "id", 7L);
     }
@@ -84,6 +89,61 @@ class LostFoundReportServiceTest {
         assertThat(response.reportType()).isEqualTo(ReportType.LOST);
         assertThat(response.createdByMe()).isTrue();
         assertThat(response.images()).isEmpty();
+    }
+
+    @Test
+    void createsReportFromStagedImagesReusingObjectKeyAndFingerprint() throws Exception {
+        byte[] png = pngBytes(2, 2);
+        LostFoundImageStagingService.StagedImage staged = new LostFoundImageStagingService.StagedImage(
+                "lost-found-staging/abc.png", png, "image/png", "item.png", png.length);
+        when(stagingService.retrieve("lost-found-staging/abc.png")).thenReturn(staged);
+        java.util.concurrent.atomic.AtomicReference<LostFoundReport> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(reportRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            LostFoundReport report = invocation.getArgument(0);
+            captured.set(report);
+            setField(report, "id", 12L);
+            setField(report.getImages().getFirst(), "id", 9L);
+            setField(report, "createdAt", java.time.Instant.now());
+            setField(report, "updatedAt", java.time.Instant.now());
+            return report;
+        });
+
+        var response = service.createFromStaged(
+                request(ReportType.LOST), List.of("lost-found-staging/abc.png"), user);
+
+        assertThat(response.images()).hasSize(1);
+        assertThat(response.images().getFirst().url()).isEqualTo("/api/lost-found/images/9");
+        assertThat(captured.get().getImages().getFirst().getObjectKey())
+                .isEqualTo("lost-found-staging/abc.png");
+        // 指纹由暂存字节确定性重算（与上传时同算法），非空即生效
+        assertThat(captured.get().getImages().getFirst().getVisualFingerprint()).isNotBlank();
+        verify(stagingService).retrieve("lost-found-staging/abc.png");
+    }
+
+    @Test
+    void stagedCreateRollsBackWhenAStagedObjectIsMissing() {
+        when(stagingService.retrieve("lost-found-staging/missing.png"))
+                .thenThrow(new LostFoundApiException(
+                        HttpStatus.NOT_FOUND, "STAGED_IMAGE_NOT_FOUND", "missing"));
+
+        assertThatThrownBy(() -> service.createFromStaged(
+                request(ReportType.LOST), List.of("lost-found-staging/missing.png"), user))
+                .isInstanceOf(LostFoundApiException.class)
+                .extracting("code")
+                .isEqualTo("STAGED_IMAGE_NOT_FOUND");
+        verify(reportRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void rejectsMoreThanFiveStagedImages() {
+        List<String> keys = List.of("k1", "k2", "k3", "k4", "k5", "k6");
+
+        assertThatThrownBy(() -> service.createFromStaged(request(ReportType.LOST), keys, user))
+                .isInstanceOf(LostFoundApiException.class)
+                .extracting("code")
+                .isEqualTo("TOO_MANY_IMAGES");
+        verify(stagingService, never()).retrieve(any());
     }
 
     @Test

@@ -61,7 +61,8 @@ public class LostFoundAgentInternalController {
                 request.eventDate(),
                 request.timeDescription());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(reportService.create(serviceRequest, List.of(), currentUser));
+                .body(reportService.createFromStaged(
+                        serviceRequest, imageKeys(request.imageKeys()), currentUser));
     }
 
     @PostMapping("/reports/found")
@@ -78,7 +79,8 @@ public class LostFoundAgentInternalController {
                 request.eventDate(),
                 request.timeDescription());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(reportService.create(serviceRequest, List.of(), currentUser));
+                .body(reportService.createFromStaged(
+                        serviceRequest, imageKeys(request.imageKeys()), currentUser));
     }
 
     @GetMapping("/candidates")
@@ -123,6 +125,10 @@ public class LostFoundAgentInternalController {
                 dateTo,
                 page,
                 size);
+    }
+
+    private static List<String> imageKeys(List<String> imageKeys) {
+        return imageKeys == null ? List.of() : imageKeys;
     }
 
     private PageResponse<AgentCandidateResponse> searchCandidates(

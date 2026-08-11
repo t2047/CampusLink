@@ -10,7 +10,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "matching_regression.jsonl"
 def test_corpus_loads_all_cases() -> None:
     cases = load_cases(FIXTURE)
 
-    assert len(cases) == 9
+    assert len(cases) == 10
     assert all(case.language in {"zh", "en"} for case in cases)
     assert all(isinstance(case.query, dict) for case in cases)
 
@@ -22,7 +22,7 @@ def test_multimodal_beats_rule_on_visual_discrimination() -> None:
     embedding = evaluate(cases, "embedding")
     multimodal = evaluate(cases, "multimodal")
 
-    assert rule["scored_cases"] == 8
+    assert rule["scored_cases"] == 9
     assert multimodal["mrr"] == 1.0
     assert rule["mrr"] < multimodal["mrr"]
     assert embedding["mrr"] == rule["mrr"]

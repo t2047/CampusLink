@@ -21,6 +21,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
@@ -72,7 +73,8 @@ class LostFoundAgentGatewayTest {
                 "我丢了耳机",
                 new AgentWebInvokeRequest.AgentConversationContext("session-1", Map.of()),
                 false,
-                null);
+                null,
+                List.of());
 
         Map<String, Object> response = gateway.invoke(request, user);
 
@@ -114,7 +116,8 @@ class LostFoundAgentGatewayTest {
                 "find headphones",
                 new AgentWebInvokeRequest.AgentConversationContext("session-1", Map.of()),
                 false,
-                null);
+                null,
+                List.of());
 
         LostFoundApiException exception = assertThrows(
                 LostFoundApiException.class,
@@ -129,7 +132,8 @@ class LostFoundAgentGatewayTest {
                 "我丢了耳机",
                 new AgentWebInvokeRequest.AgentConversationContext("session-1", Map.of()),
                 null,
-                null);
+                null,
+                List.of());
 
         assertEquals(false, request.toAgentPayload("trace-1").get("confirmed"));
     }

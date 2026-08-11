@@ -3,6 +3,8 @@ package com.app.campusagent.lostfound.controller;
 import com.app.campusagent.lostfound.domain.LostFoundImage;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.app.campusagent.lostfound.repository.LostFoundImageRepository;
+import com.app.campusagent.lostfound.service.LostFoundImageStagingService;
+import com.app.campusagent.lostfound.service.LostFoundImageStagingService.StagedImage;
 import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -25,12 +27,15 @@ public class LostFoundImageController {
 
     private final LostFoundImageRepository imageRepository;
     private final ObjectStorageService storageService;
+    private final LostFoundImageStagingService stagingService;
 
     public LostFoundImageController(
             LostFoundImageRepository imageRepository,
-            ObjectStorageService storageService) {
+            ObjectStorageService storageService,
+            LostFoundImageStagingService stagingService) {
         this.imageRepository = imageRepository;
         this.storageService = storageService;
+        this.stagingService = stagingService;
     }
 
     @GetMapping("/{imageId}")
@@ -49,5 +54,27 @@ public class LostFoundImageController {
                 // objectKey 是随机 UUID、图片内容上传后不变，可安全缓存；删除记录后 404 兜底
                 .cacheControl(CacheControl.maxAge(1, TimeUnit.DAYS).cachePublic())
                 .body(content);
+    }
+
+    /**
+     * 暂存图回显：Agent 面板选中图片后由该端点预览。objectName 是随机 UUID 文件名，
+     * 不可枚举（与已关联图片的自增 id 不同）；未确认的暂存图超时后由 TTL 清理。
+     */
+    @GetMapping("/staging/{objectName}")
+    public ResponseEntity<byte[]> downloadStaged(@PathVariable String objectName) {
+        if (objectName.contains("/") || objectName.contains("\\")) {
+            throw new LostFoundApiException(
+                    HttpStatus.NOT_FOUND,
+                    "STAGED_IMAGE_NOT_FOUND",
+                    "The staged image does not exist");
+        }
+        StagedImage staged = stagingService.retrieve(LostFoundImageStagingService.PREFIX + objectName);
+        String contentType = staged.contentType() == null
+                ? MediaType.APPLICATION_OCTET_STREAM_VALUE
+                : staged.contentType();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .cacheControl(CacheControl.maxAge(1, TimeUnit.DAYS).cachePublic())
+                .body(staged.content());
     }
 }

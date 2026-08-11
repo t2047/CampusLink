@@ -55,7 +55,7 @@ class LostFoundSearchIntegrationTest {
         LostFoundReportService service = new LostFoundReportService(
                 reportRepository, mock(ObjectStorageService.class),
                 mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
         var result = service.search(
                 ReportType.FOUND,
                 "HEADPHONES",
@@ -103,7 +103,8 @@ class LostFoundSearchIntegrationTest {
                 storageService,
                 mock(LostFoundClaimRepository.class),
                 mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
+                mock(LostFoundAuditService.class),
+                mock(LostFoundImageStagingService.class));
 
         var result = service.searchCandidates(
                 ReportType.FOUND,
@@ -120,6 +121,9 @@ class LostFoundSearchIntegrationTest {
                 .isEqualTo(ReportType.FOUND);
         assertThat(result.content().getFirst().imageUrls())
                 .containsExactly("/api/lost-found/images/" + imageId);
+        // 候选指纹与 imageUrls 同序，供 Agent 匹配打分使用
+        assertThat(result.content().getFirst().visualFingerprints())
+                .containsExactly("VF1:expected-fingerprint");
     }
     @Test
     void publicSearchAndCandidatesExcludeHiddenReports() {
@@ -138,7 +142,7 @@ class LostFoundSearchIntegrationTest {
         LostFoundReportService service = new LostFoundReportService(
                 reportRepository, mock(ObjectStorageService.class),
                 mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
 
         var search = service.search(
                 null, null, null, null, null, null, null, null,
@@ -160,7 +164,7 @@ class LostFoundSearchIntegrationTest {
         LostFoundReportService service = new LostFoundReportService(
                 reportRepository, mock(ObjectStorageService.class),
                 mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
-                mock(LostFoundAuditService.class));
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
         User currentUser = new User("reader@u.nus.edu", "encoded");
 
         assertThatThrownBy(() -> service.search(

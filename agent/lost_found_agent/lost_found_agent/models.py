@@ -25,12 +25,22 @@ class ConversationContext(BaseModel):
     shared_data: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentImage(BaseModel):
+    """Agent 面板选中并已由 Spring Boot 暂存的一张图片。object_key 在确认创建时
+    通过内部 API 关联为报告图片，visual_fingerprint 参与双向匹配打分。"""
+
+    object_key: str = Field(min_length=1, max_length=500)
+    visual_fingerprint: str | None = None
+    url: str | None = None
+
+
 class InvokeRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_context: ConversationContext = Field(default_factory=ConversationContext)
     confirmed: bool = False
     confirmation_id: str | None = None
     trace_parent: TraceParent = Field(default_factory=TraceParent)
+    images: list[AgentImage] = Field(default_factory=list, max_length=5)
 
 
 class MatchResult(BaseModel):

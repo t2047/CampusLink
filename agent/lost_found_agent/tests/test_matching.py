@@ -108,6 +108,27 @@ def test_visual_component_uses_best_candidate_image() -> None:
     assert worse_score == 0.0
 
 
+def test_query_supports_multiple_fingerprints_and_takes_best_pair() -> None:
+    query = {"visual_fingerprints": [make_visual((255, 0, 0)), make_visual((0, 0, 255))]}
+    base = {
+        "id": 7,
+        "itemName": "水杯",
+        "category": "OTHER",
+        "description": "一个杯子",
+        "location": "图书馆",
+        "eventDate": "2026-08-08",
+        "status": "OPEN",
+    }
+    matches_second = {**base, "visualFingerprints": [make_visual((0, 0, 255))]}
+    no_match = {**base, "visualFingerprints": [make_visual((255, 255, 0))]}
+
+    better_score, _ = score_candidate(query, matches_second, "zh")
+    worse_score, _ = score_candidate(query, no_match, "zh")
+
+    assert better_score == 1.0
+    assert worse_score == 0.0
+
+
 def test_text_embedding_flag_turns_off_vector_signal() -> None:
     query = {"description": "black wireless earbuds in charging case"}
     candidate = {

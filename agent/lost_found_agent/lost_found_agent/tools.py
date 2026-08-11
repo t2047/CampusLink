@@ -32,6 +32,11 @@ class ReportLostInput(BaseModel):
     event_date: date
     colour: str | None = Field(default=None, max_length=50)
     time_description: str | None = Field(default=None, max_length=100)
+    # 面板已暂存图片的 objectKey；确认创建时经内部 API 关联为报告图片。
+    # 字段本身不发给后端（body 构建器只挑字段），仅用于确认载荷与自动匹配 query。
+    images: list[str] = Field(default_factory=list, max_length=5)
+    # 查询端视觉指纹（与 images 同序），创建后并入自动匹配 query 参与打分。
+    visual_fingerprints: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("event_date")
     @classmethod
@@ -51,6 +56,8 @@ class ReportFoundInput(BaseModel):
     event_date: date
     colour: str | None = Field(default=None, max_length=50)
     time_description: str | None = Field(default=None, max_length=100)
+    images: list[str] = Field(default_factory=list, max_length=5)
+    visual_fingerprints: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("event_date")
     @classmethod
@@ -138,6 +145,7 @@ class CampusApiClient:
                 "location": payload.location,
                 "eventDate": payload.event_date.isoformat(),
                 "timeDescription": payload.time_description,
+                **({"imageKeys": payload.images} if payload.images else {}),
             },
         )
 
@@ -158,6 +166,7 @@ class CampusApiClient:
                 "location": payload.location,
                 "eventDate": payload.event_date.isoformat(),
                 "timeDescription": payload.time_description,
+                **({"imageKeys": payload.images} if payload.images else {}),
             },
         )
 

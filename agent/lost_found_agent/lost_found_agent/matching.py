@@ -155,20 +155,32 @@ def short_text_similarity(left: str, right: str) -> float:
 
 
 def _visual_similarity(query: dict[str, Any], candidate: dict[str, Any]) -> float | None:
-    query_fingerprint = query.get("visual_fingerprint")
+    query_fingerprints = _query_fingerprints(query)
     candidate_fingerprints = candidate.get("visualFingerprints")
-    if not isinstance(query_fingerprint, str) or not isinstance(candidate_fingerprints, list):
+    if not query_fingerprints or not isinstance(candidate_fingerprints, list):
         return None
     from .embeddings import visual_similarity
 
     best: float | None = None
-    for fingerprint in candidate_fingerprints:
-        if not isinstance(fingerprint, str):
-            continue
-        value = visual_similarity(query_fingerprint, fingerprint)
-        if value is not None and (best is None or value > best):
-            best = value
+    for query_fingerprint in query_fingerprints:
+        for fingerprint in candidate_fingerprints:
+            if not isinstance(fingerprint, str):
+                continue
+            value = visual_similarity(query_fingerprint, fingerprint)
+            if value is not None and (best is None or value > best):
+                best = value
     return best
+
+
+def _query_fingerprints(query: dict[str, Any]) -> list[str]:
+    """查询端视觉指纹：支持单图（visual_fingerprint）与多图（visual_fingerprints）两种写法。"""
+    single = query.get("visual_fingerprint")
+    if isinstance(single, str):
+        return [single]
+    multiple = query.get("visual_fingerprints")
+    if isinstance(multiple, list):
+        return [value for value in multiple if isinstance(value, str)]
+    return []
 
 
 def date_similarity(left: str, right: str) -> float:

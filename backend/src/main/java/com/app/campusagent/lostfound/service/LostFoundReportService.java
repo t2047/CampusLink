@@ -22,9 +22,6 @@ import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import com.app.campusagent.lostfound.storage.StoredObject;
 import com.app.campusagent.lostfound.visual.VisualFingerprintExtractor;
 import jakarta.persistence.criteria.Predicate;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
-import javax.imageio.stream.ImageInputStream;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -35,13 +32,10 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -51,29 +45,26 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 public class LostFoundReportService {
 
-    private static final int MAX_IMAGES = 5;
-    private static final long MAX_IMAGE_SIZE = 10L * 1024L * 1024L;
-    private static final int MAX_IMAGE_DIMENSION = 8192;
-    private static final List<String> ALLOWED_TYPES = List.of(
-            "image/jpeg", "image/png", "image/webp");
-
     private final LostFoundReportRepository reportRepository;
     private final ObjectStorageService storageService;
     private final LostFoundClaimRepository claimRepository;
     private final LostFoundNotificationRepository notificationRepository;
     private final LostFoundAuditService auditService;
+    private final LostFoundImageStagingService stagingService;
 
     public LostFoundReportService(
             LostFoundReportRepository reportRepository,
             ObjectStorageService storageService,
             LostFoundClaimRepository claimRepository,
             LostFoundNotificationRepository notificationRepository,
-            LostFoundAuditService auditService) {
+            LostFoundAuditService auditService,
+            LostFoundImageStagingService stagingService) {
         this.reportRepository = reportRepository;
         this.storageService = storageService;
         this.claimRepository = claimRepository;
         this.notificationRepository = notificationRepository;
         this.auditService = auditService;
+        this.stagingService = stagingService;
     }
 
     @Transactional
@@ -127,6 +118,56 @@ public class LostFoundReportService {
         }
     }
 
+    /**
+     * Agent 确认创建：把已暂存的 objectKey 关联为新报告的图片。
+     *
+     * <p>暂存图已存在于 MinIO（{@code lost-found-staging/} 前缀），此处只下载字节
+     * 计算指纹并建立 {@link LostFoundImage} 行，objectKey 复用暂存键。行创建后该键
+     * 被 DB 引用，TTL 清理任务会自动跳过；若任一暂存对象缺失（如已被 TTL 清理），
+     * 整个创建回滚，不产生"有记录无图"或"有图无记录"的半态。</p>
+     */
+    @Transactional
+    public LostFoundReportResponse createFromStaged(
+            CreateLostFoundReportRequest request,
+            List<String> stagedImageKeys,
+            User currentUser) {
+        List<String> keys = stagedImageKeys == null ? List.of() : stagedImageKeys;
+        LostFoundImageRules.validateCount(keys.size());
+
+        LostFoundReport report = new LostFoundReport(
+                request.reportType(),
+                request.itemName().trim(),
+                request.category(),
+                request.description().trim(),
+                trimToNull(request.colour()),
+                request.location().trim(),
+                request.eventDate(),
+                trimToNull(request.timeDescription()),
+                currentUser);
+
+        for (int index = 0; index < keys.size(); index++) {
+            LostFoundImageStagingService.StagedImage staged = stagingService.retrieve(keys.get(index));
+            String fingerprint = VisualFingerprintExtractor.extract(
+                    staged.content(), staged.contentType());
+            report.addImage(new LostFoundImage(
+                    staged.objectKey(),
+                    safeOriginalName(staged.originalName()),
+                    staged.contentType(),
+                    staged.fileSize(),
+                    index,
+                    fingerprint));
+        }
+        LostFoundReport saved = reportRepository.saveAndFlush(report);
+        auditService.record(
+                LostFoundAuditAction.REPORT_CREATED,
+                saved.getId(),
+                saved.getItemName(),
+                currentUser,
+                null,
+                "images=" + keys.size() + ", staged=true");
+        return toResponse(saved, currentUser);
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<LostFoundReportResponse> search(
             ReportType reportType,
@@ -168,21 +209,29 @@ public class LostFoundReportService {
             ReportStatus.OPEN);
 
         return PageResponse.from(reportRepository.findAll(specification, pageable)
-                .map(report -> new AgentCandidateResponse(
-                        report.getId(),
-                        report.getReportType(),
-                        report.getItemName(),
-                        report.getCategory(),
-                        report.getDescription(),
-                        report.getColour(),
-                        report.getLocation(),
-                        report.getEventDate(),
-                        report.getTimeDescription(),
-                        report.getStatus(),
-                        report.getImages().stream()
-                                .sorted(Comparator.comparingInt(LostFoundImage::getSortOrder))
-                                .map(image -> LostFoundImageResponse.of(image).url())
-                                .toList())));
+                .map(report -> {
+                    List<LostFoundImage> images = report.getImages().stream()
+                            .sorted(Comparator.comparingInt(LostFoundImage::getSortOrder))
+                            .toList();
+                    return new AgentCandidateResponse(
+                            report.getId(),
+                            report.getReportType(),
+                            report.getItemName(),
+                            report.getCategory(),
+                            report.getDescription(),
+                            report.getColour(),
+                            report.getLocation(),
+                            report.getEventDate(),
+                            report.getTimeDescription(),
+                            report.getStatus(),
+                            images.stream()
+                                    .map(image -> LostFoundImageResponse.of(image).url())
+                                    .toList(),
+                            // 与 imageUrls 同序：无指纹的图片位置为 null，Agent 端跳过
+                            images.stream()
+                                    .map(LostFoundImage::getVisualFingerprint)
+                                    .toList());
+                }));
 }
 
     @Transactional(readOnly = true)
@@ -420,108 +469,7 @@ public class LostFoundReportService {
     }
 
     private void validateImages(List<MultipartFile> images) {
-        if (images.size() > MAX_IMAGES) {
-            throw new LostFoundApiException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
-                    "TOO_MANY_IMAGES",
-                    "A report can contain at most 5 images");
-        }
-        for (MultipartFile image : images) {
-            if (image == null || image.isEmpty()) {
-                throw new LostFoundApiException(
-                        HttpStatus.UNPROCESSABLE_ENTITY,
-                        "EMPTY_IMAGE",
-                        "Uploaded images cannot be empty");
-            }
-            if (image.getSize() > MAX_IMAGE_SIZE) {
-                throw new LostFoundApiException(
-                        HttpStatus.PAYLOAD_TOO_LARGE,
-                        "IMAGE_TOO_LARGE",
-                        "Each image must be 10 MB or smaller");
-            }
-            String contentType = image.getContentType();
-            if (!ALLOWED_TYPES.contains(contentType) || !matchesMagicBytes(image, contentType)) {
-                throw new LostFoundApiException(
-                        HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-                        "UNSUPPORTED_IMAGE_TYPE",
-                        "Only valid JPEG, PNG and WebP images are accepted");
-            }
-            validateImageDimensions(image);
-        }
-    }
-
-    /**
-     * 读取图片头部尺寸（不整图解码），拒绝超大尺寸以防御解压炸弹。
-     * 仅当 ImageIO 能识别格式时才检查；WebP 等无法识别的格式在指纹
-     * 提取时走 SHA-256 回退、不触发解码，无解压炸弹风险，直接跳过。
-     */
-    private void validateImageDimensions(MultipartFile image) {
-        try (InputStream input = image.getInputStream()) {
-            try (ImageInputStream imageInput = ImageIO.createImageInputStream(input)) {
-                if (imageInput == null) {
-                    return;
-                }
-                Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
-                if (!readers.hasNext()) {
-                    return;
-                }
-                ImageReader reader = readers.next();
-                try {
-                    reader.setInput(imageInput, true, true);
-                    int width = reader.getWidth(0);
-                    int height = reader.getHeight(0);
-                    if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-                        throw new LostFoundApiException(
-                                HttpStatus.UNPROCESSABLE_ENTITY,
-                                "IMAGE_DIMENSION_TOO_LARGE",
-                                "Each image must be at most " + MAX_IMAGE_DIMENSION
-                                        + " pixels per side");
-                    }
-                } finally {
-                    reader.dispose();
-                }
-            }
-        } catch (IOException ex) {
-            throw new LostFoundApiException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
-                    "IMAGE_READ_FAILED",
-                    "The uploaded image could not be read",
-                    ex);
-        }
-    }
-
-    private boolean matchesMagicBytes(MultipartFile file, String contentType) {
-        try (InputStream input = file.getInputStream()) {
-            byte[] header = input.readNBytes(12);
-            if ("image/jpeg".equals(contentType)) {
-                return header.length >= 3
-                        && (header[0] & 0xff) == 0xff
-                        && (header[1] & 0xff) == 0xd8
-                        && (header[2] & 0xff) == 0xff;
-            }
-            if ("image/png".equals(contentType)) {
-                byte[] png = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
-                if (header.length < png.length) {
-                    return false;
-                }
-                for (int i = 0; i < png.length; i++) {
-                    if (header[i] != png[i]) {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            return "image/webp".equals(contentType)
-                    && header.length >= 12
-                    && new String(header, 0, 4, StandardCharsets.US_ASCII).equals("RIFF")
-                    && new String(header, 8, 4, StandardCharsets.US_ASCII).equals("WEBP");
-        } catch (IOException ex) {
-            throw new LostFoundApiException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
-                    "IMAGE_READ_FAILED",
-                    "The uploaded image could not be read",
-                    ex);
-        }
+        LostFoundImageRules.validateAll(images);
     }
 
     private List<String> visualFingerprints(LostFoundReport report) {

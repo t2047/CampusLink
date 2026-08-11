@@ -18,5 +18,6 @@ public record AgentCandidateResponse(
         LocalDate eventDate,
         String timeDescription,
         ReportStatus status,
-        List<String> imageUrls) {
+        List<String> imageUrls,
+        List<String> visualFingerprints) {
 }

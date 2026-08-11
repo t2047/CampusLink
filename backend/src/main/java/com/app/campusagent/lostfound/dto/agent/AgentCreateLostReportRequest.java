@@ -7,6 +7,7 @@ import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
+import java.util.List;
 
 public record AgentCreateLostReportRequest(
         // min=2：中文物品名常为 2 字符（钥匙/钱包），与 Agent 端提取口径一致
@@ -16,5 +17,7 @@ public record AgentCreateLostReportRequest(
         @Size(max = 50) String colour,
         @NotBlank @Size(max = 200) String location,
         @NotNull @PastOrPresent LocalDate eventDate,
-        @Size(max = 100) String timeDescription) {
+        @Size(max = 100) String timeDescription,
+        // Agent 面板已暂存图片的 objectKey 列表，创建时关联为报告图片
+        @Size(max = 5) List<String> imageKeys) {
 }

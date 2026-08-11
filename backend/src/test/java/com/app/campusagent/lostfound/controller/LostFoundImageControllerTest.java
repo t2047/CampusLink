@@ -2,6 +2,8 @@ package com.app.campusagent.lostfound.controller;
 
 import com.app.campusagent.lostfound.domain.LostFoundImage;
 import com.app.campusagent.lostfound.repository.LostFoundImageRepository;
+import com.app.campusagent.lostfound.service.LostFoundImageStagingService;
+import com.app.campusagent.lostfound.service.LostFoundImageStagingService.StagedImage;
 import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -31,6 +35,9 @@ class LostFoundImageControllerTest {
 
     @MockitoBean
     private ObjectStorageService storageService;
+
+    @MockitoBean
+    private LostFoundImageStagingService stagingService;
 
     @Test
     void servesImageBytesWithoutAuthentication() throws Exception {
@@ -55,5 +62,28 @@ class LostFoundImageControllerTest {
 
         mockMvc.perform(get("/api/lost-found/images/404"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void servesStagedImageBytesWithoutAuthentication() throws Exception {
+        byte[] png = {1, 2, 3, 4};
+        StagedImage staged = new StagedImage(
+                "lost-found-staging/key.png", png, "image/png", "item.png", png.length);
+        when(stagingService.retrieve("lost-found-staging/key.png")).thenReturn(staged);
+
+        mockMvc.perform(get("/api/lost-found/images/staging/key.png"))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(png))
+                .andExpect(header().string("Content-Type", "image/png"));
+    }
+
+    @Test
+    void rejectsStagedImageNameContainingSeparators() throws Exception {
+        // 路径分隔符（%2F/%5C）由容器在 HTTP 层拒绝（400）；controller 内的校验是
+        // 防御性的。断言请求被拒且不触碰 MinIO 即可。
+        mockMvc.perform(get("/api/lost-found/images/staging/a%2Fb.png"))
+                .andExpect(status().is4xxClientError());
+
+        verify(stagingService, never()).retrieve(any());
     }
 }

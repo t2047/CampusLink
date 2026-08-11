@@ -18,7 +18,7 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
         "claim_item",
     ]
 
-    assert schema["version"] == "1.5.0"
+    assert schema["version"] == "1.6.0"
     assert schema["security"]["writeConfirmationRequired"] == [
         "report_lost",
         "report_found",
@@ -32,6 +32,25 @@ def test_agent_schema_is_valid_and_requires_confirmation() -> None:
     assert sum(schema["matching"]["weights"].values()) == 1
     assert schema["model"]["maximumToolsPerInvocation"] == 2
     assert schema["model"]["fallbackMode"] == "rules"
+
+
+def test_invoke_input_accepts_staged_images() -> None:
+    schema_path = Path(__file__).parents[2] / "schemas" / "lost-found-agent.json"
+    root = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft202012Validator({"$ref": "#/$defs/invokeInput", "$defs": root["$defs"]})
+    sample: dict[str, object] = {
+        "message": "帮我找这把蓝色雨伞",
+        "conversation_context": {"session_id": "s1", "shared_data": {}},
+        "images": [
+            {
+                "object_key": "lost-found-staging/abc.png",
+                "visual_fingerprint": "VF1:xxx",
+                "url": "/api/lost-found/images/staging/abc.png",
+            }
+        ],
+    }
+
+    validator.validate(sample)
 
 
 def test_sample_response_matches_contract() -> None:

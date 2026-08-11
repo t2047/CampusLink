@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from typing import Any
 
@@ -103,6 +104,34 @@ async def test_each_tool_uses_expected_route_and_scoped_token(
     assert claims["intended_action"] == action
     assert claims["exp"] - claims["iat"] <= 60
     assert claims["jti"]
+
+
+async def test_report_lost_sends_image_keys_when_images_present(settings: Settings) -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"id": 1})
+
+    client = CampusApiClient(settings, httpx.MockTransport(handler))
+    try:
+        await client.report_lost(
+            "42",
+            "STUDENT",
+            ReportLostInput(
+                item_name="Black headphones",
+                category="ELECTRONICS",
+                description="Black wireless headphones in a fabric case",
+                location="Central Library",
+                event_date=date(2026, 8, 8),
+                images=["lost-found-staging/k.png"],
+            ),
+        )
+    finally:
+        await client.close()
+
+    body = json.loads(captured[0].read())
+    assert body["imageKeys"] == ["lost-found-staging/k.png"]
 
 
 async def test_search_maps_filters_to_query_parameters(settings: Settings) -> None:

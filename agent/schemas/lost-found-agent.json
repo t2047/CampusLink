@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.5.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.6.0.json",
   "agent": "lost-found-agent",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "校园失物招领领域 Agent。负责报失、登记拾获、双向搜索匹配、查看详情和提交认领；报失、登记拾获和认领必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
@@ -81,6 +81,20 @@
             "parent_span_id": {"type": ["string", "null"]}
           },
           "additionalProperties": false
+        },
+        "images": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object_key": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visual_fingerprint": {"type": ["string", "null"]},
+              "url": {"type": ["string", "null"]}
+            },
+            "required": ["object_key"]
+          }
         }
       },
       "required": ["message"]

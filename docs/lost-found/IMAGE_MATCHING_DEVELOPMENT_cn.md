@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-11
 > 创建分支：`feature/lost-found-image-matching`（基线 b20ac26）
-> 状态：**阶段 1（图片显示修复）已完成并通过真实运行验证**，阶段 2/3 未开始（本文件是后续开发的唯一事实来源，随每个阶段 PR 更新）
+> 状态：**阶段 1（图片显示修复）与阶段 2（Agent 图片上传 + 图片匹配）已完成并通过真实运行验证**，阶段 3（Browse 以图搜物）未开始（本文件是后续开发的唯一事实来源，随每个阶段 PR 更新）
 
 ## 1. 背景与需求
 
@@ -170,15 +170,16 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 
 | 契约 | 变更 |
 |---|---|
-| Agent `InvokeRequest` | 新增可选 `images: [{object_key, visual_fingerprint, url}]` |
+| Agent `InvokeRequest` | 新增可选 `images: [{object_key, visual_fingerprint, url}]` ✅ 阶段 2 |
 | Agent `InvokeResponse` | 不变（`match_results[].image_urls` 现在指向代理 URL） |
-| Agent JSON Schema | 同步 `images` 字段 |
-| Web `AgentWebInvokeRequest` | 新增 `images`；`POST /agent/upload-image` 暂存接口 |
-| 内部 `AgentCreateLostReportRequest` / `AgentCreateFoundReportRequest` | 新增 `imageKeys: List<String>` |
-| 内部 `AgentCandidateResponse` | 新增 `visualFingerprints: List<String>` |
-| 内部候选/详情 `imageUrls` | 由 MinIO 预签名 URL 改为 `/api/lost-found/images/{id}` |
-| 内部 API `reports/lost|found` 创建 | 支持关联已暂存 objectKey（新增服务路径，原纯 JSON 路径保留） |
-| 前端 `AgentInvokeRequest` | 新增 `images` |
+| Agent JSON Schema | 同步 `images` 字段（版本 1.5.0 → 1.6.0）✅ 阶段 2 |
+| Web `AgentWebInvokeRequest` | 新增 `images`；`POST /agent/upload-image` 暂存接口 ✅ 阶段 2 |
+| 内部 `AgentCreateLostReportRequest` / `AgentCreateFoundReportRequest` | 新增 `imageKeys: List<String>` ✅ 阶段 2 |
+| 内部 `AgentCandidateResponse` | 新增 `visualFingerprints: List<String>`（与 imageUrls 同序）✅ 阶段 2 |
+| 内部候选/详情 `imageUrls` | 由 MinIO 预签名 URL 改为 `/api/lost-found/images/{id}`（阶段 1） |
+| 暂存图预览 | 新增 `GET /api/lost-found/images/staging/{objectName}`（随机 UUID 文件名，不可枚举）✅ 阶段 2 |
+| 内部 API `reports/lost|found` 创建 | 支持关联已暂存 objectKey（`createFromStaged` 新增服务路径，原纯 JSON 路径保留）✅ 阶段 2 |
+| 前端 `AgentInvokeRequest` | 新增 `images` ✅ 阶段 2 |
 
 ## 6. 安全与边界
 
@@ -195,17 +196,18 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 - 颜色直方图（64 桶）区分度有限：同色系不同物品易混淆，视觉分量权重 0.10 时对总分影响小。→ 匹配 2.1 可插拔换更强 embedding（CLIP 等），`matching.py` 已按字符串指纹设计，替换点集中。
 - `AgentCandidateResponse` 增加 `visualFingerprints` 后候选体积增大（每候选最多 5 × 88 字符），100 候选量级可接受，需观察。
 - 暂存图片 TTL 目前计划单实例定时任务，横向扩容前与现有 Nonce/SSE 存储同属内存/单机债（见 TECHNICAL_ROADMAP §8）。
-- 图片代理接口若走方案 A 放开鉴权，需在实现时记录该决策到本文档与安全文档。
-- 阶段 2 内部 API 创建路径改造需保证：确认创建后若图片关联失败，记录创建整体回滚，不产生"有记录无图"或"有图无记录"的半态。
+- 图片代理接口（`/api/lost-found/images/**`，含 `/staging/{objectName}`）已按方案 A 放开鉴权并记录在此。已关联图片用自增 id 可枚举（权衡已记录）；**暂存图预览用随机 UUID objectName，不可枚举**。对象为物品照片、敏感度低，维持现状。
+- 阶段 2 内部 API 创建路径保证：确认创建后若图片关联失败（如暂存对象已被 TTL 清理），记录创建整体回滚，不产生"有记录无图"或"有图无记录"的半态（真实运行验证：`createFromStaged` 在检索暂存对象失败时抛出并使事务回滚）。
+- **真实运行发现**：`lost_found_images.object_key` 唯一约束使同一暂存对象只能关联一个报告；重复关联同一 objectKey 会触发唯一键冲突（`createFromStaged` 回滚）。面板在确认创建成功后清空暂存，真实 UI 流程每个上传对象只用一次，故该行为是预期的防"双挂"保护而非缺陷。单实例 TTL 定时任务与 Nonce/SSE 存储同属单机债（见 TECHNICAL_ROADMAP §8）。
 
 ## 8. 开发进度跟踪
 
 | 阶段 | 任务 | 状态 | 负责人 | 备注 |
 |---|---|---:|---|---|
 | 1 | 图片显示修复（后端代理接口） | ✅ 已完成 2026-08-11 | Lost & Found 后端 | 真实运行验证通过 |
-| 2A | Agent 面板图片上传（前端） | 未开始 | Web | 依赖阶段 1 的代理 URL |
-| 2B | Spring Boot 暂存/代理/内部 API | 未开始 | Lost & Found 后端 | 含暂存 TTL |
-| 2C | Agent 匹配端到端（Python） | 未开始 | Agent 开发 | 候选端返回指纹 + 查询端注入指纹 |
+| 2A | Agent 面板图片上传（前端） | ✅ 已完成 2026-08-11 | Web | 含暂存预览/移除/多轮共享 |
+| 2B | Spring Boot 暂存/代理/内部 API | ✅ 已完成 2026-08-11 | Lost & Found 后端 | 含暂存 TTL 清理 |
+| 2C | Agent 匹配端到端（Python） | ✅ 已完成 2026-08-11 | Agent 开发 | 候选端返回指纹 + 查询端注入指纹（含多图 best） |
 | 3 | Browse 以图搜物 | 未开始 | Web + 后端 | 依赖阶段 2 |
 
 阶段 1 改动文件：
@@ -216,6 +218,11 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 - `backend/.../service/LostFoundAdminService.java`：`toDetail()` 改用代理 URL，移除不再使用的 `storageService` 注入
 - `backend/.../config/SecurityConfig.java`：`/api/lost-found/images/**` 加入 permitAll
 - 测试更新：`LostFoundReportServiceTest`、`LostFoundSearchIntegrationTest`
+
+阶段 2 改动文件：
+- 后端：新增 `LostFoundImageStagingService`（暂存上传/读取/列出，MinIO `lost-found-staging/` 前缀）、`LostFoundImageStagingCleanupJob`（TTL 清理）、`LostFoundImageRules`（从 `LostFoundReportService` 抽出的共享图片校验）；`LostFoundAgentWebController.uploadImage`（`POST /agent/upload-image`）；`LostFoundImageController.downloadStaged`（暂存预览 `GET /images/staging/{objectName}`）；`AgentWebInvokeRequest.images`；`AgentCreateLostReportRequest` / `AgentCreateFoundReportRequest.imageKeys`；`LostFoundAgentInternalController` 走 `createFromStaged`；`AgentCandidateResponse.visualFingerprints` + `searchCandidates()` 组装；`LostFoundImageRepository.existsByObjectKey`；`CampusAgentApplication` 加 `@EnableScheduling`
+- Agent：`models.py` 新增 `AgentImage` + `InvokeRequest.images`；`rules.py` 把 `payload.images` 并入 context（`images`/`visual_fingerprints` 白名单 + 多轮共享）并放行纯图搜索；`matching.py` 查询端支持多图指纹取 best；`tools.py` `ReportLostInput`/`ReportFoundInput` 增加 `images`/`visual_fingerprints`，`report_lost/found` 把 `imageKeys` 写入内部 API body；`schemas/lost-found-agent.json` 升 1.6.0 并同步 `images` 输入
+- 前端：`lostFoundAgent.ts` 新增 `StagedAgentImage` + `uploadAgentImage()`；`LostFoundAgentPanel.tsx` 图片选择/暂存上传/预览/移除/消息气泡展示/发送与确认带 `images`
 
 更新规则：每个阶段 PR 必须更新"开发进度跟踪"、契约变更与风险清单；API 变化同步 JSON Schema 与自动化契约测试。
 
@@ -245,3 +252,43 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 | 后端完整测试套件 | `Tests run: 237, Failures: 0, Errors: 0` ✓（含新增代理端点测试） |
 
 待办：前端无代码改动（URL 透传），未启动 web 容器做浏览器目视确认；部署形态下 nginx 同源代理 `/api/`，相对路径 `/api/lost-found/images/{id}` 可用。若配置了跨源 `VITE_API_BASE`，图片 URL 需由前端统一加前缀（当前默认同源不受影响）。
+
+### 阶段 2 真实运行验证结果（2026-08-11）
+
+重建 `chat-backend`（Java）与 `lost-found-agent`（Python）镜像后，对 live 栈执行：
+
+| 验证项 | 结果 |
+|---|---|
+| 登录 → `POST /api/lost-found/agent/upload-image`（multipart，JWT） | 200，返回 `{objectKey: lost-found-staging/<uuid>.png, visualFingerprint: VF1:…, url: /api/lost-found/images/staging/<uuid>.png, …}` ✓ |
+| `GET /api/lost-found/images/staging/<uuid>.png`（无鉴权 `<img>`） | 200，字节与原图一致 ✓ |
+| `POST /api/lost-found/agent/invoke`（消息 + images 含 objectKey/fingerprint/url） | `needs_confirmation`；`shared_context.images` 与 `visual_fingerprints` 正确下发 ✓ |
+| 确认创建报失 | `report_id=24` 创建成功；详情图片 URL = `/api/lost-found/images/4`（代理，非 minio）✓；`GET /images/4` → 200 ✓ |
+| 双向匹配（FOUND 带图自动匹配 LOST） | FOUND 报失记录创建后自动搜索命中 LOST 报告 #27，`match_reason` 含 **图片特征相似** ✓（同一指纹的 #24/#25 亦被召回） |
+| 同一 objectKey 二次关联 | 唯一约束冲突 → 整体回滚（预期防双挂，见 §7） |
+| 后端完整测试套件 | `Tests run: 245, Failures: 0, Errors: 0` ✓（含暂存/关联/清理用例） |
+| Agent 完整测试套件 | `98 passed` ✓（含新增图片流/多图匹配/契约用例） |
+| 前端 | `tsc + vite build` ✓，`vitest 169 passed` ✓ |
+
+待办：未启动 web 容器做浏览器目视确认（Agent 面板图片选择/预览/移除）；Browser 目视与真实浏览器交互留给阶段 3 收尾时一并验证。
+
+### 阶段 2 修复：纯图搜索占位语把视觉匹配分数拉低（2026-08-11）
+
+**症状**：面板仅发图搜物（占位语 `帮我找这个`）时，即使上传图片与候选报告图片完全一致，也返回"暂时没有达到最低匹配分数的候选物品"（`no_match`）。
+
+**根因**（纯 Agent 侧，Python）：`rules.extract_fields` 把占位语 `帮我找这个` 抽取为 `keyword="这个"`（指示代词，无检索信息）。`score_candidate` 将其计入 text 分量（权重 0.28），与候选文本近零相似度；而打分是"活跃分量加权平均归一化"（`sum(w·v)/Σw`），于是纯视觉匹配时
+`score=(0.28·0 + 0.10·1.0)/0.38 ≈ 0.263 < minimum_score=0.35` → 完全一致的图片也被过滤。报告创建流程（query 含真实 item_name/category 等）不受影响，故阶段 2 真实运行验证的"双向匹配含图片特征相似"通过。
+
+**修复**：`rules.py` 新增 `KEYWORD_STOPWORDS` + `is_stopword_keyword()`；`extract_fields` 规则抽取与 LLM `interpreted_fields` 合并两条路径都跳过停用词 keyword。纯视觉搜索回归到只有 visual 分量 → `score=1.0`。
+
+**验证**：新增回归测试 `test_placeholder_image_search_matches_identical_image`（占位语 + 完全一致指纹 → `match_found`、score=1.0、含"图片特征相似"）；Agent 完整套件 `99 passed` ✓。
+
+**真实运行验证（2026-08-11，重建 lost-found-agent/lost-found-mcp 镜像后）**：
+
+| 验证项 | 结果 |
+|---|---|
+| `docker compose --profile agent up -d --build lost-found-agent lost-found-mcp` | 两镜像 Created 更新（未复用缓存），容器 healthy；`docker exec` 确认运行代码含 `KEYWORD_STOPWORDS` ✓ |
+| 登录 → 创建带图 FOUND 报告 #30（纯红 64×64 PNG） | 201，图片 URL `/api/lost-found/images/10` ✓ |
+| 暂存同一张图 | `objectKey=lost-found-staging/<uuid>.png`，指纹 `VF1:…`（Java 计算）✓ |
+| 纯图搜索（`帮我找这个` + 同一张图） | **`match_found`**，命中 #30，score=1.0，理由含**图片特征相似**；`shared_context` 无 `keyword` ✓ |
+| 对照组：纯蓝图搜索 | **`no_match`**（正确不命中红色报告 #30，视觉分量确实判别）✓ |
+| 清理 | 删除验证报告 #30 → 204 → 复查 404 ✓ |

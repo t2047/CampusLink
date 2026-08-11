@@ -118,7 +118,25 @@ ALLOWED_CONTEXT_FIELDS = {
     "recent_messages",
     "proof_description",
     "visual_fingerprint",
+    "visual_fingerprints",
+    "images",
 }
+
+# 搜索关键词里的无语义停顿词：仅发图占位语（"帮我找这个"）会抽取出指示代词/量词
+# "这个"。它没有检索信息，若作为查询端 text 分量，会以近零相似度把纯视觉匹配的
+# 加权平均分拉低到最低阈值（默认 0.35）以下，导致"完全一样的图片也匹配不到"。
+KEYWORD_STOPWORDS = {
+    # 中文指示代词 / 量词（含占位语常见组合）
+    "这个", "那个", "这些", "那些", "这样", "那样",
+    "这个物品", "那个物品", "这个东西", "那个东西",
+    "一下", "一点", "一个", "一种", "一只", "一把", "一本", "一张",
+    # 英文指示代词（"find this"/"search for that"）
+    "this", "that", "these", "those", "it",
+}
+
+
+def is_stopword_keyword(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in KEYWORD_STOPWORDS
 
 
 class RuleEngine:
@@ -160,9 +178,20 @@ class RuleEngine:
                 {
                     key: value
                     for key, value in interpreted_fields.items()
-                    if key in ALLOWED_CONTEXT_FIELDS and key != "intent"
+                    if key in ALLOWED_CONTEXT_FIELDS
+                    and key != "intent"
+                    and not (key == "keyword" and is_stopword_keyword(value))
                 }
             )
+        # 多轮共享的面板图片：本轮携带则覆盖，否则沿用上一轮 context（shared_data）
+        if payload.images:
+            context["images"] = [image.object_key for image in payload.images if image.object_key]
+            fingerprints = [
+                image.visual_fingerprint for image in payload.images if image.visual_fingerprint
+            ]
+            if fingerprints:
+                context["visual_fingerprints"] = fingerprints
+                context["visual_fingerprint"] = fingerprints[0]
 
         if intent == "report_lost":
             return self._prepare_report(context, verified, request_id, language, emit)
@@ -445,6 +474,9 @@ class RuleEngine:
                 "event_date",
                 "date_from",
                 "date_to",
+                # 仅发图（无文字或"帮我找这个"）也可按图检索
+                "visual_fingerprint",
+                "visual_fingerprints",
             )
         ):
             message = (
@@ -658,6 +690,9 @@ def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
                 ):
                     cleaned.append({"role": item["role"], "content": item["content"]})
             result[key] = cleaned
+        elif key in {"images", "visual_fingerprints"} and isinstance(value, list):
+            # 面板暂存图片的 objectKey 与视觉指纹：只放行字符串列表
+            result[key] = [item for item in value if isinstance(item, str)]
         elif isinstance(value, (str, int, float, bool)):
             result[key] = value
     return result
@@ -783,7 +818,11 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
         english_search = re.search(r"(?:find|search for)\s+([^,;\n]{2,40})", message, re.IGNORECASE)
         matched_search = search or english_search
         if matched_search:
-            fields["keyword"] = matched_search.group(1).strip()
+            keyword = matched_search.group(1).strip()
+            # 指示代词/量词（如仅发图占位语"帮我找这个"里的"这个"）不是真实搜索词，
+            # 抽出来只会以近零相似度拖低纯视觉匹配分数，跳过不进入 context。
+            if not is_stopword_keyword(keyword):
+                fields["keyword"] = keyword
     return {key: value for key, value in fields.items() if value not in (None, "")}
 
 
