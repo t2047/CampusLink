@@ -37,11 +37,9 @@ def rank_candidates(
                 colour=(str(candidate["colour"]) if candidate.get("colour") else None),
                 location=str(candidate.get("location", "")),
                 event_date=str(candidate.get("eventDate", "")),
-                time_description=(
-                    str(candidate["timeDescription"])
-                    if candidate.get("timeDescription")
-                    else None
-                ),
+                time_description=str(candidate["timeDescription"])
+                if candidate.get("timeDescription")
+                else None,
                 image_urls=[str(url) for url in candidate.get("imageUrls", []) if url],
                 status=str(candidate.get("status", "OPEN")),
                 match_score=round(score, 4),

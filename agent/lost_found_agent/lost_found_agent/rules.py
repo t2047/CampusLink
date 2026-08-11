@@ -600,9 +600,11 @@ def detect_explicit_intent(message: str) -> Intent | None:
     explicit_search = any(
         keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
     )
-    found_publication = not explicit_search and any(
-        keyword in message for keyword in ("创建", "登记", "发布", "上报", "记录")
-    ) and any(keyword in message for keyword in ("找到", "捡到", "捡了", "拾到"))
+    found_publication = (
+        not explicit_search
+        and any(keyword in message for keyword in ("创建", "登记", "发布", "上报", "记录"))
+        and any(keyword in message for keyword in ("找到", "捡到", "捡了", "拾到"))
+    )
     if found_publication:
         return "report_found"
 
@@ -883,9 +885,7 @@ def match_results_message(matches: list[Any], language: str) -> str:
         score = round(float(match.match_score) * 100)
         colour = match.colour or ("未填写" if language == "zh" else "not provided")
         reasons = (
-            "；".join(match.match_reason)
-            if language == "zh"
-            else "; ".join(match.match_reason)
+            "；".join(match.match_reason) if language == "zh" else "; ".join(match.match_reason)
         )
         if language == "zh":
             lines.append(
