@@ -28,6 +28,7 @@ COPY --from=builder /dist/*.whl /tmp/
 COPY --from=builder /dist/requirements.txt /tmp/requirements.txt
 COPY --from=builder /build/mcp_servers /app/mcp_servers
 RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && pip install --no-cache-dir "mcp>=1.28,<2" \
     && pip install --no-cache-dir --no-deps /tmp/*.whl \
     && rm -f /tmp/*.whl /tmp/requirements.txt
 
