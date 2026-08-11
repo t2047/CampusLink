@@ -55,5 +55,9 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["PIL", "PIL.*"]
+ignore_missing_imports = true
+
 [tool.bandit]
 exclude_dirs = ["tests"]
