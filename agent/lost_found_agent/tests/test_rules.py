@@ -3,6 +3,7 @@ from typing import Any, cast
 from fastapi.testclient import TestClient
 
 from lost_found_agent.config import Settings
+from lost_found_agent.rules import detect_explicit_intent
 
 from .conftest import FakeCampusApiClient
 from .helpers import signed_request
@@ -115,6 +116,30 @@ def test_natural_chinese_found_report_requires_confirmation_before_writing(
     assert completed["status"] == "completed"
     assert completed["actions_taken"][0]["action"] == "report_found"
     assert [call[0] for call in fake_api.calls] == ["report_found"]
+
+
+def test_chinese_found_with_ambiguous_find_word_is_not_treated_as_search() -> None:
+    intent = detect_explicit_intent("我前天在UHC找到一把红色的伞，为我创建")
+
+    assert intent == "report_found"
+
+
+def test_chinese_found_with_ambiguous_find_word_enters_creation_confirmation(
+    client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    prepared = invoke(
+        client,
+        settings,
+        "我前天在UHC找到一把红色的伞，为我创建",
+        trace_id="found-with-ambiguous-find-word",
+    )
+
+    assert prepared["status"] == "needs_confirmation"
+    assert prepared["confirmation_required"]["action"] == "report_found"
+    assert prepared["shared_context"]["category"] == "UMBRELLA"
+    assert prepared["shared_context"]["colour"] == "红色"
+    assert prepared["shared_context"]["location"] == "UHC"
+    assert fake_api.calls == []
 
 
 def test_natural_english_found_report_extracts_required_fields(
@@ -240,6 +265,20 @@ def test_explicit_chinese_search_wins_over_lost_item_background(
     assert result["status"] == "match_found"
     assert result["confirmation_required"] is None
     assert result["match_results"][0]["item_id"] == "6"
+    assert [call[0] for call in fake_api.calls] == ["search_found_items"]
+
+
+def test_chinese_explicit_search_with_find_word_remains_search(
+    client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    result = invoke(
+        client,
+        settings,
+        "帮我找到一把在UHC丢失的红色雨伞",
+        trace_id="explicit-search-with-find-word",
+    )
+
+    assert result["confirmation_required"] is None
     assert [call[0] for call in fake_api.calls] == ["search_found_items"]
 
 

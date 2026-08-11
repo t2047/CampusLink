@@ -64,6 +64,7 @@ CATEGORIES: dict[str, str] = {
     "文具": "BOOKS_STATIONERY",
     "umbrella": "UMBRELLA",
     "雨伞": "UMBRELLA",
+    "伞": "UMBRELLA",
     "other": "OTHER",
     "其他": "OTHER",
 }
@@ -560,7 +561,7 @@ def detect_intent(message: str, previous: Any = None) -> Intent:
 
 
 def detect_explicit_intent(message: str) -> Intent | None:
-    """识别用户本轮明确表达的意图；检索措辞优先于物品丢失背景。"""
+    """识别用户本轮明确表达的意图，并避免将有歧义的“找到”直接判为搜索。"""
     lowered = message.lower()
     if re.search(r"\bclaim\b|\bownership\b", lowered) or "认领" in message:
         return "claim_item"
@@ -568,15 +569,27 @@ def detect_explicit_intent(message: str) -> Intent | None:
         keyword in message for keyword in ("详情", "查看记录")
     ):
         return "get_item_detail"
+
+    # “找到”既可能表示失主搜索，也可能表示拾获者发现物品。只有同时表达
+    # 创建、登记或发布时，规则层才明确将其识别为拾获登记；其余模糊情况交给 LLM。
+    explicit_search = any(
+        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
+    )
+    found_publication = not explicit_search and any(
+        keyword in message for keyword in ("创建", "登记", "发布", "上报", "记录")
+    ) and any(keyword in message for keyword in ("找到", "捡到", "捡了", "拾到"))
+    if found_publication:
+        return "report_found"
+
     if re.search(r"\bsearch\b|\bfind\b|\bfound item", lowered) or any(
-        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到", "找到")
+        keyword in message for keyword in ("搜索", "帮我找", "查找", "匹配", "有没有人捡到")
     ):
         return "search_found_items"
     if re.search(r"\bi lost\b|\breport(?:ed)? lost\b|\blost my\b", lowered) or any(
         keyword in message for keyword in ("我丢了", "丢了", "丢失", "遗失", "报失")
     ):
         return "report_lost"
-    # 捡到/拾到物品 → 登记捡到报告（report_found）；"找到"保留给失主搜索
+    # “捡到/拾到”含义明确；单独的“找到”交给 LLM 结合上下文判断。
     if re.search(r"\bpick(?:ed)? up\b|\bfound\b", lowered) or any(
         keyword in message for keyword in ("捡到", "捡了", "拾到")
     ):
@@ -662,6 +675,8 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
         fields["event_date"] = iso_dates[0]
         if len(iso_dates) > 1:
             fields["date_from"], fields["date_to"] = iso_dates[:2]
+    elif "前天" in message or "day before yesterday" in message.lower():
+        fields["event_date"] = (date.today() - timedelta(days=2)).isoformat()
     elif "昨天" in message or "yesterday" in message.lower():
         fields["event_date"] = (date.today() - timedelta(days=1)).isoformat()
     elif "今天" in message or "today" in message.lower():
@@ -699,7 +714,7 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
             fields["description"] = message.strip()
     if intent == "report_found" and "item_name" not in fields:
         item = re.search(
-            r"(?:我)?(?:捡到|捡了|拾到)\s*(?:了)?\s*(?:一(?:个|把|只|本|张|副))?\s*"
+            r"(?:我)?(?:找到|捡到|捡了|拾到)\s*(?:了)?\s*(?:一(?:个|把|只|本|张|副))?\s*"
             r"([^,，。;；\n]{2,30})",
             message,
         )
@@ -714,10 +729,10 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
             fields["item_name"] = matched_item.group(1).strip()
         if "location" not in fields:
             location = re.search(
-                r"于([^,，。;；\n]{2,40}?)(?:捡到|捡了|拾到)",
+                r"于([^,，。;；\n]{2,40}?)(?:找到|捡到|捡了|拾到)",
                 message,
             ) or re.search(
-                r"在([^,，。;；\n]{2,40}?)(?:捡到|捡了|拾到)",
+                r"在([^,，。;；\n]{2,40}?)(?:找到|捡到|捡了|拾到)",
                 message,
             )
             english_location = re.search(
