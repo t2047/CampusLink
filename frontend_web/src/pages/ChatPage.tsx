@@ -91,6 +91,7 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     confirmedNote: '\n✅ Confirmed.',
     cancelledNote: '\n❌ Cancelled.',
     confirmStep: '⏳ Waiting for confirmation',
+    completed: 'completed',
     unknownError: 'Unknown error',
     langToggle: '中文',
   },
@@ -120,6 +121,7 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     confirmedNote: '\n✅ 操作已确认。',
     cancelledNote: '\n❌ 操作已取消。',
     confirmStep: '⏳ 需要确认',
+    completed: '已完成',
     unknownError: '未知错误',
     langToggle: 'English',
   },
@@ -231,6 +233,38 @@ export default function ChatPage() {
     );
   }, []);
 
+  const settleRunningStep = useCallback(
+    (
+      msgId: string,
+      selector: { agent?: string; tool?: string },
+      settled: AgentStep,
+    ) => {
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== msgId) return message;
+          let matchingIndex = -1;
+          message.steps.forEach((step, index) => {
+            const agentMatches = selector.agent == null || step.agent === selector.agent;
+            const toolMatches = selector.tool == null || step.tool === selector.tool;
+            if (step.status === 'running' && agentMatches && toolMatches) {
+              matchingIndex = index;
+            }
+          });
+          if (matchingIndex < 0) {
+            return { ...message, steps: [...message.steps, settled] };
+          }
+          return {
+            ...message,
+            steps: message.steps.map((step, index) =>
+              index === matchingIndex ? settled : step,
+            ),
+          };
+        }),
+      );
+    },
+    [],
+  );
+
   const finish = useCallback(() => {
     streamingRef.current = false;
     setStreaming(false);
@@ -278,18 +312,30 @@ export default function ChatPage() {
           break;
         }
 
-        case 'agent_done':
-          markLastStepOk(msgId);
+        case 'agent_done': {
+          const agent = String(data.agent ?? 'Agent');
+          settleRunningStep(
+            msgId,
+            { agent },
+            { agent, status: 'ok', label: `${agent} ${t('completed')}` },
+          );
           break;
+        }
 
-        case 'agent_error':
-          appendStep(msgId, {
-            agent: data.agent as string,
-            status: 'error',
-            label: `${String(data.agent ?? 'Agent')} 失败：${String(data.message ?? t('unknownError'))}`,
-          });
+        case 'agent_error': {
+          const agent = String(data.agent ?? 'Agent');
+          settleRunningStep(
+            msgId,
+            { agent },
+            {
+              agent,
+              status: 'error',
+              label: `${agent} 失败：${String(data.message ?? t('unknownError'))}`,
+            },
+          );
           finish();
           break;
+        }
 
         case 'utility_start':
           appendStep(msgId, {
@@ -299,9 +345,15 @@ export default function ChatPage() {
           });
           break;
 
-        case 'utility_result':
-          markLastStepOk(msgId);
+        case 'utility_result': {
+          const tool = String(data.tool ?? '工具');
+          settleRunningStep(
+            msgId,
+            { tool },
+            { tool, status: 'ok', label: `${tool} ${t('completed')}` },
+          );
           break;
+        }
 
         case 'confirm_required': {
           const confirmData: PendingConfirm = {
@@ -339,7 +391,7 @@ export default function ChatPage() {
           break;
       }
     },
-    [appendContent, appendStep, finish, markLastStepOk, t],
+    [appendContent, appendStep, finish, settleRunningStep, t],
   );
 
   // ── 发送 ────────────────────────────────────

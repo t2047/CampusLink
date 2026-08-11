@@ -52,7 +52,12 @@ if not os.environ.get("TOKEN_SERVICE_JWKS_URL"):
         "source .env && set +a）。",
         file=sys.stderr,
     )
-mcp = FastMCP(f"{AGENT_NAME}-server", streamable_http_path="/")
+mcp = FastMCP(
+    f"{AGENT_NAME}-server",
+    streamable_http_path="/",
+    # Docker 容器间使用服务名访问，需允许非 localhost Host 头。
+    host=os.environ.get("FASTMCP_HOST", "127.0.0.1"),
+)
 
 # 必须先调用 streamable_http_app() 才能访问 mcp.session_manager
 # （mcp 1.x：session manager 的 task group 由 run() 初始化）

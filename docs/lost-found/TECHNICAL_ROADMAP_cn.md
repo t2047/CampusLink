@@ -44,6 +44,7 @@ React Web ──JWT──▶ Spring Boot API ──▶ MySQL / MinIO
 | Agent Web 多轮端到端验收 | 已完成 | Web 1.2 | 覆盖补充信息、确认前零写入、创建后可见、搜索、详情、认领、审批和重复申请冲突 |
 | 中文搜索意图优先级 | 已完成 | 0.4.0 | “帮我找/搜索/查找”等明确检索措辞优先于句子中的丢失背景，防止误进入报失确认 |
 | 自然语言登记拾获 | 已完成 | 0.4.0 / 契约 1.4.0 | `report_found` 支持规则与 LLM 识别、确认后创建无图片 FOUND 记录 |
+| “找到”歧义识别修复 | 已完成 | 0.4.1 | “找到并创建/登记”进入拾获确认，“帮我找/搜索”继续执行候选检索 |
 
 ## 3. Agent 对外接口
 
@@ -64,6 +65,7 @@ Chat Core 的统一对话入口。
 ## 4. 环境变量与本地启动
 
 - 统一配置模板：仓库根目录 `.env.example`（复制为根目录 `.env`，真实密钥不得提交）
+- Web、Chat Core、MCP 和 Lost & Found Agent 的 Docker 完整复现步骤见[本地完整复现指南](LOCAL_REPRODUCTION_cn.md)。
 - `LOST_FOUND_LLM_API_KEY` 暂时可以为空，`auto` 模式会选择规则引擎。
 - `AGENT_SHARED_SECRET`、`AGENT_BACKEND_SHARED_SECRET` 和 `LOST_FOUND_CONFIRMATION_SECRET` 必须分别使用至少 32 字符的随机值。
 - 禁止在提交、日志、异常响应和测试快照中保存真实密钥。
