@@ -31,7 +31,6 @@ export function CreateReportPage({ reportType }: { reportType: ReportType }) {
   const [progress, setProgress] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const imagesRef = useRef<SelectedImage[]>([])
-  const [categoryTouched, setCategoryTouched] = useState(false)
   // ref 供 await 后读取最新值，防止异步返回时覆盖用户刚手动选过的分类
   const categoryTouchedRef = useRef(false)
 
@@ -100,7 +99,7 @@ export function CreateReportPage({ reportType }: { reportType: ReportType }) {
       <Card sx={{ p: 3 }}>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Item name" inputProps={{ minLength: 3, maxLength: 100 }} value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} onBlur={autoSuggestCategory} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><FormControl fullWidth required><InputLabel>Category</InputLabel><Select label="Category" value={form.category} onChange={(e) => { setCategoryTouched(true); categoryTouchedRef.current = true; setForm({ ...form, category: e.target.value as ItemCategory }) }}>{categories.map((category) => <MenuItem key={category} value={category}>{categoryLabels[category]}</MenuItem>)}</Select></FormControl></Grid>
+          <Grid size={{ xs: 12, md: 6 }}><FormControl fullWidth required><InputLabel>Category</InputLabel><Select label="Category" value={form.category} onChange={(e) => { categoryTouchedRef.current = true; setForm({ ...form, category: e.target.value as ItemCategory }) }}>{categories.map((category) => <MenuItem key={category} value={category}>{categoryLabels[category]}</MenuItem>)}</Select></FormControl></Grid>
           <Grid size={12}><TextField fullWidth required multiline minRows={4} label="Description" helperText="Include brand, distinguishing marks and other identifying details (10–2000 characters)." inputProps={{ minLength: 10, maxLength: 2000 }} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Colour" inputProps={{ maxLength: 50 }} value={form.colour} onChange={(e) => setForm({ ...form, colour: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Location" inputProps={{ maxLength: 200 }} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>

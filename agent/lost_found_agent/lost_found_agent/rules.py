@@ -587,10 +587,10 @@ async def search_candidates(
     emit: Emit,
     target_report_type: Literal["LOST", "FOUND"] = "FOUND",
 ) -> tuple[list[Any], ActionTaken]:
-    """\u5019\u9009\u68c0\u7d22 + \u6253\u5206\u3002Browse \u4ee5\u56fe\u641c\u7269\u4e0e chat \u53cc\u5411\u5339\u914d\u5171\u7528\u540c\u4e00\u5957\u94fe\u8def\uff0c
-    \u4fdd\u8bc1\u4e24\u7aef\u6253\u5206\u9010\u5b57\u8282\u4e00\u81f4\uff08\u539f RuleEngine._search_candidates \u62bd\u53d6\uff09\u3002
+    """候选检索 + 打分。Browse 以图搜物与 chat 双向匹配共用同一套链路，
+    保证两端打分逐字节一致（原 RuleEngine._search_candidates 抽取）。
 
-    \u4ec5\u5f53\u67e5\u8be2\u542b event_date \u65f6\u624d\u505a \u00b130 \u5929\u7a97\u53e3\u515c\u5e95\uff1b\u663e\u5f0f date_from/date_to \u539f\u6837\u900f\u4f20\u3002
+    仅当查询含 event_date 时才做 ±30 天窗口兜底；显式 date_from/date_to 原样透传。
     """
     event_date = parse_date(query.get("event_date"))
     date_from = parse_date(query.get("date_from"))

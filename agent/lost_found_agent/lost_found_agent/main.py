@@ -47,7 +47,9 @@ def create_app(
     # 便于 rules 模式下也能智能建议分类。llm 模式复用 active_llm_interpreter 同一实例。
     classify_interpreter = None
     if active_settings.lost_found_llm_api_key.strip():
-        classify_interpreter = active_llm_interpreter or llm_interpreter or LlmInterpreter(active_settings)
+        classify_interpreter = (
+            active_llm_interpreter or llm_interpreter or LlmInterpreter(active_settings)
+        )
     rule_engine = RuleEngine(
         active_api_client,
         ConfirmationStore(ttl_seconds=600),
