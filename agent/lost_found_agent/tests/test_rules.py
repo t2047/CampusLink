@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from lost_found_agent.config import Settings
 from lost_found_agent.embeddings import embed_image, visual_fingerprint
 from lost_found_agent.rules import detect_explicit_intent
+from lost_found_agent.tools import ReportLostInput
 
 from .conftest import FakeCampusApiClient
 from .helpers import make_solid_png, signed_request
@@ -161,7 +162,7 @@ def test_report_with_staged_image_flows_images_to_confirmed_create(
 
     assert completed["status"] == "completed"
     assert [call[0] for call in fake_api.calls] == ["report_lost", "search_found_items"]
-    lost_payload = fake_api.calls[0][2]
+    lost_payload = cast(ReportLostInput, fake_api.calls[0][2])
     assert lost_payload.images == ["lost-found-staging/k.png"]
     assert lost_payload.visual_fingerprints == ["VF1:fp"]
 
@@ -195,9 +196,7 @@ def test_placeholder_image_search_matches_identical_image(
     """仅发图占位语"帮我找这个"不应抽取"这个"作为 keyword：否则近零的 text 分量
     会把完全一致的图片匹配（visual=1.0）拉低到最低阈值以下。回归：占位语只走视觉。"""
     fp = visual_fingerprint(embed_image(make_solid_png((0, 0, 255))))
-    fake_api.candidates = [
-        {**candidate(7, "黑色耳机", 0), "visualFingerprints": [fp]}
-    ]
+    fake_api.candidates = [{**candidate(7, "黑色耳机", 0), "visualFingerprints": [fp]}]
     result = invoke(
         client,
         settings,
@@ -223,9 +222,7 @@ def test_image_search_adds_visual_reason_and_persists_across_turns(
     client: TestClient, settings: Settings, fake_api: FakeCampusApiClient
 ) -> None:
     fp = visual_fingerprint(embed_image(make_solid_png((0, 0, 255))))
-    fake_api.candidates = [
-        {**candidate(7, "黑色耳机", 0), "visualFingerprints": [fp]}
-    ]
+    fake_api.candidates = [{**candidate(7, "黑色耳机", 0), "visualFingerprints": [fp]}]
     result = invoke(
         client,
         settings,
@@ -241,9 +238,7 @@ def test_image_search_adds_visual_reason_and_persists_across_turns(
     )
 
     assert result["status"] == "match_found"
-    assert any(
-        "图片特征相似" in reason for reason in result["match_results"][0]["match_reason"]
-    )
+    assert any("图片特征相似" in reason for reason in result["match_results"][0]["match_reason"])
     assert [call[0] for call in fake_api.calls] == ["search_found_items"]
     # 指纹在下一轮仍随 shared_data 携带（多轮共享）
     assert result["shared_context"]["visual_fingerprints"] == [fp]

@@ -1,5 +1,7 @@
 """POST /agent/classify 端点测试：规则优先 + LLM 兜底 + fail-open。"""
 
+from typing import cast
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -18,9 +20,9 @@ def classify(
     item_name: str,
     *,
     action: str = "classify",
-):
+) -> httpx.Response:
     body, headers = signed_request(settings, {"item_name": item_name}, action=action)
-    return client.post("/agent/classify", content=body, headers=headers)
+    return cast(httpx.Response, client.post("/agent/classify", content=body, headers=headers))
 
 
 # ─── 规则优先（client fixture：rules 模式、无 LLM key） ──────────────

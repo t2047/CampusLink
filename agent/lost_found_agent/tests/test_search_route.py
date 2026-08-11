@@ -95,9 +95,7 @@ def test_image_search_no_match_for_unrelated_image(
     """不同色指纹 → 视觉分量判别失败 → no_match（不会误命中不同颜色的候选）。"""
     query_fp = visual_fingerprint(embed_image(make_solid_png((0, 0, 255))))
     unrelated_fp = visual_fingerprint(embed_image(make_solid_png((255, 0, 0))))
-    fake_api.candidates = [
-        {**candidate(7, "黑色耳机", 0), "visualFingerprints": [unrelated_fp]}
-    ]
+    fake_api.candidates = [{**candidate(7, "黑色耳机", 0), "visualFingerprints": [unrelated_fp]}]
 
     body, headers = signed_request(settings, search_image_payload(query_fp), action="search")
     response = client.post("/agent/search", content=body, headers=headers)
