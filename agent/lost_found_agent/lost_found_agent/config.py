@@ -38,16 +38,16 @@ class Settings(BaseSettings):
     lost_found_llm_api_key: str = ""
     lost_found_llm_base_url: str = "https://api.deepseek.com"
     lost_found_llm_model: str = "deepseek-v4-flash"
-    lost_found_llm_timeout_seconds: float = Field(default=30, ge=1, le=120)
+    # 必须短于 Web Agent 请求的 25 秒超时，才能在模型故障时及时降级。
+    lost_found_llm_timeout_seconds: float = Field(default=15, ge=1, le=120)
     # 单次调用最大生成 token（推理模型需预留思考空间，1200 会被
     # reasoning_content 耗尽导致 content 为空；默认 4000 可调）
     lost_found_llm_max_tokens: int = Field(default=4000, ge=256, le=8192)
     # 估算批量评估费用的单价（美元/百万 token），默认 0 表示未配置单价
     lost_found_llm_input_cost_per_1m: float = Field(default=0, ge=0)
     lost_found_llm_output_cost_per_1m: float = Field(default=0, ge=0)
-    # fail-closed（默认 true，2026-08-09 决策）：LLM 调用失败或输出不可信
-    # （LlmUnavailable）时显式失败，不降级到规则引擎；设 false 恢复旧降级行为
-    llm_fail_closed: bool = True
+    # 模型只做意图识别；默认故障降级到受限规则引擎，不会绕过确认或工具白名单。
+    llm_fail_closed: bool = False
 
     @model_validator(mode="after")
     def validate_llm_mode(self) -> "Settings":

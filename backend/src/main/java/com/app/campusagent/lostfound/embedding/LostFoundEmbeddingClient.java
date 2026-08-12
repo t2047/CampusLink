@@ -58,12 +58,20 @@ public class LostFoundEmbeddingClient {
             @Value("${app.lost-found.embedding.timeout-seconds:8}") long timeoutSeconds) {
         this(
                 new ObjectMapper(),
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build(),
+                createHttpClient(),
                 URI.create(baseUrl.replaceAll("/+$", "") + "/v1/embed/text"),
                 URI.create(baseUrl.replaceAll("/+$", "") + "/v1/embed/images"),
                 sharedSecret,
                 mode,
                 Duration.ofSeconds(timeoutSeconds));
+    }
+
+    /** Uvicorn 不支持 Java HttpClient 默认发起的明文 HTTP/2（h2c）升级。 */
+    static HttpClient createHttpClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
     }
 
     LostFoundEmbeddingClient(

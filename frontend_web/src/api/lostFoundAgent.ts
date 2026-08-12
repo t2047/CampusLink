@@ -73,6 +73,9 @@ export async function invokeLostFoundAgent(
   const response = await apiClient.post<AgentInvokeResponse>('/lost-found/agent/invoke', {
     ...request,
     confirmed: request.confirmed ?? false,
+  }, {
+    // Agent 内部模型最多等待 15 秒，额外预留规则降级和后端工具调用时间。
+    timeout: 25_000,
   })
   return response.data
 }

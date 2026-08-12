@@ -129,10 +129,12 @@ def create_app(
                         active_llm_interpreter,
                         payload.message,
                         payload.conversation_context.shared_data,
+                        # 在线请求只尝试一次，确保模型超时后能在 Web 超时前降级。
+                        attempts=1,
                     )
                 except LlmUnavailable:
                     if active_settings.llm_fail_closed:
-                        # fail-closed（默认）：LLM 不可用/输出不可信 → 显式失败，不降级规则
+                        # 可选 fail-closed：LLM 不可用/输出不可信 → 显式失败。
                         event_store.append(
                             request_id,
                             AgentEvent(
@@ -145,7 +147,7 @@ def create_app(
                             status="failed",
                             request_id=request_id,
                         )
-                    # 旧行为（降级规则引擎）：仅当 llm_fail_closed=false 时生效
+                    # 默认行为：降级到同样受确认流程和工具白名单约束的规则引擎。
                     event_store.append(
                         request_id,
                         AgentEvent(
