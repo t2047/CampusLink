@@ -67,10 +67,10 @@ Compose 会把 `LOST_FOUND_LLM_API_KEY` 同时提供给 Lost & Found Agent 和 C
 在仓库根目录执行：
 
 ```bash
-docker compose --profile agent up -d --build
+docker compose --profile agent --profile multimodal up -d --build
 ```
 
-首次构建需要下载 Java、Node.js 和 Python 依赖，时间取决于网络速度。不要只执行普通的 `docker compose up`，否则可选的 8083 REST Agent 不会启动，Lost & Found 页面中的模块测试面板将无法使用。
+首次构建还会下载固定 revision 的 E5/CLIP 模型并缓存到命名卷，时间取决于网络速度。不要只执行普通的 `docker compose up`，否则可选的 8083 REST Agent 和多模态模型服务不会启动；模型服务不启动时业务仍可运行，但会显示基础匹配降级提示。
 
 ## 5. 检查服务
 
@@ -80,6 +80,7 @@ curl http://localhost:8080/actuator/health
 curl http://localhost:8000/health
 curl http://localhost:8083/health
 curl http://localhost:8085/health
+docker compose exec lost-found-embedding python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8091/health/ready').read().decode())"
 ```
 
 预期四个健康接口均成功，主要入口如下：

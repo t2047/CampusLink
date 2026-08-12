@@ -3,12 +3,16 @@ package com.app.campusagent.lostfound.service;
 import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
 import com.app.campusagent.lostfound.domain.ItemCategory;
+import com.app.campusagent.lostfound.domain.EmbeddingStatus;
 import com.app.campusagent.lostfound.domain.LostFoundReport;
 import com.app.campusagent.lostfound.domain.ReportStatus;
 import com.app.campusagent.lostfound.domain.ReportType;
 import com.app.campusagent.lostfound.dto.CreateLostFoundReportRequest;
 import com.app.campusagent.lostfound.dto.UpdateLostFoundReportRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
+import com.app.campusagent.lostfound.embedding.LostFoundEmbeddingClient;
+import com.app.campusagent.lostfound.embedding.StoredEmbedding;
+import com.app.campusagent.lostfound.embedding.TextEmbeddingBundle;
 import com.app.campusagent.lostfound.repository.LostFoundClaimRepository;
 import com.app.campusagent.lostfound.repository.LostFoundNotificationRepository;
 import com.app.campusagent.lostfound.repository.LostFoundReportRepository;
@@ -61,6 +65,9 @@ class LostFoundReportServiceTest {
     @Mock
     private LostFoundImageStagingService stagingService;
 
+    @Mock
+    private LostFoundEmbeddingClient embeddingClient;
+
     private LostFoundReportService service;
     private User user;
 
@@ -68,7 +75,7 @@ class LostFoundReportServiceTest {
     void setUp() throws Exception {
         service = new LostFoundReportService(
                 reportRepository, storageService, claimRepository,
-                notificationRepository, auditService, stagingService);
+                notificationRepository, auditService, stagingService, embeddingClient);
         user = new User("student@u.nus.edu", "encoded");
         setField(user, "id", 7L);
     }
@@ -92,11 +99,58 @@ class LostFoundReportServiceTest {
     }
 
     @Test
+    void storesPretrainedTextVectorsAndModelRevision() throws Exception {
+        StoredEmbedding semantic = new StoredEmbedding(
+                new byte[]{0, 0, (byte) 128, 63}, "intfloat/multilingual-e5-small", "text-rev", 1);
+        StoredEmbedding cross = new StoredEmbedding(
+                new byte[]{0, 0, (byte) 128, 63}, "multilingual-clip", "cross-rev", 1);
+        when(embeddingClient.embedDocument(any())).thenReturn(Optional.of(
+                new TextEmbeddingBundle(semantic, cross, true)));
+        java.util.concurrent.atomic.AtomicReference<LostFoundReport> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(reportRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            LostFoundReport report = invocation.getArgument(0);
+            captured.set(report);
+            setField(report, "id", 21L);
+            setField(report, "createdAt", java.time.Instant.now());
+            setField(report, "updatedAt", java.time.Instant.now());
+            return report;
+        });
+
+        service.create(request(ReportType.LOST), List.of(), user);
+
+        assertThat(captured.get().getSemanticTextEmbedding()).containsExactly(semantic.vector());
+        assertThat(captured.get().getSemanticTextRevision()).isEqualTo("text-rev");
+        assertThat(captured.get().getCrossModalTextRevision()).isEqualTo("cross-rev");
+        assertThat(captured.get().getEmbeddingStatus()).isEqualTo(EmbeddingStatus.READY);
+    }
+
+    @Test
+    void embeddingFailureDoesNotBlockCreationAndLeavesPendingStatus() throws Exception {
+        when(embeddingClient.embedDocument(any())).thenReturn(Optional.empty());
+        java.util.concurrent.atomic.AtomicReference<LostFoundReport> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(reportRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            LostFoundReport report = invocation.getArgument(0);
+            captured.set(report);
+            setField(report, "id", 22L);
+            setField(report, "createdAt", java.time.Instant.now());
+            setField(report, "updatedAt", java.time.Instant.now());
+            return report;
+        });
+
+        service.create(request(ReportType.FOUND), List.of(), user);
+
+        assertThat(captured.get().getEmbeddingStatus()).isEqualTo(EmbeddingStatus.PENDING);
+        assertThat(captured.get().getSemanticTextEmbedding()).isNull();
+    }
+
+    @Test
     void createsReportFromStagedImagesReusingObjectKeyAndFingerprint() throws Exception {
         byte[] png = pngBytes(2, 2);
         LostFoundImageStagingService.StagedImage staged = new LostFoundImageStagingService.StagedImage(
                 "lost-found-staging/abc.png", png, "image/png", "item.png", png.length);
-        when(stagingService.retrieve("lost-found-staging/abc.png")).thenReturn(staged);
+        when(stagingService.retrieveOwned("lost-found-staging/abc.png", user)).thenReturn(staged);
         java.util.concurrent.atomic.AtomicReference<LostFoundReport> captured =
                 new java.util.concurrent.atomic.AtomicReference<>();
         when(reportRepository.saveAndFlush(any())).thenAnswer(invocation -> {
@@ -118,12 +172,12 @@ class LostFoundReportServiceTest {
                 .isEqualTo("lost-found-staging/abc.png");
         // 指纹由暂存字节确定性重算（与上传时同算法），非空即生效
         assertThat(captured.get().getImages().getFirst().getVisualFingerprint()).isNotBlank();
-        verify(stagingService).retrieve("lost-found-staging/abc.png");
+        verify(stagingService).retrieveOwned("lost-found-staging/abc.png", user);
     }
 
     @Test
     void stagedCreateRollsBackWhenAStagedObjectIsMissing() {
-        when(stagingService.retrieve("lost-found-staging/missing.png"))
+        when(stagingService.retrieveOwned("lost-found-staging/missing.png", user))
                 .thenThrow(new LostFoundApiException(
                         HttpStatus.NOT_FOUND, "STAGED_IMAGE_NOT_FOUND", "missing"));
 

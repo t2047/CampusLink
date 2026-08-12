@@ -11,6 +11,7 @@ on:
       - 'backend/**'
       - 'frontend_web/**'
       - 'agent/**'
+      - 'services/lost_found_embedding/**'
       - 'docs/lost-found/**'
       - 'docker-compose.yml'
       - '.env.example'
@@ -23,6 +24,7 @@ on:
       - 'backend/**'
       - 'frontend_web/**'
       - 'agent/**'
+      - 'services/lost_found_embedding/**'
       - 'docs/lost-found/**'
       - 'docker-compose.yml'
       - '.env.example'
@@ -114,6 +116,52 @@ jobs:
         with:
           languages: python
           source-root: agent/lost_found_agent
+      - name: Perform Python CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+
+  embedding-quality:
+    name: Multimodal Service Lint, Test & Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: services/lost_found_embedding
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/lost_found_embedding/uv.lock
+      - name: Install uv
+        run: python -m pip install uv==0.12.3
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-extras
+      - name: Ruff lint and format check
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy lost_found_embedding tests
+      - name: Mock model contract tests
+        run: uv run pytest
+      - name: Bandit
+        run: uv run bandit -r lost_found_embedding -x tests -q
+      - name: Python dependency audit
+        run: uv run pip-audit
+      - name: Build non-root multimodal image
+        run: docker build -t campuslink-lost-found-embedding:${{ github.sha }} .
+
+  embedding-codeql:
+    name: Multimodal Service CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize Python CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          source-root: services/lost_found_embedding
       - name: Perform Python CodeQL Analysis
         uses: github/codeql-action/analyze@v4
 
@@ -255,6 +303,7 @@ jobs:
           cp .env.example .env
           docker compose config --quiet
           docker compose --profile agent config --quiet
+          docker compose --profile agent --profile multimodal config --quiet
 
       - name: Build non-root backend image
         working-directory: ${{ github.workspace }}

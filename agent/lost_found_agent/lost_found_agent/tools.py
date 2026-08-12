@@ -37,6 +37,7 @@ class ReportLostInput(BaseModel):
     images: list[str] = Field(default_factory=list, max_length=5)
     # 查询端视觉指纹（与 images 同序），创建后并入自动匹配 query 参与打分。
     visual_fingerprints: list[str] = Field(default_factory=list, max_length=5)
+    visual_embeddings: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("event_date")
     @classmethod
@@ -58,6 +59,7 @@ class ReportFoundInput(BaseModel):
     time_description: str | None = Field(default=None, max_length=100)
     images: list[str] = Field(default_factory=list, max_length=5)
     visual_fingerprints: list[str] = Field(default_factory=list, max_length=5)
+    visual_embeddings: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("event_date")
     @classmethod

@@ -30,14 +30,14 @@ uv run uvicorn lost_found_agent.main:app --host 0.0.0.0 --port 8083
 从仓库根目录可以启动整个 Agent 联调环境：
 
 ```bash
-docker compose --profile agent up -d --build
+docker compose --profile agent --profile multimodal up -d --build
 ```
 
 未启用 `agent` profile 时，`docker compose up -d` 会启动平台基础栈，但不会启动 8083 端口的 Lost & Found REST Agent。启用 profile 前必须在根目录 `.env` 配置 `JWT_SECRET`、`SUPER_ADMIN_PASSWORD` 和三个 Agent 密钥；密钥可分别用 `openssl rand -hex 32` 生成，不能提交到 Git。
 
 ## 匹配与评估
 
-候选重排权重：文字 28%、类别 28%、颜色 14%、地点 14%、日期 6%、图片 10%（缺失字段自动归一化）。文字相似度融合本地确定性哈希向量；当查询 `shared_data.visual_fingerprint`（`VF1:` 前缀）与候选 `visualFingerprints` 同时存在时启用图片相似度，并返回可解释的「图片特征相似」理由。
+候选重排权重：E5 文本 25%、CLIP 图片 20%、可选图文 10%、类别 20%、地点 10%、日期与时间 10%、颜色 5%（缺失字段自动归一化）。Agent 只调用独立 Embedding 服务，不在自身镜像加载 PyTorch。服务或向量不可用时自动退回本地确定性哈希文本、颜色直方图和结构化规则，并在响应中返回 `matching_mode=baseline`。
 
 可复现评估工具（无需外部服务）：
 
@@ -46,6 +46,9 @@ docker compose --profile agent up -d --build
 uv run python -m lost_found_agent.matching_eval tests/fixtures/matching_regression.jsonl --variant all
 # 真实模型批量评估：无 Key 时输出 skipped（exit 0）；有 Key 时输出质量、P95 延迟与费用
 uv run python -m lost_found_agent.model_eval tests/fixtures/model_regression.jsonl --output model_report.json
+
+# 固定 revision 的 E5/CLIP 真实评估由 GitHub Actions 手动 workflow 执行；
+# 数据集和脚本位于 services/lost_found_embedding/evaluation/。
 ```
 
 ## 检查

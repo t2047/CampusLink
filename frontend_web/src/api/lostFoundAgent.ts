@@ -13,6 +13,7 @@ export interface StagedAgentImage {
   contentType: string
   originalName: string
   fileSize: number
+  embeddingStatus?: 'READY' | 'PENDING' | 'BASELINE'
 }
 
 export interface AgentMatchResult {
@@ -29,6 +30,8 @@ export interface AgentMatchResult {
   status: string
   match_score: number
   match_reason: string[]
+  score_breakdown?: Record<string, number>
+  matching_mode?: 'pretrained_multimodal' | 'pretrained_image' | 'pretrained_text' | 'baseline'
 }
 
 export interface AgentConfirmationRequired {

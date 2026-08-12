@@ -32,6 +32,9 @@ class AgentImage(BaseModel):
 
     object_key: str = Field(min_length=1, max_length=500)
     visual_fingerprint: str | None = None
+    visual_embedding: str | None = Field(default=None, max_length=4096)
+    visual_embedding_model: str | None = Field(default=None, max_length=200)
+    visual_embedding_revision: str | None = Field(default=None, max_length=64)
     url: str | None = None
 
 
@@ -58,6 +61,13 @@ class MatchResult(BaseModel):
     status: str
     match_score: float = Field(ge=0, le=1)
     match_reason: list[str] = Field(default_factory=list)
+    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    matching_mode: Literal[
+        "pretrained_multimodal",
+        "pretrained_image",
+        "pretrained_text",
+        "baseline",
+    ] = "baseline"
 
 
 class ConfirmationRequired(BaseModel):

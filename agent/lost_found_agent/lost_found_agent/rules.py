@@ -15,6 +15,7 @@ from .models import (
     InvokeResponse,
     VerifiedRequest,
 )
+from .pretrained import PretrainedEmbeddingClient
 from .tools import (
     BackendApiError,
     CampusApiClient,
@@ -119,6 +120,7 @@ ALLOWED_CONTEXT_FIELDS = {
     "proof_description",
     "visual_fingerprint",
     "visual_fingerprints",
+    "visual_embeddings",
     "images",
 }
 
@@ -164,10 +166,12 @@ class RuleEngine:
         api_client: CampusApiClient,
         confirmations: ConfirmationStore,
         minimum_score: float,
+        embedding_client: PretrainedEmbeddingClient | None = None,
     ) -> None:
         self._api = api_client
         self._confirmations = confirmations
         self._minimum_score = minimum_score
+        self._embedding_client = embedding_client
 
     async def handle(
         self,
@@ -211,6 +215,11 @@ class RuleEngine:
             if fingerprints:
                 context["visual_fingerprints"] = fingerprints
                 context["visual_fingerprint"] = fingerprints[0]
+            pretrained = [
+                image.visual_embedding for image in payload.images if image.visual_embedding
+            ]
+            if pretrained:
+                context["visual_embeddings"] = pretrained
 
         if intent == "report_lost":
             return self._prepare_report(context, verified, request_id, language, emit)
@@ -496,6 +505,7 @@ class RuleEngine:
                 # 仅发图（无文字或"帮我找这个"）也可按图检索
                 "visual_fingerprint",
                 "visual_fingerprints",
+                "visual_embeddings",
             )
         ):
             message = (
@@ -551,6 +561,7 @@ class RuleEngine:
             language,
             emit,
             target_report_type,
+            self._embedding_client,
         )
 
     async def _detail(
@@ -605,12 +616,15 @@ async def search_candidates(
     language: str,
     emit: Emit,
     target_report_type: Literal["LOST", "FOUND"] = "FOUND",
+    embedding_client: PretrainedEmbeddingClient | None = None,
 ) -> tuple[list[Any], ActionTaken]:
     """候选检索 + 打分。Browse 以图搜物与 chat 双向匹配共用同一套链路，
     保证两端打分逐字节一致（原 RuleEngine._search_candidates 抽取）。
 
     仅当查询含 event_date 时才做 ±30 天窗口兜底；显式 date_from/date_to 原样透传。
     """
+    if embedding_client is not None:
+        query = await embedding_client.enrich_query(query)
     event_date = parse_date(query.get("event_date"))
     date_from = parse_date(query.get("date_from"))
     date_to = parse_date(query.get("date_to"))
@@ -734,7 +748,9 @@ def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
                 ):
                     cleaned.append({"role": item["role"], "content": item["content"]})
             result[key] = cleaned
-        elif key in {"images", "visual_fingerprints"} and isinstance(value, list):
+        elif key in {"images", "visual_fingerprints", "visual_embeddings"} and isinstance(
+            value, list
+        ):
             # 面板暂存图片的 objectKey 与视觉指纹：只放行字符串列表
             result[key] = [item for item in value if isinstance(item, str)]
         elif isinstance(value, (str, int, float, bool)):

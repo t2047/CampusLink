@@ -20,6 +20,7 @@ from .models import (
     SearchRequest,
     SearchResponse,
 )
+from .pretrained import PretrainedEmbeddingClient
 from .rate_limit import RateLimiter
 from .rules import RuleEngine, map_category, search_candidates
 from .security import AgentSecurity
@@ -40,6 +41,7 @@ def create_app(
     event_store = EventStore(active_settings.agent_event_ttl_seconds)
     owns_api_client = api_client is None
     active_api_client = api_client or CampusApiClient(active_settings)
+    embedding_client = PretrainedEmbeddingClient(active_settings)
     active_llm_interpreter = None
     if active_settings.effective_mode == "llm":
         active_llm_interpreter = llm_interpreter or LlmInterpreter(active_settings)
@@ -54,6 +56,7 @@ def create_app(
         active_api_client,
         ConfirmationStore(ttl_seconds=600),
         active_settings.lost_found_match_min_score,
+        embedding_client,
     )
 
     @asynccontextmanager
@@ -67,6 +70,7 @@ def create_app(
                 await active_llm_interpreter.close()
             if classify_interpreter and classify_interpreter is not active_llm_interpreter:
                 await classify_interpreter.close()
+            await embedding_client.close()
 
     app = FastAPI(
         title="CampusLink Lost & Found Agent",
@@ -231,6 +235,9 @@ def create_app(
         ]
         if fingerprints:
             query["visual_fingerprints"] = fingerprints
+        pretrained = [image.visual_embedding for image in payload.images if image.visual_embedding]
+        if pretrained:
+            query["visual_embeddings"] = pretrained
         try:
             matches, _action = await search_candidates(
                 active_api_client,
@@ -240,6 +247,7 @@ def create_app(
                 "zh",
                 lambda event: None,
                 target_report_type=payload.report_type,
+                embedding_client=embedding_client,
             )
         except BackendApiError as exc:
             return SearchResponse(

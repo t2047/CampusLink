@@ -39,7 +39,11 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 *.egg-info/
+
+# ─── 模型离线评估输出（workflow artifact，不提交）───
+evaluation-result.json
 
 # ─── RSA 密钥（Delegation Token）───
 keys/

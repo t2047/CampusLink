@@ -19,5 +19,9 @@ public record AgentCandidateResponse(
         String timeDescription,
         ReportStatus status,
         List<String> imageUrls,
-        List<String> visualFingerprints) {
+        List<String> visualFingerprints,
+        String semanticTextEmbedding,
+        String crossModalTextEmbedding,
+        List<String> visualEmbeddings,
+        String embeddingStatus) {
 }

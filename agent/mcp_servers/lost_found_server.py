@@ -64,6 +64,7 @@ from lost_found_agent.config import get_settings
 from lost_found_agent.confirmation import ConfirmationStore
 from lost_found_agent.llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
 from lost_found_agent.models import ConversationContext, InvokeRequest, InvokeResponse, TraceParent
+from lost_found_agent.pretrained import PretrainedEmbeddingClient
 from lost_found_agent.rate_limit import RateLimiter
 from lost_found_agent.rules import RuleEngine
 from lost_found_agent.security import VerifiedRequest
@@ -84,6 +85,7 @@ _limiter = RateLimiter(
     _settings.agent_rate_limit_per_session,
 )
 _api_client = CampusApiClient(_settings)
+_embedding_client = PretrainedEmbeddingClient(_settings)
 _llm_interpreter: LlmInterpreter | None = None
 if _settings.effective_mode == "llm":
     _llm_interpreter = LlmInterpreter(_settings)
@@ -91,6 +93,7 @@ _rule_engine = RuleEngine(
     _api_client,
     ConfirmationStore(ttl_seconds=600),
     _settings.lost_found_match_min_score,
+    _embedding_client,
 )
 
 # 启动环境检查：未配置 TOKEN_SERVICE_JWKS_URL 时无法 RS256 验签，请求将全部 401
@@ -288,6 +291,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             yield
         finally:
             await _api_client.close()
+            await _embedding_client.close()
             if _llm_interpreter:
                 await _llm_interpreter.close()
 

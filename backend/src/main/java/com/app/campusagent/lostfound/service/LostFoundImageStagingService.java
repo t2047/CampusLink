@@ -1,7 +1,12 @@
 package com.app.campusagent.lostfound.service;
 
+import com.app.campusagent.domain.User;
 import com.app.campusagent.lostfound.dto.StagedImageResponse;
+import com.app.campusagent.lostfound.domain.LostFoundStagedImage;
+import com.app.campusagent.lostfound.embedding.LostFoundEmbeddingClient;
+import com.app.campusagent.lostfound.embedding.StoredEmbedding;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
+import com.app.campusagent.lostfound.repository.LostFoundStagedImageRepository;
 import com.app.campusagent.lostfound.visual.VisualFingerprintExtractor;
 import io.minio.BucketExistsArgs;
 import io.minio.GetObjectArgs;
@@ -23,10 +28,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 
 /**
  * Agent 图片暂存服务：上传到 MinIO {@code lost-found-staging/} 前缀并在上传时算好
@@ -48,7 +56,34 @@ public class LostFoundImageStagingService {
             byte[] content,
             String contentType,
             String originalName,
-            long fileSize) {
+            long fileSize,
+            byte[] visualEmbedding,
+            String visualEmbeddingModel,
+            String visualEmbeddingRevision) {
+
+        public StagedImage {
+            content = content == null ? null : content.clone();
+            visualEmbedding = visualEmbedding == null ? null : visualEmbedding.clone();
+        }
+
+        public StagedImage(
+                String objectKey,
+                byte[] content,
+                String contentType,
+                String originalName,
+                long fileSize) {
+            this(objectKey, content, contentType, originalName, fileSize, null, null, null);
+        }
+
+        @Override
+        public byte[] content() {
+            return content == null ? null : content.clone();
+        }
+
+        @Override
+        public byte[] visualEmbedding() {
+            return visualEmbedding == null ? null : visualEmbedding.clone();
+        }
     }
 
     /** TTL 清理用对象摘要。 */
@@ -57,15 +92,24 @@ public class LostFoundImageStagingService {
 
     private final MinioClient minioClient;
     private final String bucket;
+    private final LostFoundStagedImageRepository stagedRepository;
+    private final LostFoundEmbeddingClient embeddingClient;
+    private final Duration ttl;
 
     public LostFoundImageStagingService(
             MinioClient minioClient,
-            @Value("${app.storage.bucket:campuslink}") String bucket) {
+            @Value("${app.storage.bucket:campuslink}") String bucket,
+            LostFoundStagedImageRepository stagedRepository,
+            LostFoundEmbeddingClient embeddingClient,
+            @Value("${app.lost-found.staging-ttl-ms:86400000}") long ttlMillis) {
         this.minioClient = minioClient;
         this.bucket = bucket;
+        this.stagedRepository = stagedRepository;
+        this.embeddingClient = embeddingClient;
+        this.ttl = Duration.ofMillis(ttlMillis);
     }
 
-    public StagedImageResponse upload(MultipartFile file) {
+    public StagedImageResponse upload(MultipartFile file, User currentUser) {
         LostFoundImageRules.validateSingle(file);
         String contentType = file.getContentType();
         String objectName = UUID.randomUUID() + extensionFor(contentType);
@@ -84,20 +128,34 @@ public class LostFoundImageStagingService {
             }
             byte[] bytes = file.getBytes();
             String fingerprint = VisualFingerprintExtractor.extract(bytes, contentType);
+            List<StoredEmbedding> pretrained = embeddingClient.embedImages(List.of(
+                    new LostFoundEmbeddingClient.ImageInput(bytes, contentType, originalName)));
+            StoredEmbedding embedding = pretrained.isEmpty() ? null : pretrained.getFirst();
+            stagedRepository.save(new LostFoundStagedImage(
+                    objectKey,
+                    currentUser,
+                    fingerprint,
+                    embedding == null ? null : embedding.vector(),
+                    embedding == null ? null : embedding.model(),
+                    embedding == null ? null : embedding.revision(),
+                    Instant.now().plus(ttl)));
             return new StagedImageResponse(
                     objectKey,
                     fingerprint,
                     "/api/lost-found/images/staging/" + objectName,
                     contentType,
                     originalName,
-                    file.getSize());
+                    file.getSize(),
+                    embedding == null ? "PENDING" : "READY");
         } catch (IOException ex) {
+            delete(objectKey);
             throw new LostFoundApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "IMAGE_READ_FAILED",
                     "The uploaded image could not be read",
                     ex);
         } catch (Exception ex) {
+            delete(objectKey);
             throw new LostFoundApiException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "OBJECT_STORAGE_UNAVAILABLE",
@@ -132,11 +190,62 @@ public class LostFoundImageStagingService {
         }
     }
 
+    /** 报告创建只接受当前用户上传且未过期的暂存图片。 */
+    public StagedImage retrieveOwned(String objectKey, User currentUser) {
+        LostFoundStagedImage metadata = stagedRepository
+                .findByObjectKeyAndCreatedById(objectKey, currentUser.getId())
+                .filter(value -> value.getExpiresAt().isAfter(Instant.now()))
+                .orElseThrow(this::notFound);
+        StagedImage stored = retrieve(objectKey);
+        return new StagedImage(
+                stored.objectKey(),
+                stored.content(),
+                stored.contentType(),
+                stored.originalName(),
+                stored.fileSize(),
+                metadata.getVisualEmbedding(),
+                metadata.getVisualEmbeddingModel(),
+                metadata.getVisualEmbeddingRevision());
+    }
+
+    public List<Map<String, Object>> trustedAgentImages(
+            List<com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest.AgentImage> images,
+            User currentUser) {
+        if (images == null || images.isEmpty()) {
+            return List.of();
+        }
+        return images.stream().map(image -> {
+            LostFoundStagedImage metadata = stagedRepository
+                    .findByObjectKeyAndCreatedById(image.objectKey(), currentUser.getId())
+                    .filter(value -> value.getExpiresAt().isAfter(Instant.now()))
+                    .orElseThrow(this::notFound);
+            Map<String, Object> trusted = new LinkedHashMap<>();
+            trusted.put("object_key", metadata.getObjectKey());
+            trusted.put("visual_fingerprint", metadata.getVisualFingerprint());
+            trusted.put("url", image.url());
+            if (metadata.getVisualEmbedding() != null) {
+                trusted.put("visual_embedding", Base64.getEncoder()
+                        .encodeToString(metadata.getVisualEmbedding()));
+                trusted.put("visual_embedding_model", metadata.getVisualEmbeddingModel());
+                trusted.put("visual_embedding_revision", metadata.getVisualEmbeddingRevision());
+            }
+            return trusted;
+        }).toList();
+    }
+
+    /** 图片已经关联正式报告后只删除暂存元数据，保留 MinIO 对象。 */
+    public void consume(List<String> objectKeys) {
+        if (objectKeys != null && !objectKeys.isEmpty()) {
+            stagedRepository.deleteAllById(objectKeys);
+        }
+    }
+
     public void delete(String objectKey) {
         if (objectKey == null || !objectKey.startsWith(PREFIX)) {
             return;
         }
         try {
+            stagedRepository.deleteById(objectKey);
             minioClient.removeObject(RemoveObjectArgs.builder()
                     .bucket(bucket)
                     .object(objectKey)

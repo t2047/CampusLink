@@ -827,6 +827,23 @@ export default function ChatPage() {
                             </span>
                           ))}
                         </div>
+                        {match.matching_mode === 'baseline' && (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            智能模型暂不可用，当前使用基础匹配。
+                          </p>
+                        )}
+                        {match.score_breakdown && (
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(match.score_breakdown).map(([name, value]) => (
+                              <span
+                                key={`${match.item_id}-score-${name}`}
+                                className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                              >
+                                {name} {Math.round(value * 100)}%
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </article>
                   ))}

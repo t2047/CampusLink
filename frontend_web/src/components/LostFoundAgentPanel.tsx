@@ -240,6 +240,18 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
                     </Typography>
                     <Typography variant="body2" color="text.secondary">{match.description}</Typography>
                     <Typography variant="caption">{match.match_reason.join('；')}</Typography>
+                    {match.matching_mode === 'baseline' && (
+                      <Alert severity="info" sx={{ mt: 1, py: 0 }}>
+                        智能模型暂不可用，当前使用基础匹配。
+                      </Alert>
+                    )}
+                    {match.score_breakdown && (
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                        {Object.entries(match.score_breakdown).map(([name, value]) => (
+                          <Chip key={name} size="small" variant="outlined" label={`${name} ${Math.round(value * 100)}%`} />
+                        ))}
+                      </Stack>
+                    )}
                   </Box>
                 ))}
               </Box>
