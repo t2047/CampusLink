@@ -17,6 +17,7 @@ from lost_found_agent.tools import (  # noqa: E402
     ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
+    SearchLostItemsInput,
 )
 
 
@@ -24,6 +25,7 @@ class FakeCampusApiClient(CampusApiClient):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, object]] = []
         self.candidates: list[dict[str, object]] = []
+        self.lost_candidates: list[dict[str, object]] = []
 
     async def close(self) -> None:
         return None
@@ -45,6 +47,12 @@ class FakeCampusApiClient(CampusApiClient):
     ) -> dict[str, object]:
         self.calls.append(("search_found_items", user_id, payload))
         return {"content": self.candidates, "totalElements": len(self.candidates)}
+
+    async def search_lost_items(
+        self, user_id: str, user_role: str, payload: SearchLostItemsInput
+    ) -> dict[str, object]:
+        self.calls.append(("search_lost_items", user_id, payload))
+        return {"content": self.lost_candidates, "totalElements": len(self.lost_candidates)}
 
     async def get_item_detail(
         self, user_id: str, user_role: str, payload: GetItemDetailInput

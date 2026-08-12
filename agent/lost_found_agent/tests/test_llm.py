@@ -155,8 +155,11 @@ def test_model_report_found_requires_confirmation_before_writing() -> None:
         )
 
     assert completed["status"] == "completed"
-    assert [action["action"] for action in completed["actions_taken"]] == ["report_found"]
-    assert [call[0] for call in fake_api.calls] == ["report_found"]
+    assert [action["action"] for action in completed["actions_taken"]] == [
+        "report_found",
+        "search_lost_items",
+    ]
+    assert [call[0] for call in fake_api.calls] == ["report_found", "search_lost_items"]
 
 
 def test_invalid_json_and_timeout_fail_closed() -> None:
@@ -292,6 +295,30 @@ def test_model_fields_that_violate_backend_contract_fail_closed() -> None:
             settings,
             "我在2026-08-08下午于中央图书馆丢了一副黑色耳机，耳机盒上有橙色贴纸。",
         )
+
+    assert result["status"] == "failed"
+    assert fake_api.calls == []
+
+
+def test_model_fields_with_nested_extra_key_fail_closed() -> None:
+    """fields 内的额外键必须触发 fail-closed，而不能被静默吞掉。"""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "search_found_items",
+                "language": "en",
+                "fields": {
+                    "keyword": "keys",
+                    "visual_fingerprint": "VF1:invalid",
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    with client:
+        result = invoke(client, settings, "search for keys", trace_id="extra-field")
 
     assert result["status"] == "failed"
     assert fake_api.calls == []

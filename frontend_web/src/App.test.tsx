@@ -6,6 +6,38 @@ import { TOKEN_KEY, USER_KEY } from './api/client'
 import { AuthProvider } from './auth/AuthContext'
 
 vi.mock('./pages/ReportsPage', () => ({ ReportsPage: () => <p>Lost and Found page</p> }))
+
+const adminApiMocks = vi.hoisted(() => ({
+  getClaimDetail: vi.fn(),
+  approveClaim: vi.fn(),
+  rejectClaim: vi.fn(),
+}))
+
+const claimDetail = {
+  id: 42,
+  status: 'SUBMITTED',
+  proofDescription: 'Serial number and a scratch on the left hinge.',
+  decisionNote: null,
+  claimant: { id: 7, email: 'claimant@nus.edu.sg', role: 'STUDENT' },
+  report: {
+    id: 12,
+    reportType: 'FOUND',
+    itemName: 'Black Headphones',
+    category: 'ELECTRONICS',
+    description: 'Headphones in a black hard-shell case.',
+    colour: 'Black',
+    location: 'Central Library',
+    eventDate: '2026-08-07',
+    timeDescription: 'Around noon',
+    status: 'OPEN',
+    adminHidden: false,
+    owner: { id: 8, email: 'owner@nus.edu.sg' },
+    images: [],
+  },
+  review: { reviewed: false, decisionNote: null, reviewedAt: null },
+  createdAt: '2026-08-07T03:00:00Z',
+  updatedAt: '2026-08-07T03:00:00Z',
+}
 vi.mock('./api/facilities', () => ({
   facilitiesApi: {
     getDashboard: vi.fn().mockResolvedValue({
@@ -41,6 +73,9 @@ vi.mock('./api/adminLostFound', () => ({
     first: true,
     last: true,
   }),
+  getAdminClaimDetail: adminApiMocks.getClaimDetail,
+  approveAdminClaim: adminApiMocks.approveClaim,
+  rejectAdminClaim: adminApiMocks.rejectClaim,
 }))
 vi.mock('./api/adminUsers', () => ({
   listAdminUsers: vi.fn().mockResolvedValue([]),
@@ -96,6 +131,8 @@ function renderApp(path: string) {
 describe('admin application routes', () => {
   beforeEach(() => {
     sessionStorage.clear()
+    vi.clearAllMocks()
+    adminApiMocks.getClaimDetail.mockResolvedValue(claimDetail)
     setDesktopViewport()
   })
   afterEach(() => cleanup())
@@ -205,6 +242,33 @@ describe('admin application routes', () => {
     await waitFor(() => expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/lost-found'))
     expect(await screen.findByRole('heading', { name: 'Lost & Found' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Lost & Found' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it.each(['ADMIN', 'SUPER_ADMIN'])('renders the Claim detail route inside the Admin Layout for %s', async (role) => {
+    storeSession(role)
+    renderApp('/admin/lost-found/claims/42')
+
+    expect(await screen.findByRole('heading', { name: 'Claim #42' })).toBeInTheDocument()
+    expect(screen.getByText('CampusLink Administration')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Lost & Found' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/lost-found/claims/42')
+  })
+
+  it('keeps a student out of the Claim detail route', async () => {
+    storeSession('STUDENT')
+    renderApp('/admin/lost-found/claims/42')
+
+    expect(await screen.findByRole('heading', { name: 'Access Denied' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Claim #42' })).not.toBeInTheDocument()
+    expect(screen.queryByText('CampusLink Administration')).not.toBeInTheDocument()
+  })
+
+  it('redirects an anonymous Claim detail request to login first', async () => {
+    renderApp('/admin/lost-found/claims/42')
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Current path')).toHaveTextContent('/login')
+    expect(screen.queryByRole('heading', { name: 'Claim #42' })).not.toBeInTheDocument()
   })
 
   it('renders the administration not-found page after the admin access boundary', async () => {

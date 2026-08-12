@@ -1,8 +1,9 @@
 """Agent 对外契约模型。"""
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 AgentStatus = Literal[
     "completed",
@@ -25,21 +26,35 @@ class ConversationContext(BaseModel):
     shared_data: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentImage(BaseModel):
+    """Agent 面板选中并已由 Spring Boot 暂存的一张图片。object_key 在确认创建时
+    通过内部 API 关联为报告图片，visual_fingerprint 参与双向匹配打分。"""
+
+    object_key: str = Field(min_length=1, max_length=500)
+    visual_fingerprint: str | None = None
+    url: str | None = None
+
+
 class InvokeRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_context: ConversationContext = Field(default_factory=ConversationContext)
     confirmed: bool = False
     confirmation_id: str | None = None
     trace_parent: TraceParent = Field(default_factory=TraceParent)
+    images: list[AgentImage] = Field(default_factory=list, max_length=5)
 
 
 class MatchResult(BaseModel):
     item_id: str
+    report_type: Literal["LOST", "FOUND"]
     item_name: str
     category: str
     description: str
-    found_location: str
-    found_date: str
+    colour: str | None = None
+    location: str
+    event_date: str
+    time_description: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
     status: str
     match_score: float = Field(ge=0, le=1)
     match_reason: list[str] = Field(default_factory=list)
@@ -57,6 +72,7 @@ class ActionTaken(BaseModel):
         "report_lost",
         "report_found",
         "search_found_items",
+        "search_lost_items",
         "get_item_detail",
         "claim_item",
     ]
@@ -73,6 +89,52 @@ class InvokeResponse(BaseModel):
     shared_context: dict[str, Any] = Field(default_factory=dict)
     actions_taken: list[ActionTaken] = Field(default_factory=list)
     request_id: str
+
+
+class ClassifyRequest(BaseModel):
+    """物品名分类建议请求（轻量端点，仅返回分类枚举）。"""
+
+    item_name: str = Field(min_length=1, max_length=200)
+
+
+class ClassifyResponse(BaseModel):
+    """分类建议响应；category 为 None 表示规则与 LLM 均无法判断。"""
+
+    category: str | None = None
+
+
+SearchStatus = Literal["match_found", "no_match", "failed"]
+
+
+class SearchRequest(BaseModel):
+    """Browse 以图搜物的轻量搜索请求：不经聊天/LLM，直接走候选检索与 rank_candidates 打分。
+
+    report_type 决定候选方向（FOUND 视图搜 FOUND 候选，LOST 视图搜 LOST 候选），
+    与 chat flow 的 search_found_items / search_lost_items 语义一致。"""
+
+    report_type: Literal["FOUND", "LOST"]
+    keyword: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=50)
+    colour: str | None = Field(default=None, max_length=50)
+    location: str | None = Field(default=None, max_length=200)
+    date_from: date | None = None
+    date_to: date | None = None
+    images: list[AgentImage] = Field(min_length=1, max_length=5)
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "SearchRequest":
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must be on or before date_to")
+        return self
+
+
+class SearchResponse(BaseModel):
+    """轻量搜索结果；match_results 与聊天 flow 的 MatchResult 结构一致。"""
+
+    status: SearchStatus
+    match_results: list[MatchResult] = Field(default_factory=list)
+    request_id: str
+    message: str | None = None
 
 
 class VerifiedRequest(BaseModel):

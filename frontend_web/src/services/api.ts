@@ -87,6 +87,7 @@ export type SseEventType =
   | 'agent_step'
   | 'agent_done'
   | 'agent_error'
+  | 'match_results'
   | 'utility_start'
   | 'utility_result'
   | 'utility_done'
@@ -268,6 +269,7 @@ function isValidEventType(t: string): t is SseEventType {
     'agent_step',
     'agent_done',
     'agent_error',
+    'match_results',
     'utility_start',
     'utility_result',
     'utility_done',

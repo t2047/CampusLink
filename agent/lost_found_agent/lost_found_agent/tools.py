@@ -24,13 +24,19 @@ ItemCategory = Literal[
 
 
 class ReportLostInput(BaseModel):
-    item_name: str = Field(min_length=3, max_length=100)
+    # 中文物品名常为 2 字符，min_length=2 与 llm.py 提取口径一致
+    item_name: str = Field(min_length=2, max_length=100)
     category: ItemCategory
     description: str = Field(min_length=10, max_length=2000)
     location: str = Field(min_length=1, max_length=200)
     event_date: date
     colour: str | None = Field(default=None, max_length=50)
     time_description: str | None = Field(default=None, max_length=100)
+    # 面板已暂存图片的 objectKey；确认创建时经内部 API 关联为报告图片。
+    # 字段本身不发给后端（body 构建器只挑字段），仅用于确认载荷与自动匹配 query。
+    images: list[str] = Field(default_factory=list, max_length=5)
+    # 查询端视觉指纹（与 images 同序），创建后并入自动匹配 query 参与打分。
+    visual_fingerprints: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("event_date")
     @classmethod
@@ -50,6 +56,8 @@ class ReportFoundInput(BaseModel):
     event_date: date
     colour: str | None = Field(default=None, max_length=50)
     time_description: str | None = Field(default=None, max_length=100)
+    images: list[str] = Field(default_factory=list, max_length=5)
+    visual_fingerprints: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator("event_date")
     @classmethod
@@ -59,7 +67,7 @@ class ReportFoundInput(BaseModel):
         return value
 
 
-class SearchFoundItemsInput(BaseModel):
+class SearchItemsInput(BaseModel):
     keyword: str | None = None
     category: ItemCategory | None = None
     colour: str | None = None
@@ -70,10 +78,18 @@ class SearchFoundItemsInput(BaseModel):
     size: int = Field(default=100, ge=1, le=100)
 
     @model_validator(mode="after")
-    def validate_date_range(self) -> "SearchFoundItemsInput":
+    def validate_date_range(self) -> "SearchItemsInput":
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("date_from must be on or before date_to")
         return self
+
+
+class SearchFoundItemsInput(SearchItemsInput):
+    """搜索开放的拾获记录。"""
+
+
+class SearchLostItemsInput(SearchItemsInput):
+    """搜索开放的报失记录。"""
 
 
 class GetItemDetailInput(BaseModel):
@@ -129,6 +145,7 @@ class CampusApiClient:
                 "location": payload.location,
                 "eventDate": payload.event_date.isoformat(),
                 "timeDescription": payload.time_description,
+                **({"imageKeys": payload.images} if payload.images else {}),
             },
         )
 
@@ -149,6 +166,7 @@ class CampusApiClient:
                 "location": payload.location,
                 "eventDate": payload.event_date.isoformat(),
                 "timeDescription": payload.time_description,
+                **({"imageKeys": payload.images} if payload.images else {}),
             },
         )
 
@@ -169,6 +187,28 @@ class CampusApiClient:
             "GET",
             "/api/internal/lost-found/candidates",
             "search_found_items",
+            user_id,
+            user_role,
+            params=params,
+        )
+
+    async def search_lost_items(
+        self, user_id: str, user_role: str, payload: SearchLostItemsInput
+    ) -> dict[str, Any]:
+        params: dict[str, str | int] = {"page": payload.page, "size": payload.size}
+        optional: dict[str, str | None] = {
+            "keyword": payload.keyword,
+            "category": payload.category,
+            "colour": payload.colour,
+            "location": payload.location,
+            "dateFrom": payload.date_from.isoformat() if payload.date_from else None,
+            "dateTo": payload.date_to.isoformat() if payload.date_to else None,
+        }
+        params.update({key: value for key, value in optional.items() if value is not None})
+        return await self._request(
+            "GET",
+            "/api/internal/lost-found/lost-candidates",
+            "search_lost_items",
             user_id,
             user_role,
             params=params,

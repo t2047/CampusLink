@@ -317,6 +317,7 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         "confirmation_required": result.get("confirmation_required"),
         "shared_context": result.get("shared_context", {}),
         "actions_taken": result.get("actions_taken", []),
+        "match_results": result.get("match_results", []),
         "request_id": result.get("request_id"),
         "error": result.get("error"),
     }

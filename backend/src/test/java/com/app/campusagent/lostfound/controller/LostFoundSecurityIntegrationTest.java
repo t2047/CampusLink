@@ -41,6 +41,18 @@ class LostFoundSecurityIntegrationTest {
     }
 
     @Test
+    void rejectsUnauthenticatedClassifyRequests() throws Exception {
+        mockMvc.perform(post("/api/lost-found/agent/classify")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "itemName": "黑色耳机"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @WithMockUser
     void allowsAuthenticatedLostFoundRequests() throws Exception {
         mockMvc.perform(get("/api/lost-found/metadata"))

@@ -9,6 +9,7 @@ import com.app.campusagent.lostfound.dto.CreateLostFoundReportRequest;
 import com.app.campusagent.lostfound.dto.LostFoundMetadataResponse;
 import com.app.campusagent.lostfound.dto.LostFoundReportResponse;
 import com.app.campusagent.lostfound.dto.PageResponse;
+import com.app.campusagent.lostfound.dto.UpdateLostFoundReportRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.app.campusagent.lostfound.service.LostFoundReportService;
 import jakarta.validation.Valid;
@@ -19,9 +20,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -87,6 +90,30 @@ public class LostFoundReportController {
             @PathVariable Long reportId,
             @AuthenticationPrincipal User currentUser) {
         return reportService.getById(reportId, currentUser);
+    }
+
+    @PutMapping(value = "/reports/{reportId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public LostFoundReportResponse update(
+            @PathVariable Long reportId,
+            @Valid @RequestPart("report") UpdateLostFoundReportRequest request,
+            @RequestPart(value = "images", required = false) List<MultipartFile> images,
+            @AuthenticationPrincipal User currentUser) {
+        return reportService.update(reportId, request, images, currentUser);
+    }
+
+    @PostMapping("/reports/{reportId}/close")
+    public LostFoundReportResponse close(
+            @PathVariable Long reportId,
+            @AuthenticationPrincipal User currentUser) {
+        return reportService.close(reportId, currentUser);
+    }
+
+    @DeleteMapping("/reports/{reportId}")
+    public ResponseEntity<Void> delete(
+            @PathVariable Long reportId,
+            @AuthenticationPrincipal User currentUser) {
+        reportService.delete(reportId, currentUser);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/metadata")

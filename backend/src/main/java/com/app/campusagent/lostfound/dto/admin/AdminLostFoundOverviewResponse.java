@@ -7,5 +7,6 @@ public record AdminLostFoundOverviewResponse(
         long closedReports,
         long lostReports,
         long foundReports,
-        long submittedClaims) {
+        long submittedClaims,
+        long hiddenReports) {
 }

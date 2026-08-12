@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 from lost_found_agent.config import get_settings
 from lost_found_agent.confirmation import ConfirmationStore
-from lost_found_agent.llm import LlmInterpreter, LlmUnavailable
+from lost_found_agent.llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
 from lost_found_agent.models import ConversationContext, InvokeRequest, InvokeResponse, TraceParent
 from lost_found_agent.rate_limit import RateLimiter
 from lost_found_agent.rules import RuleEngine
@@ -102,7 +102,12 @@ if not os.environ.get("TOKEN_SERVICE_JWKS_URL"):
     )
 
 # streamable_http_path="/"：挂载到 FastAPI 的 /mcp 后端点即 /mcp/
-mcp = FastMCP(f"{AGENT_NAME}-server", streamable_http_path="/")
+mcp = FastMCP(
+    f"{AGENT_NAME}-server",
+    streamable_http_path="/",
+    # Docker 容器间使用服务名访问，需允许非 localhost Host 头。
+    host=os.environ.get("FASTMCP_HOST", "127.0.0.1"),
+)
 
 # 必须先调用 streamable_http_app() 才能访问 mcp.session_manager
 # （mcp 1.x：session manager 的 task group 由 run() 初始化）
@@ -204,7 +209,8 @@ async def invoke(
         interpretation = None
         if _llm_interpreter and not (payload.confirmed or payload.confirmation_id):
             try:
-                interpretation = await _llm_interpreter.interpret(
+                interpretation = await interpret_with_retry(
+                    _llm_interpreter,
                     payload.message,
                     payload.conversation_context.shared_data,
                 )

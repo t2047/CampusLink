@@ -268,3 +268,15 @@ def test_parse_mcp_result_empty():
     client = AgentClient(registry=make_registry())
     parsed = client._parse_mcp_result(FakeCallResult())
     assert parsed == {"response": "", "status": "completed"}
+
+
+def test_normalize_result_preserves_match_results():
+    client = AgentClient(registry=make_registry())
+    matches = [{"item_id": "7", "report_type": "FOUND", "match_score": 0.88}]
+
+    normalized = client._normalize_result(
+        {"response": "找到候选", "status": "match_found", "match_results": matches},
+        "lost-found-agent",
+    )
+
+    assert normalized["match_results"] == matches

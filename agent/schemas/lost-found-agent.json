@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.4.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.7.0.json",
   "agent": "lost-found-agent",
-  "version": "1.4.0",
-  "description": "校园失物招领领域 Agent。负责报失、登记拾获、搜索拾获记录、查看详情和提交认领；报失、登记拾获和认领必须经过用户确认。",
+  "version": "1.7.0",
+  "description": "校园失物招领领域 Agent。负责报失、登记拾获、双向搜索匹配、查看详情和提交认领；报失、登记拾获和认领必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
     "type": "mcp",
@@ -32,6 +32,7 @@
       "report_lost",
       "report_found",
       "search_found_items",
+      "search_lost_items",
       "get_item_detail",
       "claim_item"
     ],
@@ -80,6 +81,20 @@
             "parent_span_id": {"type": ["string", "null"]}
           },
           "additionalProperties": false
+        },
+        "images": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object_key": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visual_fingerprint": {"type": ["string", "null"]},
+              "url": {"type": ["string", "null"]}
+            },
+            "required": ["object_key"]
+          }
         }
       },
       "required": ["message"]
@@ -89,22 +104,28 @@
       "additionalProperties": false,
       "properties": {
         "item_id": {"type": "string"},
+        "report_type": {"type": "string", "enum": ["LOST", "FOUND"]},
         "item_name": {"type": "string"},
         "category": {"$ref": "#/$defs/category"},
         "description": {"type": "string"},
-        "found_location": {"type": "string"},
-        "found_date": {"type": "string", "format": "date"},
+        "colour": {"type": ["string", "null"]},
+        "location": {"type": "string"},
+        "event_date": {"type": "string", "format": "date"},
+        "time_description": {"type": ["string", "null"]},
+        "image_urls": {"type": "array", "items": {"type": "string", "format": "uri"}},
         "status": {"type": "string", "enum": ["OPEN", "CLAIMED", "CLOSED"]},
         "match_score": {"type": "number", "minimum": 0, "maximum": 1},
         "match_reason": {"type": "array", "items": {"type": "string"}}
       },
       "required": [
         "item_id",
+        "report_type",
         "item_name",
         "category",
         "description",
-        "found_location",
-        "found_date",
+        "location",
+        "event_date",
+        "image_urls",
         "status",
         "match_score",
         "match_reason"
@@ -152,6 +173,7 @@
                   "report_lost",
                   "report_found",
                   "search_found_items",
+                  "search_lost_items",
                   "get_item_detail",
                   "claim_item"
                 ]
@@ -166,11 +188,55 @@
         "request_id": {"type": "string"}
       },
       "required": ["response", "status", "request_id"]
+    },
+    "searchInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "report_type": {"type": "string", "enum": ["FOUND", "LOST"]},
+        "keyword": {"type": ["string", "null"], "maxLength": 100},
+        "category": {"type": ["string", "null"], "maxLength": 50},
+        "colour": {"type": ["string", "null"], "maxLength": 50},
+        "location": {"type": ["string", "null"], "maxLength": 200},
+        "date_from": {"type": ["string", "null"], "format": "date"},
+        "date_to": {"type": ["string", "null"], "format": "date"},
+        "images": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "object_key": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visual_fingerprint": {"type": ["string", "null"]},
+              "url": {"type": ["string", "null"]}
+            },
+            "required": ["object_key"]
+          }
+        }
+      },
+      "required": ["report_type", "images"]
+    },
+    "searchOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {"type": "string", "enum": ["match_found", "no_match", "failed"]},
+        "match_results": {"type": "array", "items": {"$ref": "#/$defs/matchResult"}},
+        "request_id": {"type": "string"},
+        "message": {"type": ["string", "null"]}
+      },
+      "required": ["status", "request_id"]
     }
   },
   "invoke": {
     "input": {"$ref": "#/$defs/invokeInput"},
     "output": {"$ref": "#/$defs/invokeOutput"}
+  },
+  "search": {
+    "input": {"$ref": "#/$defs/searchInput"},
+    "output": {"$ref": "#/$defs/searchOutput"}
   },
   "internalTools": [
     {
@@ -187,6 +253,11 @@
       "name": "search_found_items",
       "requiresConfirmation": false,
       "defaults": {"report_type": "FOUND", "status": "OPEN", "limit": 100}
+    },
+    {
+      "name": "search_lost_items",
+      "requiresConfirmation": false,
+      "defaults": {"report_type": "LOST", "status": "OPEN", "limit": 100}
     },
     {"name": "get_item_detail", "requiresConfirmation": false, "required": ["report_id"]},
     {
@@ -212,10 +283,26 @@
     "retentionSeconds": 300
   },
   "matching": {
-    "candidateDefaults": {"reportType": "FOUND", "status": "OPEN", "limit": 100},
+    "candidateDefaults": {
+      "lostReportTarget": {"reportType": "FOUND", "status": "OPEN", "limit": 100},
+      "foundReportTarget": {"reportType": "LOST", "status": "OPEN", "limit": 100}
+    },
+    "direction": "bidirectional",
     "topK": 5,
     "defaultMinimumScore": 0.35,
-    "weights": {"text": 0.30, "category": 0.30, "colour": 0.15, "location": 0.15, "date": 0.10},
+    "weights": {
+      "text": 0.28,
+      "category": 0.28,
+      "colour": 0.14,
+      "location": 0.14,
+      "date": 0.06,
+      "visual": 0.10
+    },
+    "visualFingerprint": {
+      "queryField": "visual_fingerprint",
+      "candidateField": "visualFingerprints",
+      "description": "Optional image fingerprint (VF1:...) used for explainable multimodal matching. Active only when both query and candidate carry fingerprints; missing fields are re-normalized away."
+    },
     "missingFieldsRenormalizeWeights": true
   },
   "model": {
@@ -226,6 +313,7 @@
       "report_lost",
       "report_found",
       "search_found_items",
+      "search_lost_items",
       "get_item_detail",
       "claim_item"
     ],
