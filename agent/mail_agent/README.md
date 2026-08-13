@@ -39,6 +39,17 @@ calls this service via `MAIL_REST_URL` (default `http://127.0.0.1:5000`).
 To re-authorize or switch accounts: delete `token.json` (or call
 `POST /api/mail/oauth/disconnect`) and repeat.
 
+## Email classification
+
+Every message returned by the service is automatically tagged with one of four
+categories predicted by the trained model in `agent/mail_agent/ml`
+(`campus`, `career`, `finance` or `other`); the tag is exposed as the
+`category` field on each `MailMessage` and rendered as a chip in the web Mail
+page. Classification is best-effort: if the model is missing or a single
+message cannot be classified, the service keeps working and the message falls
+back to `other`. The model path can be overridden with the
+`MAIL_CLASSIFIER_MODEL` env var (default: `ml/models/email_classifier.joblib`).
+
 ## API
 
 | Method | Path                              | Description                                   |

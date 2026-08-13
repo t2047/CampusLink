@@ -286,6 +286,8 @@ def _fmt_message(brief: dict[str, Any]) -> str:
         flag = "[未读]"
     if brief.get("starred"):
         flag += "[★]"
+    if brief.get("category") in ("campus", "career", "finance", "other"):
+        flag += f"[{brief['category']}]"
     return "- {flag}{subject}（来自 {sender}，{date}）".format(
         flag=flag + " " if flag else "",
         subject=brief.get("subject", "(无主题)"),

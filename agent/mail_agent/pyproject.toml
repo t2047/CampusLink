@@ -14,6 +14,12 @@ dependencies = [
     "google-api-python-client>=2.140,<3",
     "google-auth-oauthlib>=1.2,<2",
     "google-auth-httplib2>=0.2,<1",
+    # Email classification (agent/mail_agent/ml).
+    # numpy is pinned <2 so scipy wheels built against NumPy 1.x keep working.
+    "joblib>=1.3,<2",
+    "numpy>=1.26,<2",
+    "scipy>=1.11,<2",
+    "scikit-learn>=1.4,<2",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +29,10 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["mail_agent"]
+packages = ["mail_agent", "ml"]
+
+[tool.setuptools.package-data]
+ml = ["models/*.joblib", "models/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
