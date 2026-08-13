@@ -11,9 +11,15 @@ dependencies = [
     "fastapi>=0.116,<1",
     "pydantic>=2.11,<3",
     "uvicorn[standard]>=0.35,<1",
+    "python-dotenv>=1.0",
     "google-api-python-client>=2.140,<3",
     "google-auth-oauthlib>=1.2,<2",
     "google-auth-httplib2>=0.2,<1",
+    # LangChain mail agent (agent/mail_agent/mail_agent/agent.py).
+    "langchain>=0.3,<2",
+    "langchain-core>=0.3,<2",
+    "langchain-openai>=0.2,<2",
+    "langgraph>=0.2,<2",
     # Email classification (agent/mail_agent/ml).
     # numpy is pinned <2 so scipy wheels built against NumPy 1.x keep working.
     "joblib>=1.3,<2",
