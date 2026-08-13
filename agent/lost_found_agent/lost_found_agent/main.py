@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -10,12 +11,20 @@ from fastapi.responses import StreamingResponse
 from .config import Settings, get_settings
 from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
-from .llm import LlmInterpreter, LlmUnavailable
-from .models import InvokeRequest, InvokeResponse
+from .llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
+from .models import (
+    ClassifyRequest,
+    ClassifyResponse,
+    InvokeRequest,
+    InvokeResponse,
+    SearchRequest,
+    SearchResponse,
+)
+from .pretrained import PretrainedEmbeddingClient
 from .rate_limit import RateLimiter
-from .rules import RuleEngine
+from .rules import RuleEngine, map_category, search_candidates
 from .security import AgentSecurity
-from .tools import CampusApiClient
+from .tools import BackendApiError, CampusApiClient
 
 
 def create_app(
@@ -32,13 +41,22 @@ def create_app(
     event_store = EventStore(active_settings.agent_event_ttl_seconds)
     owns_api_client = api_client is None
     active_api_client = api_client or CampusApiClient(active_settings)
+    embedding_client = PretrainedEmbeddingClient(active_settings)
     active_llm_interpreter = None
     if active_settings.effective_mode == "llm":
         active_llm_interpreter = llm_interpreter or LlmInterpreter(active_settings)
+    # 分类建议的 LLM 兜底独立于主 mode：只要配了 key 就可用（规则未命中时兜底），
+    # 便于 rules 模式下也能智能建议分类。llm 模式复用 active_llm_interpreter 同一实例。
+    classify_interpreter = None
+    if active_settings.lost_found_llm_api_key.strip():
+        classify_interpreter = (
+            active_llm_interpreter or llm_interpreter or LlmInterpreter(active_settings)
+        )
     rule_engine = RuleEngine(
         active_api_client,
         ConfirmationStore(ttl_seconds=600),
         active_settings.lost_found_match_min_score,
+        embedding_client,
     )
 
     @asynccontextmanager
@@ -50,6 +68,9 @@ def create_app(
                 await active_api_client.close()
             if active_llm_interpreter:
                 await active_llm_interpreter.close()
+            if classify_interpreter and classify_interpreter is not active_llm_interpreter:
+                await classify_interpreter.close()
+            await embedding_client.close()
 
     app = FastAPI(
         title="CampusLink Lost & Found Agent",
@@ -77,7 +98,9 @@ def create_app(
                 "domains": ["lost_and_found"],
                 "actions": [
                     "report_lost",
+                    "report_found",
                     "search_found_items",
+                    "search_lost_items",
                     "get_item_detail",
                     "claim_item",
                 ],
@@ -102,13 +125,16 @@ def create_app(
             interpretation = None
             if active_llm_interpreter and not (payload.confirmed or payload.confirmation_id):
                 try:
-                    interpretation = await active_llm_interpreter.interpret(
+                    interpretation = await interpret_with_retry(
+                        active_llm_interpreter,
                         payload.message,
                         payload.conversation_context.shared_data,
+                        # 在线请求只尝试一次，确保模型超时后能在 Web 超时前降级。
+                        attempts=1,
                     )
                 except LlmUnavailable:
                     if active_settings.llm_fail_closed:
-                        # fail-closed（默认）：LLM 不可用/输出不可信 → 显式失败，不降级规则
+                        # 可选 fail-closed：LLM 不可用/输出不可信 → 显式失败。
                         event_store.append(
                             request_id,
                             AgentEvent(
@@ -121,7 +147,7 @@ def create_app(
                             status="failed",
                             request_id=request_id,
                         )
-                    # 旧行为（降级规则引擎）：仅当 llm_fail_closed=false 时生效
+                    # 默认行为：降级到同样受确认流程和工具白名单约束的规则引擎。
                     event_store.append(
                         request_id,
                         AgentEvent(
@@ -165,6 +191,77 @@ def create_app(
     async def stream(request_id: str, request: Request) -> StreamingResponse:
         await security.verify(request, "stream")
         return StreamingResponse(event_store.stream(request_id), media_type="text/event-stream")
+
+    @app.post("/agent/classify", response_model=ClassifyResponse)
+    async def classify(payload: ClassifyRequest, request: Request) -> ClassifyResponse:
+        """物品名 → 分类建议。规则优先；未命中且配置了 LLM 时兜底。
+
+        fail-open：LLM 出错/不确定一律返回 category=None（200），绝不 5xx，
+        因为分类建议只是表单预填，阻塞创建报告不可接受。
+        """
+        await security.verify(request, "classify")
+        category = map_category(payload.item_name)
+        if category is None and classify_interpreter is not None:
+            try:
+                suggestion = await classify_interpreter.classify_item(payload.item_name)
+                category = suggestion.category
+            except LlmUnavailable:
+                category = None
+        return ClassifyResponse(category=category)
+
+    @app.post("/agent/search", response_model=SearchResponse)
+    async def agent_search(payload: SearchRequest, request: Request) -> SearchResponse:
+        """Browse 以图搜物：按图 + 可选筛选检索候选并打分。
+
+        不经聊天/LLM，直接复用 search_candidates 链路（与 Agent 面板同图结果一致）；
+        language 固定 zh 使理由文案与面板一致；不注入 event_date，避免 ±30 天窗口兜底。
+        """
+        verified = await security.verify(request, "search")
+        request_id = verified.trace_id or str(uuid4())
+        # 只放入非空字段：score_candidate 会把缺失字段按 str() 拼进 text 分量，
+        # 若 key 以 None 存在会注入 "None" 幽灵文本（与 chat flow 的 query 构造一致）。
+        query: dict[str, Any] = {
+            field: value
+            for field, value in (
+                ("keyword", payload.keyword),
+                ("category", payload.category),
+                ("colour", payload.colour),
+                ("location", payload.location),
+                ("date_from", payload.date_from),
+                ("date_to", payload.date_to),
+            )
+            if value is not None
+        }
+        fingerprints = [
+            image.visual_fingerprint for image in payload.images if image.visual_fingerprint
+        ]
+        if fingerprints:
+            query["visual_fingerprints"] = fingerprints
+        pretrained = [image.visual_embedding for image in payload.images if image.visual_embedding]
+        if pretrained:
+            query["visual_embeddings"] = pretrained
+        try:
+            matches, _action = await search_candidates(
+                active_api_client,
+                query,
+                verified,
+                active_settings.lost_found_match_min_score,
+                "zh",
+                lambda event: None,
+                target_report_type=payload.report_type,
+                embedding_client=embedding_client,
+            )
+        except BackendApiError as exc:
+            return SearchResponse(
+                status="failed",
+                request_id=request_id,
+                message=f"Campus API ({exc.code}): {exc}",
+            )
+        return SearchResponse(
+            status="match_found" if matches else "no_match",
+            match_results=matches,
+            request_id=request_id,
+        )
 
     return app
 

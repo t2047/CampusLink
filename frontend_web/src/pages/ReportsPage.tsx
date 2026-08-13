@@ -1,16 +1,41 @@
+import CloseIcon from '@mui/icons-material/Close'
 import AddIcon from '@mui/icons-material/Add'
-import { Alert, Box, Button, CircularProgress, FormControl, Grid, InputLabel, MenuItem, Pagination, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import ImageSearchIcon from '@mui/icons-material/ImageSearch'
+import { Alert, Box, Button, CircularProgress, FormControl, Grid, IconButton, InputLabel, MenuItem, Pagination, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { FormEvent, useEffect, useState } from 'react'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
-import { searchReports } from '../api/lostFound'
+import { searchByImage, searchReports, type AgentImageSearchResponse, type AgentImageSearchStatus } from '../api/lostFound'
+import { uploadAgentImage, type AgentMatchResult, type StagedAgentImage } from '../api/lostFoundAgent'
 import { ReportCard } from '../components/ReportCard'
 import { LostFoundAgentPanel } from '../components/LostFoundAgentPanel'
 import { categoryLabels } from '../labels'
-import type { ItemCategory, PageResponse, LostFoundReport } from '../types'
+import type { ItemCategory, PageResponse, LostFoundReport, ReportStatus, ReportType } from '../types'
 
 const categories = Object.keys(categoryLabels) as ItemCategory[]
 const emptyFilters = { keyword: '', category: '', colour: '', location: '', dateFrom: '', dateTo: '' }
+const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
+const maxFileSize = 10 * 1024 * 1024
+
+/** Agent 候选 → ReportCard 兼容对象：item_id 即报告 id，image_urls 即报告图片 URL。 */
+function toReportCard(report: AgentMatchResult): LostFoundReport {
+  return {
+    id: Number(report.item_id),
+    reportType: report.report_type,
+    itemName: report.item_name,
+    category: report.category as ItemCategory,
+    description: report.description,
+    colour: report.colour ?? null,
+    location: report.location,
+    eventDate: report.event_date,
+    timeDescription: report.time_description ?? null,
+    status: report.status as ReportStatus,
+    images: report.image_urls.map((url) => ({ id: 0, url, contentType: '', fileSize: 0, sortOrder: 0 })),
+    createdByMe: false,
+    createdAt: report.event_date,
+    updatedAt: report.event_date,
+  }
+}
 
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -26,6 +51,11 @@ export function ReportsPage() {
     dateFrom: searchParams.get('dateFrom') ?? '',
     dateTo: searchParams.get('dateTo') ?? '',
   }))
+  const [stagedImage, setStagedImage] = useState<StagedAgentImage | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
+  const [imageSearching, setImageSearching] = useState(false)
+  const [imageSearch, setImageSearch] = useState<{ status: AgentImageSearchStatus; matches: AgentMatchResult[]; message?: string | null } | null>(null)
+  const [imageError, setImageError] = useState('')
   const queryKey = searchParams.toString()
 
   useEffect(() => {
@@ -60,8 +90,71 @@ export function ReportsPage() {
     return () => { active = false }
   }, [queryKey, refreshKey])
 
+  async function selectSearchImage(files: FileList | null) {
+    const file = files?.[0]
+    if (!file) return
+    if (!allowedTypes.includes(file.type)) {
+      setImageError(`${file.name} must be a JPEG, PNG or WebP image.`)
+      return
+    }
+    if (file.size > maxFileSize) {
+      setImageError(`${file.name} must be no larger than 10 MB.`)
+      return
+    }
+    setImageUploading(true)
+    setImageError('')
+    try {
+      const staged = await uploadAgentImage(file)
+      setStagedImage(staged)
+      setImageSearch(null)
+    } catch (requestError) {
+      setImageError(apiErrorMessage(requestError))
+    } finally {
+      setImageUploading(false)
+    }
+  }
+
+  function clearSearchImage() {
+    setStagedImage(null)
+    setImageSearch(null)
+    setImageError('')
+  }
+
+  async function runImageSearch() {
+    if (!stagedImage) return
+    setError('')
+    setImageError('')
+    setImageSearching(true)
+    try {
+      const data: AgentImageSearchResponse = await searchByImage({
+        reportType: (searchParams.get('reportType') ?? 'FOUND') as ReportType,
+        keyword: form.keyword.trim() || undefined,
+        category: form.category || undefined,
+        colour: form.colour.trim() || undefined,
+        location: form.location.trim() || undefined,
+        dateFrom: form.dateFrom || undefined,
+        dateTo: form.dateTo || undefined,
+        images: [{
+          objectKey: stagedImage.objectKey,
+          visualFingerprint: stagedImage.visualFingerprint,
+          url: stagedImage.url,
+        }],
+      })
+      setImageSearch({ status: data.status, matches: data.match_results, message: data.message })
+    } catch (requestError) {
+      setImageSearch(null)
+      setImageError(apiErrorMessage(requestError))
+    } finally {
+      setImageSearching(false)
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault()
+    if (stagedImage) {
+      runImageSearch()
+      return
+    }
     const next = new URLSearchParams()
     next.set('reportType', searchParams.get('reportType') ?? 'FOUND')
     next.set('status', searchParams.get('status') ?? 'OPEN')
@@ -71,6 +164,7 @@ export function ReportsPage() {
 
   function reset() {
     setForm({ keyword: '', category: '', colour: '', location: '', dateFrom: '', dateTo: '' })
+    clearSearchImage()
     setSearchParams({ reportType: 'FOUND', status: 'OPEN' })
   }
 
@@ -79,11 +173,13 @@ export function ReportsPage() {
     next.set('reportType', reportType)
     next.set('status', 'OPEN')
     next.delete('page')
+    clearSearchImage()
     setSearchParams(next)
   }
 
   function handleAgentReportCreated() {
     setForm(emptyFilters)
+    clearSearchImage()
     setSearchParams({ reportType: 'LOST', status: 'OPEN' })
     setRefreshKey((value) => value + 1)
   }
@@ -116,16 +212,39 @@ export function ReportsPage() {
           <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth label="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}><TextField fullWidth type="date" label="From date" slotProps={{ inputLabel: { shrink: true } }} value={form.dateFrom} onChange={(e) => setForm({ ...form, dateFrom: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}><TextField fullWidth type="date" label="To date" slotProps={{ inputLabel: { shrink: true } }} value={form.dateTo} onChange={(e) => setForm({ ...form, dateTo: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><Stack direction="row" spacing={1} justifyContent="flex-end"><Button onClick={reset}>Reset</Button><Button type="submit" variant="contained">Search</Button></Stack></Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button component="label" variant="outlined" startIcon={<ImageSearchIcon />}>
+                Search by image
+                <input hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Search by image" onChange={(e) => { selectSearchImage(e.target.files); e.target.value = '' }} />
+              </Button>
+              {imageUploading && <CircularProgress size={20} />}
+              {stagedImage && (
+                <>
+                  <Box component="img" src={stagedImage.url} alt={stagedImage.originalName} sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1 }} />
+                  <IconButton size="small" onClick={clearSearchImage} aria-label={`Remove ${stagedImage.originalName}`}><CloseIcon /></IconButton>
+                </>
+              )}
+            </Stack>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}><Stack direction="row" spacing={1} justifyContent="flex-end"><Button onClick={reset}>Reset</Button><Button type="submit" variant="contained" disabled={imageUploading}>Search</Button></Stack></Grid>
         </Grid>
       </Paper>
 
-      {error && <Alert severity="error">{error}</Alert>}
-      {loading ? <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress /></Box> : result?.content.length ? (
+      {(error || imageError) && <Alert severity="error">{error || imageError}</Alert>}
+      {loading || imageSearching ? <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress /></Box> : imageSearch ? (
+        imageSearch.status === 'failed' ? (
+          <Alert severity="error">{imageSearch.message ?? 'Image search failed.'}</Alert>
+        ) : imageSearch.matches.length ? (
+          <Grid container spacing={3}>{imageSearch.matches.map((match) => <Grid key={match.item_id} size={{ xs: 12, sm: 6, md: 4 }}><ReportCard report={toReportCard(match)} /></Grid>)}</Grid>
+        ) : (
+          <Paper sx={{ p: 6, textAlign: 'center' }}><Typography variant="h6">无匹配</Typography><Typography color="text.secondary">没有找到与所选图片视觉相似的记录，试试更换图片或放宽筛选条件。</Typography></Paper>
+        )
+      ) : result?.content.length ? (
         <><Grid container spacing={3}>{result.content.map((report) => <Grid key={report.id} size={{ xs: 12, sm: 6, md: 4 }}><ReportCard report={report} /></Grid>)}</Grid>
           {result.totalPages > 1 && <Pagination sx={{ alignSelf: 'center' }} page={result.page + 1} count={result.totalPages} onChange={(_, page) => { const next = new URLSearchParams(searchParams); next.set('page', String(page - 1)); setSearchParams(next) }} />}
         </>
-      ) : !error && <Paper sx={{ p: 6, textAlign: 'center' }}><Typography variant="h6">No matching reports</Typography><Typography color="text.secondary">Try clearing one or more filters.</Typography></Paper>}
+      ) : !error && !imageError && <Paper sx={{ p: 6, textAlign: 'center' }}><Typography variant="h6">No matching reports</Typography><Typography color="text.secondary">Try clearing one or more filters.</Typography></Paper>}
     </Stack>
   )
 }

@@ -4,7 +4,7 @@
 
 事件类型（对齐通信安全说明文档 / sse-protocol）：
 - intent_detected / agent_start / agent_step / agent_done
-- token / utility_start / utility_result
+- token / match_results / utility_start / utility_result
 - confirm_required / agent_error / done
 """
 
@@ -65,6 +65,13 @@ class OrchestrationStreamer:
                     "agent": agent_name,
                     "action": action.get("action"),
                     "status": action.get("status", "ok"),
+                    **request_meta,
+                }))
+
+            if inv.get("match_results"):
+                events.append(SSEEvent("match_results", {
+                    "agent": agent_name,
+                    "items": inv["match_results"],
                     **request_meta,
                 }))
 
@@ -144,6 +151,13 @@ def structural_events_from_update(node_name: str, update: dict[str, Any]) -> lis
                     "agent": agent,
                     "action": action.get("action"),
                     "status": action.get("status", "ok"),
+                    **request_meta,
+                }))
+
+            if inv.get("match_results"):
+                events.append(SSEEvent("match_results", {
+                    "agent": agent,
+                    "items": inv["match_results"],
                     **request_meta,
                 }))
 

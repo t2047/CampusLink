@@ -54,10 +54,21 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Actuator（/actuator/health 供 Docker HEALTHCHECK；application.properties
+             management.* 与 SecurityConfig 放行均已配置） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- Spring Web MVC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- Docker 与部署平台统一使用 /actuator/health 判断后端就绪状态。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <!-- WebClient / WebFlux 类型（Chat Core：SSE 流式响应 + 编排层调用）。
              Spring Boot 4：MVC 应用使用 WebClient 需 spring-boot-starter-webclient
@@ -214,6 +225,10 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- 新版 JDK 默认不再隐式执行类路径中的注解处理器。 -->
+                    <proc>full</proc>
+                </configuration>
                 <executions>
                     <execution>
                         <id>default-compile</id>

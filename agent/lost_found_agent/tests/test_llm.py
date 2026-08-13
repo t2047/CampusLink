@@ -116,8 +116,54 @@ def test_valid_model_output_requires_confirmation_and_limits_tools_to_two() -> N
     assert len(model_calls) == 1
 
 
+def test_model_report_found_requires_confirmation_before_writing() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "report_found",
+                "language": "zh",
+                "fields": {
+                    "item_name": "黑色无线耳机",
+                    "category": "ELECTRONICS",
+                    "description": "黑色无线耳机，耳机盒上贴有橙色贴纸",
+                    "location": "中央图书馆",
+                    "event_date": "2026-08-08",
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    with client:
+        prepared = invoke(
+            client,
+            settings,
+            "我捡到一件东西",
+            trace_id="llm-found-prepare",
+        )
+        assert prepared["status"] == "needs_confirmation"
+        assert prepared["confirmation_required"]["action"] == "report_found"
+        assert fake_api.calls == []
+
+        completed = invoke(
+            client,
+            settings,
+            "确认登记",
+            confirmed=True,
+            confirmation_id=prepared["confirmation_required"]["confirmation_id"],
+            trace_id="llm-found-confirm",
+        )
+
+    assert completed["status"] == "completed"
+    assert [action["action"] for action in completed["actions_taken"]] == [
+        "report_found",
+        "search_lost_items",
+    ]
+    assert [call[0] for call in fake_api.calls] == ["report_found", "search_lost_items"]
+
+
 def test_invalid_json_and_timeout_fail_closed() -> None:
-    """fail-closed（默认，2026-08-09 决策）：LLM 输出不可信/超时/429 → 显式 failed，
+    """显式启用 fail-closed：LLM 输出不可信/超时/429 → 显式 failed，
     不降级规则引擎、不执行任何工具调用。"""
     handlers = [
         lambda _: model_response("not-json"),
@@ -127,6 +173,7 @@ def test_invalid_json_and_timeout_fail_closed() -> None:
     for index, handler in enumerate(handlers):
         fake_api = FakeCampusApiClient()
         client, settings = app_with_model(handler, fake_api)
+        settings.llm_fail_closed = True
         trace_id = f"failclosed-{index}"
         with client:
             result = invoke(client, settings, "search for umbrella", trace_id=trace_id)
@@ -145,7 +192,7 @@ def test_invalid_json_and_timeout_fail_closed() -> None:
 
 
 def test_invalid_json_and_timeout_fall_back_to_rules_when_fallback_enabled() -> None:
-    """llm_fail_closed=false（旧行为）：LLM 故障降级规则引擎。"""
+    """llm_fail_closed=false（默认）：LLM 故障降级规则引擎。"""
     handlers = [
         lambda _: model_response("not-json"),
         lambda request: (_ for _ in ()).throw(httpx.ReadTimeout("timeout", request=request)),
@@ -173,7 +220,7 @@ def test_invalid_json_and_timeout_fall_back_to_rules_when_fallback_enabled() -> 
 
 
 def test_prompt_injection_and_unauthorized_tool_output_cannot_execute() -> None:
-    """未授权工具输出 → 不可执行；fail-closed（默认）显式 failed。"""
+    """未授权工具输出 → 不可执行；显式 fail-closed 时返回 failed。"""
 
     def handler(_: httpx.Request) -> httpx.Response:
         return model_response(
@@ -186,6 +233,7 @@ def test_prompt_injection_and_unauthorized_tool_output_cannot_execute() -> None:
 
     fake_api = FakeCampusApiClient()
     client, settings = app_with_model(handler, fake_api)
+    settings.llm_fail_closed = True
     with client:
         result = invoke(
             client,
@@ -224,7 +272,7 @@ def test_prompt_injection_unauthorized_tool_falls_back_when_fallback_enabled() -
 
 
 def test_model_fields_that_violate_backend_contract_fail_closed() -> None:
-    """fail-closed（默认）：LLM 返回违反后端契约的字段 → 显式 failed，不执行。"""
+    """显式 fail-closed：LLM 返回违反后端契约的字段 → 显式 failed，不执行。"""
 
     def handler(_: httpx.Request) -> httpx.Response:
         return model_response(
@@ -243,12 +291,38 @@ def test_model_fields_that_violate_backend_contract_fail_closed() -> None:
 
     fake_api = FakeCampusApiClient()
     client, settings = app_with_model(handler, fake_api)
+    settings.llm_fail_closed = True
     with client:
         result = invoke(
             client,
             settings,
             "我在2026-08-08下午于中央图书馆丢了一副黑色耳机，耳机盒上有橙色贴纸。",
         )
+
+    assert result["status"] == "failed"
+    assert fake_api.calls == []
+
+
+def test_model_fields_with_nested_extra_key_fail_closed() -> None:
+    """fields 内的额外键必须触发 fail-closed，而不能被静默吞掉。"""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "search_found_items",
+                "language": "en",
+                "fields": {
+                    "keyword": "keys",
+                    "visual_fingerprint": "VF1:invalid",
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    settings.llm_fail_closed = True
+    with client:
+        result = invoke(client, settings, "search for keys", trace_id="extra-field")
 
     assert result["status"] == "failed"
     assert fake_api.calls == []

@@ -1,7 +1,7 @@
 # Lost & Found 技术路线与开发记录
 
-> 最后更新：2026-08-10
-> 当前版本：基础 Lost & Found `1.0`，Lost & Found Agent `0.4.0`
+> 最后更新：2026-08-12
+> 当前版本：基础 Lost & Found `1.0`，Lost & Found Agent `0.7.0`，Agent JSON 契约 `1.8.0`，多模态服务 `0.1.0`
 > 本文档必须随每个 Lost & Found PR 更新，完成项保留历史记录，不直接删除。
 
 ## 1. 当前架构与边界
@@ -31,18 +31,24 @@ React Web ──JWT──▶ Spring Boot API ──▶ MySQL / MinIO
 | 条件筛选与分页 | 已完成 | 1.0 | 关键词、类别、颜色、地点、日期和状态 |
 | 认领申请与审核 | 已完成 | 1.0 | 发布者批准或拒绝，批准后关闭其他申请 |
 | 管理员只读运营视图 | 已完成 | 1.1 | 统计和全量记录筛选，不包含写操作 |
-| Agent JSON 契约 | 已完成 | 0.1.0 | 类别、状态、隐私和确认语义已重新对齐 |
+| Agent JSON 契约 | 已完成 | 1.4.0 | 五项动作、类别、状态、隐私和三种写操作确认语义已与代码对齐 |
 | Agent FastAPI 骨架 | 已完成 | 0.1.0 | 健康检查、能力、调用和 SSE 接口 |
 | Agent 入站安全 | 已完成 | 0.1.0 | HMAC、Delegation JWT、Nonce、限流 |
-| Agent 真实业务工具 | 已完成 | 0.2.0 | 报失、搜索、详情、认领，均复用现有 Service |
+| Agent 真实业务工具 | 已完成 | 0.4.0 | 报失、登记拾获、搜索、详情、认领，均复用现有 Service |
 | 后端 Agent 内部 API | 已完成 | 0.2.0 | 动作级权限、真实用户回查和一次性 jti |
-| 无密钥规则对话 | 已完成 | 0.3.0 | 中英文解析、多轮补充、四工具编排和 SSE |
-| 写操作确认 | 已完成 | 0.3.0 | 用户绑定、10 分钟有效、一次性使用 |
+| 无密钥规则对话 | 已完成 | 0.4.0 | 中英文解析、多轮补充、五工具编排和 SSE |
+| 写操作确认 | 已完成 | 0.4.0 | 报失、登记拾获和认领均要求确认；用户绑定、10 分钟有效、一次性使用 |
 | 可解释匹配重排 | 已完成 | 0.3.0 | 最多 100 个候选，返回达到阈值的 Top 5 |
 | 可插拔 LLM | 已完成 | 0.4.0 | DeepSeek/OpenAI-compatible，严格校验；默认故障关闭，可配置规则降级 |
 | Web 自然语言测试入口 | 已完成 | Web 1.2 | 登录用户通过 Spring Boot 安全代理调用真实 Agent，共享密钥不进入浏览器 |
 | Agent Web 多轮端到端验收 | 已完成 | Web 1.2 | 覆盖补充信息、确认前零写入、创建后可见、搜索、详情、认领、审批和重复申请冲突 |
 | 中文搜索意图优先级 | 已完成 | 0.4.0 | “帮我找/搜索/查找”等明确检索措辞优先于句子中的丢失背景，防止误进入报失确认 |
+| 自然语言登记拾获 | 已完成 | 0.4.0 / 契约 1.4.0 | `report_found` 支持规则与 LLM 识别、确认后创建无图片 FOUND 记录 |
+| “找到”歧义识别修复 | 已完成 | 0.4.1 | “找到并创建/登记”进入拾获确认，“帮我找/搜索”继续执行候选检索 |
+| 预训练文本与图片 Embedding | 已完成 | 匹配 2.0 | 固定 revision 的 Multilingual-E5、CLIP 图片模型和可选多语言图文模型 |
+| 向量持久化与历史回填 | 已完成 | 匹配 2.0 | MySQL 保存模型版本与 float32 向量；模型故障标记 `PENDING` 并按批回填 |
+| 多模态可解释双向匹配 | 已完成 | 匹配 2.0 | LOST→FOUND、FOUND→LOST 共用 Top 5 重排，返回分项分数、模式和双语原因 |
+| 多模态 DevSecOps | 已完成 | 匹配 2.0 | 锁定依赖、Mock CI、Ruff/mypy/pytest/Bandit/pip-audit/CodeQL/镜像构建及手动真实模型评估 |
 
 ## 3. Agent 对外接口
 
@@ -63,6 +69,7 @@ Chat Core 的统一对话入口。
 ## 4. 环境变量与本地启动
 
 - 统一配置模板：仓库根目录 `.env.example`（复制为根目录 `.env`，真实密钥不得提交）
+- Web、Chat Core、MCP 和 Lost & Found Agent 的 Docker 完整复现步骤见[本地完整复现指南](LOCAL_REPRODUCTION_cn.md)。
 - `LOST_FOUND_LLM_API_KEY` 暂时可以为空，`auto` 模式会选择规则引擎。
 - `AGENT_SHARED_SECRET`、`AGENT_BACKEND_SHARED_SECRET` 和 `LOST_FOUND_CONFIRMATION_SECRET` 必须分别使用至少 32 字符的随机值。
 - 禁止在提交、日志、异常响应和测试快照中保存真实密钥。
@@ -78,7 +85,7 @@ uv run uvicorn lost_found_agent.main:app --port 8083
 启动 MySQL、MinIO、Spring Boot 和 Agent 的可选联调环境：
 
 ```bash
-docker compose --profile agent up -d --build
+docker compose --profile agent --profile multimodal up -d --build
 ```
 
 ## 5. 内部 API 与安全流程
@@ -86,7 +93,9 @@ docker compose --profile agent up -d --build
 | Method | Path | `intended_action` | 用途 |
 |---|---|---|---|
 | `POST` | `/api/internal/lost-found/reports/lost` | `report_lost` | 用 JSON 创建无图片 LOST 记录 |
+| `POST` | `/api/internal/lost-found/reports/found` | `report_found` | 用 JSON 创建无图片 FOUND 记录 |
 | `GET` | `/api/internal/lost-found/candidates` | `search_found_items` | 只返回 `FOUND + OPEN` 候选记录 |
+| `GET` | `/api/internal/lost-found/lost-candidates` | `search_lost_items` | 只返回 `LOST + OPEN` 候选记录 |
 | `GET` | `/api/internal/lost-found/reports/{id}` | `get_item_detail` | 读取详情，不返回联系方式或对象 Key |
 | `POST` | `/api/internal/lost-found/reports/{id}/claims` | `claim_item` | 复用现有认领业务规则 |
 
@@ -95,11 +104,15 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 ## 6. 规则对话、确认与匹配
 
 - `conversation_context.shared_data` 仅保留白名单字段，用于中英文多轮补充。
-- 报失需要物品名、类别、详细描述、地点和日期；认领需要记录 ID 和不少于 10 字符的证明。
-- 报失和认领首次调用不写数据库；确认 ID 与用户绑定、10 分钟有效且一次性使用。
-- 报失确认创建记录后自动搜索 `FOUND + OPEN`，最多取 100 条并返回 Top 5。
-- 重排权重：文字 30%、类别 30%、颜色 15%、地点 15%、日期 10%。缺失字段不计入分母，其他权重自动归一化。
-- 默认阈值为 `0.35`，可通过 `LOST_FOUND_MATCH_MIN_SCORE` 调整。当前文字使用规则相似度，尚不是 Embedding。
+- 报失和登记拾获都需要物品名、类别、详细描述、地点和日期；认领需要记录 ID 和不少于 10 字符的证明。
+- 报失、登记拾获和认领首次调用不写数据库；确认 ID 与用户绑定、10 分钟有效且一次性使用。
+- 报失确认创建记录后自动搜索 `FOUND + OPEN`；登记拾获确认创建记录后自动反向搜索 `LOST + OPEN`。两个方向都最多取 100 条并返回 Top 5。
+- 双向匹配共用同一套可解释排序权重与阈值，候选结果包含记录类型、物品名称、类别、颜色、描述、地点、日期、图片预签名 URL、匹配分数和匹配原因，不返回发布者联系方式。
+- REST 测试面板和 Chat Core 都可渲染候选详情卡片；纯文本客户端也会收到完整候选摘要。
+- 重排权重：E5 文本 25%、CLIP 图片 20%、图文跨模态 10%、类别 20%、地点 10%、日期与时间 10%、颜色 5%。缺失字段不计入分母，其他权重自动归一化。
+- 默认阈值为 `0.35`，可通过 `LOST_FOUND_MATCH_MIN_SCORE` 调整。余弦相似度先按各模型校准区间映射后再融合。
+- 降级顺序为“E5 + CLIP + 图文 → E5 + 图片 CLIP → E5 → 哈希文本 + 颜色直方图 + 规则”，模型异常不会阻止创建报告。
+- 候选结果新增 `score_breakdown` 与 `matching_mode`，原 `match_score` 和 `match_reason` 保持兼容。完整说明见[预训练多模态匹配文档](PRETRAINED_MULTIMODAL_MATCHING_cn.md)。
 - SSE 保留 5 分钟，包含开始、工具执行、补充信息、确认、Token、完成和错误事件。
 - 明确的搜索措辞优先于“丢失”背景词；已有多轮上下文在用户未明确切换意图时保持不变，避免模型在补充字段时切换工具。
 - Web 面板确认创建后自动切换到 `LOST + OPEN`、清除旧筛选并刷新列表，同时提供新记录详情链接，避免记录已写入却被旧筛选隐藏。
@@ -107,12 +120,12 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 ## 7. LLM 模式与降级策略
 
 - `auto` 在存在 API Key 时启用模型，不存在时使用规则模式；`rules` 强制规则；`llm` 缺少 Key 时拒绝启动。
-- 模型仅识别四种允许意图并提取白名单字段，不能访问数据库、直接执行工具或绕过写操作确认。
+- 模型仅识别五种允许意图（报失、登记拾获、搜索、详情、认领）并提取白名单字段，不能访问数据库、直接执行工具或绕过写操作确认。
 - 模型输出必须通过 Pydantic 严格校验；未知工具、额外字段、非法类别和日期均触发规则降级。
 - 每次用户调用最多执行两个后端工具；确认调用不会再次请求模型。
-- 默认 `LOST_FOUND_LLM_FAIL_CLOSED=true`：模型超时、HTTP 限流、服务不可用、无效 JSON 或越权输出会明确失败；仅显式设为 `false` 时降级到规则模式并记录 `model_fallback`，且不会记录密钥。
+- 默认单次模型调用等待 15 秒且只尝试一次；模型超时、HTTP 限流、服务不可用、无效 JSON 或越权输出会降级到规则模式并记录 `model_fallback`，确保在 Web 的 25 秒请求超时前返回。安全审计场景可显式设置 `LOST_FOUND_LLM_FAIL_CLOSED=true` 改为明确失败；两种模式均不会记录密钥，也不会绕过确认或工具白名单。
 - CI 使用 Mock OpenAI-compatible Server 验证正常响应、故障降级、提示词注入和越权工具输出，无需真实 API Key。
-- 本地已使用 `deepseek-v4-flash` 完成报失、搜索、详情和认领审批的真实多轮端到端测试；`deepseek-v4-pro` 也由模型列表接口确认可用，尚未进行批量质量、P95 延迟与成本评估。
+- 本地已使用 `deepseek-v4-flash` 完成报失、搜索、详情和认领审批的真实多轮端到端测试；登记拾获已通过规则、Mock LLM 和契约测试，仍待加入真实模型批量评估。`deepseek-v4-pro` 也由模型列表接口确认可用，尚未进行批量质量、P95 延迟与成本评估。
 
 ## 8. 已知限制与技术债
 
@@ -121,7 +134,9 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 - 统一 Chat Core/MCP 链路已使用内嵌 Token Service 与 RS256/JWKS；模块测试面板的 REST 链路仍使用开发期 HS256/HMAC，生产环境还需要独立 Token Service 与 mTLS。
 - 聊天请求暂不支持图片附件。
 - 当前 Web 面板是 Lost & Found 专用测试入口，不提供跨 Agent 路由、历史会话持久化或 SSE Token 展示。
-- 当前匹配仍为结构化查询；尚无 Embedding、向量索引或多模态模型。
+- 当前仍先由 MySQL 筛选最多 100 条候选，再在 Agent 内存重排；数据规模扩大后才评估 Qdrant。
+- 跨模态图文属于增强能力，`auto` 加载失败时不影响图片对图片；是否默认开启以手动真实模型评估的 Recall@5 和 P95 结果为准。
+- 模型生成目前为同步调用，CPU 资源紧张时会增加发布延迟；已通过短超时、`PENDING` 和定时回填保证业务可用，后续可改为消息队列异步生成。
 - 真实模型尚未完成质量、延迟和费用验证；当前只完成 Mock 协议与故障降级验收。
 - 自然语言意图目前依赖提示词、确定性关键词保护和有限回归样本；仍需建立中英文歧义语料与准确率基线。
 
@@ -129,15 +144,17 @@ Agent 每次工具调用都创建独立 Token。Spring Boot 依次校验签名�
 
 | 优先级 | 功能 | 状态 | 依赖 | 建议负责人 | 验收标准 | 目标迭代 |
 |---:|---|---|---|---|---|---|
-| P0 | Agent 内部 API 与四个真实工具 | 已完成 | Spring Security、现有 Lost & Found Service | Lost & Found 后端 | 四个工具通过权限和集成测试 | Agent 0.2 |
-| P0 | 中英文规则对话和写操作确认 | 已完成 | Agent 工具 | Agent 开发 | 无密钥完成报失、搜索、详情、认领 | Agent 0.3 |
+| P0 | Agent 内部 API 与五个真实工具 | 已完成 | Spring Security、现有 Lost & Found Service | Lost & Found 后端 | 五个工具通过权限和集成测试 | Agent 0.4 |
+| P0 | 中英文规则对话和写操作确认 | 已完成 | Agent 工具 | Agent 开发 | 无密钥完成报失、登记拾获、搜索、详情、认领 | Agent 0.4 |
 | P0 | Chat Core 通过 MCP 正式集成 Lost & Found | 已完成 | Chat Core、Token Service、MCP 适配层 | Chat Core + Agent | RS256 验签、HITL 恢复和真实业务调用通过 | Sprint 4 |
 | P1 | 可插拔 LLM 与 Mock 联调 | 已完成 | 规则模式 | Agent 开发 | 严格校验、故障关闭/可选降级和安全测试通过 | Agent 0.4 |
 | P1 | 真实模型密钥联调 | 开发中 | API Key、评估样本 | Agent 开发 | 输出质量、P95 延迟和费用报告完成 | 联调迭代 |
-| P1 | 中英文 NLU 回归语料与质量评估 | 未开始 | 真实对话样本、隐私脱敏 | Agent + 测试 | 四类意图准确率、字段完整率和误写入率形成可重复报告 | 联调迭代 |
-| P1 | 多语言文本 Embedding 与向量召回 | 未开始 | 向量数据库、评估集 | ML | Recall@K 达到评审目标 | 匹配 2.0 |
-| P1 | 图片 Embedding 与多模态匹配 | 未开始 | 图片模型、MinIO | ML | 返回可解释多模态 Top 5 | 匹配 2.1 |
-| P1 | 匹配反馈和排序评估数据集 | 未开始 | 用户反馈数据 | ML + 数据 | 可复现实验和版本对比 | 匹配 2.1 |
+| P1 | 中英文 NLU 回归语料与质量评估 | 未开始 | 真实对话样本、隐私脱敏 | Agent + 测试 | 五类意图准确率、字段完整率和误写入率形成可重复报告 | 联调迭代 |
+| P1 | FOUND 创建后的 LOST 反向候选匹配 | 已完成 | LOST 候选内部 API、双向匹配规则 | Agent + Lost & Found 后端 | 登记拾获后返回可解释的 LOST Top 5，REST 与 Chat Core 均展示候选详情且不泄露失主隐私 | 匹配 1.1 |
+| P1 | 多语言文本 Embedding 与候选重排 | 已完成 | 固定 E5 revision、MySQL | ML + Agent | 双语语义向量落库并参与可解释 Top 5 | 匹配 2.0 |
+| P1 | 图片 Embedding 与多模态匹配 | 已完成 | 固定 CLIP revision、MinIO | ML + Agent | 图片对图片必交能力、图文可降级、模型故障自动回退 | 匹配 2.0 |
+| P1 | 30 组离线匹配评估基线 | 已完成 | 手动真实模型 workflow | ML + 测试 | E5 Recall@5、图片基线提升和 P95 生成可下载报告 | 匹配 2.0 |
+| P1 | 基于真实校园脱敏数据的匹配反馈评估 | 未开始 | 用户反馈与标注数据 | ML + 数据 | 建立困难负样本、版本对比和阈值校准 | 匹配 2.1 |
 | P1 | 认领和状态变化通知 | 未开始 | 通知服务 | 后端 | 关键状态可靠送达 | 业务 1.2 |
 | P2 | 聊天图片上传 | 未开始 | Chat UI、Agent、MinIO | Web + Agent | 图片随报失记录安全保存 | 业务 1.3 |
 | P2 | 用户编辑、关闭和删除 | 未开始 | 审计规则 | 后端 + Web | 权限、并发和状态冲突测试通过 | 业务 1.3 |

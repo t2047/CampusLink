@@ -8,9 +8,10 @@ CampusLink 是校园 **AI Agent 平台**：以 `agent/chat_core` 编排层（Fas
 
 **Lost & Found 是平台首个完整落地的垂直切片**：既有 Web 端完整功能（发布/搜索/认领/管理），
 也已通过 `agent/mcp_servers/lost_found_server.py` 适配层接入 Agent 体系——用户可以用自然语言
-报失/查找/认领，写操作经用户确认后真正落库。
+报失/登记拾获/查找/认领，写操作经用户确认后真正落库。
 
-Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中。
+Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中；预训练模型、权重、降级和评估方法见[多模态匹配说明](docs/lost-found/PRETRAINED_MULTIMODAL_MATCHING_cn.md)。
+需要复现 Web、Chat Core 和 Lost & Found Agent 完整链路时，请按[本地完整复现指南](docs/lost-found/LOCAL_REPRODUCTION_cn.md)操作。
 
 ## 技术栈
 
@@ -45,6 +46,14 @@ docker compose up -d
 ```bash
 docker compose --profile agent up -d --build
 ```
+
+如需启用按需加载的 Multilingual-E5、CLIP 图片匹配和可选中文图文匹配：
+
+```bash
+docker compose --profile agent --profile multimodal up -d --build
+```
+
+模型缓存保存在 Docker 命名卷中。普通启动不会加载模型，模型服务异常时报告仍会保存，匹配自动降级为原有哈希文本、颜色直方图和规则算法。
 
 `LOST_FOUND_LLM_API_KEY` 可以保持为空，`auto` 模式会使用规则引擎。普通 `docker compose up -d` 会启动平台基础栈，但不会在 8083 端口暴露这个可选 REST Agent。
 
@@ -101,9 +110,9 @@ npm run dev
 - 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
 - 认领证明只对申请人与拾获记录发布者可见。
 - `ADMIN` 和 `SUPER_ADMIN` 可以使用只读管理页面查看统计、筛选全部记录、分页浏览和识别记录发布者。
-- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
+- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失与登记拾获确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
 
-当前 Lost & Found 已接入 Agent，使用规则重排和受控的 LLM 字段提取；尚不包含 Embedding、多模态图片匹配、通知、移动端、管理员写操作、记录编辑和删除。Agent 平台说明见上文“Agent 平台（核心）”。
+当前 Lost & Found 已接入 Agent，并支持 Multilingual-E5 文本语义、CLIP 图片对图片、可选多语言文字对图片、结构化字段融合及基础算法自动降级。通知和移动端仍未实现。Agent 平台说明见上文“Agent 平台（核心）”。
 
 ## API
 
@@ -161,6 +170,12 @@ cd ../frontend_web
 npm run lint
 npm test
 npm run build
+
+cd ../services/lost_found_embedding
+uv sync --frozen --all-extras
+uv run ruff check .
+uv run mypy lost_found_embedding tests
+uv run pytest
 ```
 
 PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。CD 流水线（`cd-deploy.yml`）在推送到 `main` 时通过 SSH 部署到单台 DigitalOcean Droplet——配置见 `DEPLOYMENT.md`。
@@ -178,9 +193,10 @@ project/
 │   └── src/main/java/com/app/campusagent/
 │       ├── chat/            聊天中继（SSE）+ Token Service 端点
 │       └── lostfound/       L&F Web 业务（controller/ dto/ domain/ exception/ …）
-├── frontend_web/        React Web（聊天 + L&F 页面）和 public/admin-test.html
-├── frontend_mobile/     后续移动端
-├── ml-service/          后续匹配/分析服务
-├── docker-compose.yml   MySQL 与 MinIO
+├── frontend_web/            React Web（聊天 + L&F 页面）和 public/admin-test.html
+├── services/
+│   └── lost_found_embedding/ 独立 E5/CLIP 预训练多模态服务
+├── frontend_mobile/         后续移动端
+├── docker-compose.yml       MySQL、MinIO 与可选模型 profile
 └── docs/
 ```

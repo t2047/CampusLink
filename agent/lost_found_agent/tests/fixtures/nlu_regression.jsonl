@@ -1,0 +1,4 @@
+{"message":"帮我找黑色耳机，昨天在图书馆丢的","intent":"search_found_items","fields":{"keyword":"黑色耳机","category":"ELECTRONICS","colour":"黑色"},"must_not_write":true}
+{"message":"我丢了一个蓝色书包，类别：包，地点：COM1，日期 2026-08-09，描述：蓝色双肩包里面有课本和水杯","intent":"report_lost","fields":{"item_name":"蓝色书包","category":"BAG","colour":"蓝色","location":"COM1","event_date":"2026-08-09"}}
+{"message":"show details for report #42","intent":"get_item_detail","fields":{"report_id":42},"must_not_write":true}
+{"message":"claim report #18 proof: The laptop sleeve has my name and a private sticker inside","intent":"claim_item","fields":{"report_id":18,"proof_description":"The laptop sleeve has my name and a private sticker inside"}}

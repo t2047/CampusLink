@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from typing import Any
 
@@ -11,8 +12,10 @@ from lost_found_agent.tools import (
     CampusApiClient,
     ClaimItemInput,
     GetItemDetailInput,
+    ReportFoundInput,
     ReportLostInput,
     SearchFoundItemsInput,
+    SearchLostItemsInput,
 )
 
 
@@ -20,7 +23,9 @@ from lost_found_agent.tools import (
     ("method", "path", "action"),
     [
         ("POST", "/api/internal/lost-found/reports/lost", "report_lost"),
+        ("POST", "/api/internal/lost-found/reports/found", "report_found"),
         ("GET", "/api/internal/lost-found/candidates", "search_found_items"),
+        ("GET", "/api/internal/lost-found/lost-candidates", "search_lost_items"),
         ("GET", "/api/internal/lost-found/reports/7", "get_item_detail"),
         ("POST", "/api/internal/lost-found/reports/7/claims", "claim_item"),
     ],
@@ -48,11 +53,29 @@ async def test_each_tool_uses_expected_route_and_scoped_token(
                     event_date=date(2026, 8, 8),
                 ),
             )
+        elif action == "report_found":
+            await client.report_found(
+                "42",
+                "STUDENT",
+                ReportFoundInput(
+                    item_name="Black headphones",
+                    category="ELECTRONICS",
+                    description="Black wireless headphones in a fabric case",
+                    location="Central Library",
+                    event_date=date(2026, 8, 8),
+                ),
+            )
         elif action == "search_found_items":
             await client.search_found_items(
                 "42",
                 "STUDENT",
                 SearchFoundItemsInput(category="ELECTRONICS", location="Library"),
+            )
+        elif action == "search_lost_items":
+            await client.search_lost_items(
+                "42",
+                "STUDENT",
+                SearchLostItemsInput(category="ELECTRONICS", location="Library"),
             )
         elif action == "get_item_detail":
             await client.get_item_detail("42", "STUDENT", GetItemDetailInput(report_id=7))
@@ -81,6 +104,34 @@ async def test_each_tool_uses_expected_route_and_scoped_token(
     assert claims["intended_action"] == action
     assert claims["exp"] - claims["iat"] <= 60
     assert claims["jti"]
+
+
+async def test_report_lost_sends_image_keys_when_images_present(settings: Settings) -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"id": 1})
+
+    client = CampusApiClient(settings, httpx.MockTransport(handler))
+    try:
+        await client.report_lost(
+            "42",
+            "STUDENT",
+            ReportLostInput(
+                item_name="Black headphones",
+                category="ELECTRONICS",
+                description="Black wireless headphones in a fabric case",
+                location="Central Library",
+                event_date=date(2026, 8, 8),
+                images=["lost-found-staging/k.png"],
+            ),
+        )
+    finally:
+        await client.close()
+
+    body = json.loads(captured[0].read())
+    assert body["imageKeys"] == ["lost-found-staging/k.png"]
 
 
 async def test_search_maps_filters_to_query_parameters(settings: Settings) -> None:

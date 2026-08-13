@@ -1,7 +1,10 @@
 package com.app.campusagent.lostfound.service;
 
 import com.app.campusagent.domain.User;
+import com.app.campusagent.lostfound.dto.agent.AgentClassifyResponse;
+import com.app.campusagent.lostfound.dto.agent.AgentClassifyWebRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentWebInvokeRequest;
+import com.app.campusagent.lostfound.dto.agent.AgentWebSearchRequest;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,12 +44,16 @@ public class LostFoundAgentGateway {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final URI invokeUri;
+    private final URI classifyUri;
+    private final URI searchUri;
     private final String sharedSecret;
+    private final LostFoundImageStagingService stagingService;
 
     @Autowired
     public LostFoundAgentGateway(
             @Value("${app.agent.lost-found-url:http://localhost:8083}") String agentUrl,
-            @Value("${app.agent.shared-secret:}") String sharedSecret) {
+            @Value("${app.agent.shared-secret:}") String sharedSecret,
+            LostFoundImageStagingService stagingService) {
         this(
                 new ObjectMapper(),
                 HttpClient.newBuilder()
@@ -54,7 +61,8 @@ public class LostFoundAgentGateway {
                         .connectTimeout(Duration.ofSeconds(5))
                         .build(),
                 URI.create(agentUrl.replaceAll("/+$", "") + "/agent/invoke"),
-                sharedSecret);
+                sharedSecret,
+                stagingService);
     }
 
     LostFoundAgentGateway(
@@ -62,23 +70,132 @@ public class LostFoundAgentGateway {
             HttpClient httpClient,
             URI invokeUri,
             String sharedSecret) {
+        this(objectMapper, httpClient, invokeUri, sharedSecret, null);
+    }
+
+    LostFoundAgentGateway(
+            ObjectMapper objectMapper,
+            HttpClient httpClient,
+            URI invokeUri,
+            String sharedSecret,
+            LostFoundImageStagingService stagingService) {
+        this(
+                objectMapper,
+                httpClient,
+                invokeUri,
+                URI.create(invokeUri.toString().replace("/agent/invoke", "/agent/classify")),
+                sharedSecret,
+                stagingService);
+    }
+
+    private LostFoundAgentGateway(
+            ObjectMapper objectMapper,
+            HttpClient httpClient,
+            URI invokeUri,
+            URI classifyUri,
+            String sharedSecret,
+            LostFoundImageStagingService stagingService) {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
         this.invokeUri = invokeUri;
+        this.classifyUri = classifyUri;
+        this.searchUri = URI.create(invokeUri.toString().replace("/agent/invoke", "/agent/search"));
         this.sharedSecret = sharedSecret;
+        this.stagingService = stagingService;
     }
 
     public Map<String, Object> invoke(AgentWebInvokeRequest request, User currentUser) {
         ensureConfigured();
-        String nonce = UUID.randomUUID().toString();
         String traceId = UUID.randomUUID().toString();
-        long timestamp = Instant.now().getEpochSecond();
-
+        byte[] body;
         try {
-            byte[] body = objectMapper.writeValueAsBytes(request.toAgentPayload(traceId));
-            HttpRequest agentRequest = HttpRequest.newBuilder(invokeUri)
+            Map<String, Object> agentPayload = request.toAgentPayload(traceId);
+            replaceWithTrustedImages(agentPayload, request.images(), currentUser);
+            body = objectMapper.writeValueAsBytes(agentPayload);
+        } catch (JsonProcessingException exception) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response",
+                    exception);
+        }
+        Map<String, Object> payload = callAgent(invokeUri, body, "invoke", currentUser, traceId);
+        if (!(payload.get("response") instanceof String)
+                || !(payload.get("status") instanceof String)) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response");
+        }
+        return payload;
+    }
+
+    public AgentClassifyResponse classify(AgentClassifyWebRequest request, User currentUser) {
+        ensureConfigured();
+        String traceId = UUID.randomUUID().toString();
+        byte[] body;
+        try {
+            body = objectMapper.writeValueAsBytes(request.toAgentPayload());
+        } catch (JsonProcessingException exception) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response",
+                    exception);
+        }
+        Map<String, Object> payload = callAgent(classifyUri, body, "classify", currentUser, traceId);
+        Object category = payload.get("category");
+        return new AgentClassifyResponse(category instanceof String ? (String) category : null);
+    }
+
+    private void replaceWithTrustedImages(
+            Map<String, Object> payload,
+            java.util.List<AgentWebInvokeRequest.AgentImage> images,
+            User currentUser) {
+        if (stagingService != null && images != null && !images.isEmpty()) {
+            payload.put("images", stagingService.trustedAgentImages(images, currentUser));
+        }
+    }
+
+    /** Browse 以图搜物：把查询（含视觉指纹）安全代理给 Agent 的轻量搜索端点。 */
+    public Map<String, Object> search(AgentWebSearchRequest request, User currentUser) {
+        ensureConfigured();
+        String traceId = UUID.randomUUID().toString();
+        byte[] body;
+        try {
+            Map<String, Object> agentPayload = request.toAgentPayload();
+            replaceWithTrustedImages(agentPayload, request.images(), currentUser);
+            body = objectMapper.writeValueAsBytes(agentPayload);
+        } catch (JsonProcessingException exception) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response",
+                    exception);
+        }
+        Map<String, Object> payload = callAgent(searchUri, body, "search", currentUser, traceId);
+        if (!(payload.get("status") instanceof String)) {
+            throw new LostFoundApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AGENT_INVALID_RESPONSE",
+                    "Lost & Found Agent returned an invalid response");
+        }
+        return payload;
+    }
+
+    private Map<String, Object> callAgent(
+            URI uri,
+            byte[] body,
+            String intendedAction,
+            User currentUser,
+            String traceId) {
+        String nonce = UUID.randomUUID().toString();
+        long timestamp = Instant.now().getEpochSecond();
+        try {
+            HttpRequest agentRequest = HttpRequest.newBuilder(uri)
                     .timeout(REQUEST_TIMEOUT)
-                    .header("Authorization", "Bearer " + delegationToken(currentUser, nonce, timestamp))
+                    .header("Authorization", "Bearer " + delegationToken(
+                            currentUser, nonce, timestamp, intendedAction))
                     .header("Content-Type", "application/json")
                     .header("X-Nonce", nonce)
                     .header("X-Timestamp", Long.toString(timestamp))
@@ -95,17 +212,9 @@ public class LostFoundAgentGateway {
                         "AGENT_REQUEST_FAILED",
                         "Lost & Found Agent rejected the request");
             }
-            Map<String, Object> payload = objectMapper.readValue(
+            return objectMapper.readValue(
                     response.body(),
                     new TypeReference<>() { });
-            if (!(payload.get("response") instanceof String)
-                    || !(payload.get("status") instanceof String)) {
-                throw new LostFoundApiException(
-                        HttpStatus.BAD_GATEWAY,
-                        "AGENT_INVALID_RESPONSE",
-                        "Lost & Found Agent returned an invalid response");
-            }
-            return payload;
         } catch (JsonProcessingException exception) {
             throw new LostFoundApiException(
                     HttpStatus.BAD_GATEWAY,
@@ -135,7 +244,8 @@ public class LostFoundAgentGateway {
         }
     }
 
-    private String delegationToken(User currentUser, String nonce, long timestamp) {
+    private String delegationToken(
+            User currentUser, String nonce, long timestamp, String intendedAction) {
         SecretKey key = Keys.hmacShaKeyFor(sharedSecret.getBytes(StandardCharsets.UTF_8));
         Date issuedAt = Date.from(Instant.ofEpochSecond(timestamp));
         return Jwts.builder()
@@ -146,7 +256,7 @@ public class LostFoundAgentGateway {
                 .issuedAt(issuedAt)
                 .expiration(Date.from(issuedAt.toInstant().plusSeconds(30)))
                 .id(nonce)
-                .claim("intended_action", "invoke")
+                .claim("intended_action", intendedAction)
                 .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }

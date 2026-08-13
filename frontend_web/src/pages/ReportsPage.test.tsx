@@ -1,13 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { invokeLostFoundAgent, type AgentInvokeResponse } from '../api/lostFoundAgent'
-import { searchReports } from '../api/lostFound'
+import { invokeLostFoundAgent, uploadAgentImage, type AgentInvokeResponse, type AgentMatchResult } from '../api/lostFoundAgent'
+import { searchByImage, searchReports } from '../api/lostFound'
 import type { LostFoundReport, PageResponse } from '../types'
 import { ReportsPage } from './ReportsPage'
 
-vi.mock('../api/lostFoundAgent', () => ({ invokeLostFoundAgent: vi.fn() }))
-vi.mock('../api/lostFound', () => ({ searchReports: vi.fn() }))
+vi.mock('../api/lostFoundAgent', () => ({ invokeLostFoundAgent: vi.fn(), uploadAgentImage: vi.fn() }))
+vi.mock('../api/lostFound', () => ({ searchReports: vi.fn(), searchByImage: vi.fn() }))
 
 const createdReport: LostFoundReport = {
   id: 42,
@@ -92,5 +92,120 @@ describe('ReportsPage Agent refresh', () => {
     expect(screen.getByLabelText('Colour')).toHaveValue('')
     expect(await screen.findByText('黑色耳机')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View report' })).toHaveAttribute('href', '/lost-found/42')
+  })
+})
+
+describe('ReportsPage image search', () => {
+  const search = vi.mocked(searchReports)
+  const searchImage = vi.mocked(searchByImage)
+  const upload = vi.mocked(uploadAgentImage)
+
+  const stagedImage = {
+    objectKey: 'lost-found-staging/k.png',
+    visualFingerprint: 'VF1:fp',
+    url: '/api/lost-found/images/staging/k.png',
+    contentType: 'image/png',
+    originalName: 'a.png',
+    fileSize: 100,
+  }
+
+  const matchResult: AgentMatchResult = {
+    item_id: '42',
+    report_type: 'LOST',
+    item_name: '黑色耳机',
+    category: 'ELECTRONICS',
+    description: '黑色 Sony 耳机和充电盒',
+    colour: 'black',
+    location: '中央图书馆',
+    event_date: '2026-08-09',
+    time_description: null,
+    image_urls: [],
+    status: 'OPEN',
+    match_score: 1,
+    match_reason: ['图片特征相似'],
+  }
+
+  beforeEach(() => {
+    search.mockReset()
+    searchImage.mockReset()
+    upload.mockReset()
+    search.mockResolvedValue(page([]))
+    upload.mockResolvedValue(stagedImage)
+  })
+
+  afterEach(() => cleanup())
+
+  function renderPage() {
+    render(
+      <MemoryRouter initialEntries={['/lost-found?reportType=FOUND&status=OPEN']}>
+        <Routes><Route path="/lost-found" element={<ReportsPage />} /></Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  function uploadImage() {
+    fireEvent.change(screen.getByLabelText('Search by image'), {
+      target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] },
+    })
+    return screen.findByAltText('a.png')
+  }
+
+  it('searches by the staged image and renders matching cards without pagination', async () => {
+    searchImage.mockResolvedValue({ status: 'match_found', match_results: [matchResult], request_id: 'trace-search' })
+    renderPage()
+
+    await uploadImage()
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => expect(searchImage).toHaveBeenCalledWith(expect.objectContaining({
+      reportType: 'FOUND',
+      images: [{
+        objectKey: 'lost-found-staging/k.png',
+        visualFingerprint: 'VF1:fp',
+        url: '/api/lost-found/images/staging/k.png',
+      }],
+    })))
+    expect(await screen.findByText('黑色耳机')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Go to next page')).toBeNull()
+  })
+
+  it('combines text filters with the image search', async () => {
+    searchImage.mockResolvedValue({ status: 'no_match', match_results: [], request_id: 'trace-search' })
+    renderPage()
+
+    await uploadImage()
+    fireEvent.change(screen.getByLabelText('Keyword'), { target: { value: '耳机' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => expect(searchImage).toHaveBeenCalledWith(expect.objectContaining({
+      reportType: 'FOUND',
+      keyword: '耳机',
+    })))
+    expect(await screen.findByText('无匹配')).toBeInTheDocument()
+  })
+
+  it('uses the active report type toggle as the search direction', async () => {
+    searchImage.mockResolvedValue({ status: 'no_match', match_results: [], request_id: 'trace-search' })
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lost items' }))
+    await uploadImage()
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => expect(searchImage).toHaveBeenCalledWith(expect.objectContaining({
+      reportType: 'LOST',
+    })))
+  })
+
+  it('clearing the image falls back to the normal list search', async () => {
+    searchImage.mockResolvedValue({ status: 'no_match', match_results: [], request_id: 'trace-search' })
+    renderPage()
+
+    await uploadImage()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove a.png' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => expect(search).toHaveBeenCalled())
+    expect(searchImage).not.toHaveBeenCalled()
   })
 })
