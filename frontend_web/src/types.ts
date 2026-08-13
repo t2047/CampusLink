@@ -234,6 +234,8 @@ export interface ApiErrorBody {
 
 export type MailFolder = 'inbox' | 'sent' | 'archived' | 'trash'
 
+export type MailCategory = 'campus' | 'career' | 'finance' | 'other'
+
 export interface MailMessage {
   id: string
   subject: string
@@ -243,6 +245,7 @@ export interface MailMessage {
   body: string
   body_html?: string | null
   folder: MailFolder
+  category: MailCategory
   read: boolean
   starred: boolean
   created_at: string

@@ -25,6 +25,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from . import config
+from . import classifier
 from .models import MailFolder, MailMessage, SendMailRequest, preview_of
 
 # Gmail label ids we care about.
@@ -274,15 +275,23 @@ def _to_message(msg: dict[str, Any], include_body: bool) -> MailMessage:
     else:
         body = snippet
     to_header = _header(headers, "To")
+    subject = _header(headers, "Subject") or "(no subject)"
+    sender = _header(headers, "From")
     return MailMessage(
         id=str(msg["id"]),
-        subject=_header(headers, "Subject") or "(no subject)",
-        sender=_header(headers, "From"),
+        subject=subject,
+        sender=sender,
         recipients=[r.strip() for r in to_header.split(",") if r.strip()],
         preview=snippet[:140] if snippet else preview_of(body),
         body=body,
         body_html=body_html,
         folder=_folder_from_labels(label_ids),
+        category=classifier.classify(
+            str(msg["id"]),
+            subject=subject,
+            body=body,
+            sender=sender,
+        ),
         read=_LABEL_UNREAD not in label_ids,
         starred=_LABEL_STARRED in label_ids,
         created_at=_iso(msg.get("internalDate")),

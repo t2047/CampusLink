@@ -20,6 +20,13 @@ class MailFolder(StrEnum):
     trash = "trash"
 
 
+class MailCategory(StrEnum):
+    campus = "campus"
+    career = "career"
+    finance = "finance"
+    other = "other"
+
+
 class MailMessage(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
@@ -31,6 +38,7 @@ class MailMessage(BaseModel):
     body: str
     body_html: str | None = None
     folder: MailFolder
+    category: MailCategory = MailCategory.other
     read: bool = False
     starred: bool = False
     created_at: datetime
