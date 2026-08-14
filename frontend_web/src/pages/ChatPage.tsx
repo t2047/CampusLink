@@ -130,18 +130,8 @@ const TEXTS: Record<Lang, Record<string, string>> = {
 };
 
 const SUGGESTIONS: Record<Lang, string[]> = {
-  en: [
-    'Find my recent emails',
-    'Any free meeting rooms tomorrow afternoon?',
-    'What time is it now?',
-    'Convert $15 to CNY',
-  ],
-  zh: [
-    '帮我找一下最近的邮件',
-    '明天下午有没有空的研讨室',
-    '现在几点',
-    '把 15 美元换算成人民币',
-  ],
+  en: ['Find my recent emails', 'Any free meeting rooms tomorrow afternoon?', 'What time is it now?'],
+  zh: ['帮我找一下最近的邮件', '明天下午有没有空的研讨室', '现在几点'],
 };
 
 export default function ChatPage() {

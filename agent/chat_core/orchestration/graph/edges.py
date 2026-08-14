@@ -11,12 +11,16 @@ from .state import AgentState
 
 RouteResult = Literal["agent_invoker", "utility_tool_executor", "chat_responder"]
 AgentAfterResult = Literal["invoke_next", "needs_approval", "to_guard", "to_fallback", "to_chat"]
-UtilityAfterResult = Literal["agent_invoker", "to_guard", "to_chat"]
+UtilityAfterResult = Literal["human_approval", "agent_invoker", "to_guard", "to_chat"]
+HumanApprovalAfterResult = Literal["utility_tool_executor", "invoke_next"]
 GuardAfterResult = Literal["aggregate", "end"]
 
 
 def route_by_intent(state: AgentState) -> RouteResult:
-    """意图三分支路由。"""
+    """意图三分支路由（混合场景优先执行工具：utility → agent）。"""
+    # 混合 plan（utility + agent）：先执行工具，执行后由 after_utility 转 agent
+    if state.get("utility_plan"):
+        return "utility_tool_executor"
     intent = state.get("intent_type", "chat")
     if intent == "domain_agent":
         return "agent_invoker"
@@ -52,8 +56,11 @@ def after_agent_invoke(state: AgentState) -> AgentAfterResult:
 
 
 def after_utility(state: AgentState) -> UtilityAfterResult:
-    """Utility 调用后：全部失败 → 转主 Agent（LLM）兜底；
-    还有 Agent 待调用则进入 Agent 路径，否则汇聚。"""
+    """Utility 调用后：联网搜索等需确认 → 转人工确认；
+    全部失败 → 转主 Agent（LLM）兜底；还有 Agent 待调用则进入 Agent 路径，否则汇聚。"""
+    # 联网搜索确认门：web_search 执行前须人工确认（requires_approval → human_approval）
+    if state.get("requires_approval"):
+        return "human_approval"
     results = state.get("utility_results", {}) or {}
     if results and all(not isinstance(r, dict) or r.get("status") == "failed" for r in results.values()):
         return "to_chat"
@@ -62,8 +69,10 @@ def after_utility(state: AgentState) -> UtilityAfterResult:
     return "to_guard"
 
 
-def after_human_approval(state: AgentState) -> AgentAfterResult:
-    """审批结束后：重新进入 Agent 循环。"""
+def after_human_approval(state: AgentState) -> HumanApprovalAfterResult:
+    """审批结束后：工具确认（如联网搜索）回工具执行器；Agent 确认回 Agent 循环。"""
+    if state.get("pending_utility_confirm"):
+        return "utility_tool_executor"
     return "invoke_next"
 
 

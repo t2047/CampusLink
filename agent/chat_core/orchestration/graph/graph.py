@@ -89,6 +89,7 @@ def build_graph() -> StateGraph:
         "human_approval",
         after_human_approval,
         {
+            "utility_tool_executor": "utility_tool_executor",
             "invoke_next": "agent_invoker",
         },
     )

@@ -237,6 +237,10 @@ jobs:
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
       - name: OWASP ZAP Baseline Scan (authenticated)
+        # 本 job 顶层 working-directory: backend（mvn 需要）；ZAP 必须在仓库根
+        # 运行：-v 挂载 $PWD 到 /zap/wrk，-c .zap/rules.tsv 与报告文件都依赖
+        # 仓库根（否则容器内 /zap/wrk/.zap/rules.tsv 不存在 → FileNotFoundError）
+        working-directory: .
         env:
           ZAP_TOKEN: ${{ steps.dast-auth.outputs.token }}
         run: |
@@ -277,6 +281,8 @@ jobs:
 
       - name: Upload ZAP Report
         if: always()
+        # 报告由 ZAP 步骤输出到仓库根（working-directory: .），上传须同目录
+        working-directory: .
         uses: actions/upload-artifact@v4
         with:
           name: zap-report

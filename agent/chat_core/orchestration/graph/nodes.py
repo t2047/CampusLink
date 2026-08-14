@@ -239,9 +239,11 @@ def intent_router(state: AgentState) -> AgentState:
     if intent_type == "domain_agent":
         # targets 白名单：只保留已知 Agent（防 LLM 幻觉出未知目标名）
         agent_plan: list[str] = [t for t in targets if t in valid_agents]
-        utility_plan: list[str] = []
+        # 混合支持（2026-08-15）：targets 可同时含 Agent 与 Utility——
+        # 先执行工具（route_by_intent 优先 utility），再经 after_utility 转 agent
+        utility_plan: list[str] = [t for t in targets if t in valid_utils]
     elif intent_type == "utility":
-        agent_plan = []
+        agent_plan = [t for t in targets if t in valid_agents]
         utility_plan = [t for t in targets if t in valid_utils]
     else:
         agent_plan, utility_plan = [], []
@@ -453,9 +455,39 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
 
 
 async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentState:
-    """调用 Utility MCP Server 的 POST /tools/call（异步节点）。"""
+    """调用 Utility MCP Server 的 POST /tools/call（异步节点）。
+
+    联网搜索确认门（HITL）：web_search 会向外部搜索服务发送查询词，属外部网络
+    操作——执行前须人工确认（2026-08-15）。首次进入且计划含 web_search 时返回
+    requires_approval → human_approval 中断；用户确认/取消后恢复回到本节点，
+    按 pending_utility_confirm 消费（确认则执行，取消则跳过）。
+    """
     client = client or _default_client()
     utility_plan = state.get("utility_plan", [])
+    pending = state.get("pending_utility_confirm") or {}
+
+    # 确认门：web_search 在计划中且尚未确认/取消 → 先征求人工确认
+    if "web_search" in utility_plan and pending.get("tool") != "web_search":
+        query = _extract_utility_params("web_search", state).get("query", "")
+        message = (
+            f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
+            if query
+            else "即将进行联网搜索，是否继续？"
+        )
+        return {
+            "requires_approval": True,
+            "approval_agent": "utility:web_search",
+            "approval_context": {
+                "type": "confirm_external_call",
+                "tool": "web_search",
+                "message": message,
+                "summary": "联网搜索",
+            },
+        }
+
+    # 用户取消联网 → 从计划中剔除，不执行
+    if pending.get("cancelled"):
+        utility_plan = [tool for tool in utility_plan if tool != "web_search"]
 
     results: dict[str, Any] = {}
     failures: list[str] = []
@@ -472,7 +504,11 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
         if not isinstance(result, dict) or result.get("status") == "failed":
             failures.append(f"工具 {tool_name} 暂时不可用")
 
-    update: dict[str, Any] = {"utility_results": results}
+    update: dict[str, Any] = {
+        "utility_results": results,
+        # 消费联网确认标记（确认/取消只生效一次）
+        "pending_utility_confirm": None,
+    }
     if failures:
         # 失败上下文：转主 Agent（LLM）兜底时使用
         update["service_failures"] = list(state.get("service_failures") or []) + failures
@@ -570,10 +606,21 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
     """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。"""
     msg = state["messages"][-1].content if state.get("messages") else ""
     if tool_name == "get_current_time":
-        return {"timezone": "Asia/Shanghai", "format": "datetime"}
+        # Asia/Singapore：项目部署地（与 system_facts 一致，2026-08-15 统一）
+        return {"timezone": "Asia/Singapore", "format": "datetime"}
     if tool_name == "calculator":
         match = re.search(r"[\d+\-*/().\s^]+", msg)
         return {"expression": match.group(0).strip() if match else "0"}
+    if tool_name == "web_search":
+        # 规则级提取 query：去除搜索引导词后作为检索词（"搜索/查一下/search for" 等）
+        query = re.sub(
+            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查|帮我搜|查询|"
+            r"search(?:\s+for)?\s*[:：]?\s*|find\s*[:：]?\s*)",
+            "",
+            msg,
+            flags=re.IGNORECASE,
+        ).strip()
+        return {"query": query or msg.strip()}
     # text_translator 已移除（2026-08-08）：翻译由 chat_responder 的 LLM 直答
     return {}
 
@@ -759,7 +806,7 @@ def _format_utility_result(tool_name: str, result: Any) -> str:
     if "result" in result and isinstance(result["result"], (int, float)):
         return f"计算结果：{result.get('expression', '')} = {result['result']}"
     if "timezone" in result and result.get("value"):
-        return f"现在是 {result['value']}（{result.get('timezone', 'Asia/Shanghai')}）"
+        return f"现在是 {result['value']}（{result.get('timezone', 'Asia/Singapore')}）"
     if result.get("error") or result.get("status") == "failed":
         # 失败项只显示友好文案，不暴露英文技术详情（详情在日志 / error 字段）
         return f"（{tool_name} 暂时不可用，请稍后重试）"
@@ -797,10 +844,20 @@ def human_approval(state: AgentState) -> AgentState:
         "approval_agent": None,
     }
 
+    approved = isinstance(decision, dict) and decision.get("approved")
+    if approval_agent.startswith("utility:"):
+        # 工具执行确认（如 web_search 联网）：记录确认结果，
+        # 由 utility_tool_executor 消费（确认则执行，取消则跳过）
+        update["pending_utility_confirm"] = {
+            "tool": approval_agent.split(":", 1)[1],
+            "cancelled": not approved,
+        }
+        return update
+
     if state.get("agent_invocations"):
         # 只 merge 最后一条（当前等待审批的 Agent），保留前面已完成 Agent 的记录
         invocations = list(state["agent_invocations"])
-        if isinstance(decision, dict) and decision.get("approved"):
+        if approved:
             invocations[-1] = {**invocations[-1], "output_status": "confirmed"}
             # 确认重调标记：agent_invoker 下次调用该 Agent 时携带 confirmed + confirmation_id
             update["pending_confirmation"] = {
