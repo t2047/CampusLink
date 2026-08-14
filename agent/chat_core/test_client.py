@@ -28,12 +28,8 @@ def make_registry(token_service_url: str | None = "http://backend:8080") -> Serv
     reg.shared_secret = SECRET
     reg.token_service_url = token_service_url
     # 测试默认联调模式：Token Service 不可用时允许回退本地 HS256
-    reg.agents["mail-agent"] = AgentConfig(
-        name="mail-agent", url="http://agent:8081", timeout_ms=30000
-    )
-    reg.agents["utility-tools"] = AgentConfig(
-        name="utility-tools", url="http://util:8090", timeout_ms=5000
-    )
+    reg.agents["mail-agent"] = AgentConfig(name="mail-agent", url="http://agent:8081", timeout_ms=30000)
+    reg.agents["utility-tools"] = AgentConfig(name="utility-tools", url="http://util:8090", timeout_ms=5000)
     reg.utility_url = "http://util:8090"
     reg.utility_mcp_url = "http://util:8090/mcp/"
     return reg
@@ -44,15 +40,14 @@ def verify_hmac(headers: dict, body: dict, secret: str = SECRET) -> None:
     nonce = headers["X-Nonce"]
     ts = headers["X-Timestamp"]
     body_str = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
-    expected = hmac.new(
-        secret.encode(), f"{body_str}:{nonce}:{ts}".encode(), hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(secret.encode(), f"{body_str}:{nonce}:{ts}".encode(), hashlib.sha256).hexdigest()
     assert headers["X-Signature"] == expected
 
 
 # ──────────────────────────────────────────────────────────────────────
 # 1. get_delegation_token：请求构造与响应解析
 # ──────────────────────────────────────────────────────────────────────
+
 
 def test_get_delegation_token_requests_rs256_exchange():
     captured: dict = {}
@@ -132,6 +127,7 @@ def test_get_delegation_token_server_error_returns_none():
 # 2. 本地 HS256 回退：jti 绑定（MCP 层不要求 X-Nonce，jti 可任意）
 # ──────────────────────────────────────────────────────────────────────
 
+
 def test_issue_local_token_removed():
     """HS256 本地签发已移除（2026-08-08）：AgentClient 不再有该方法。"""
     assert not hasattr(AgentClient, "issue_local_delegation_token")
@@ -140,6 +136,7 @@ def test_issue_local_token_removed():
 # ──────────────────────────────────────────────────────────────────────
 # 3. _obtain_delegation_token：RS256 兑换优先，失败 fail-closed（返回 None）
 # ──────────────────────────────────────────────────────────────────────
+
 
 def test_obtain_token_prefers_rs256_then_fail_closed():
     def handler_ok(request: httpx.Request) -> httpx.Response:
@@ -177,6 +174,7 @@ def test_obtain_token_prefers_rs256_then_fail_closed():
 # ──────────────────────────────────────────────────────────────────────
 # 5. _parse_mcp_result：MCP 工具返回解析（text JSON 主路径 + structured 回退）
 # ──────────────────────────────────────────────────────────────────────
+
 
 class FakeTextContent:
     type = "text"
@@ -216,9 +214,7 @@ def test_invoke_utility_mcp_unreachable_error(monkeypatch):
 
         monkeypatch.setattr(client, "_call_mcp_tool", boom)
         try:
-            return await client.invoke_utility(
-                "get_current_time", {}, delegation_token="test-token"
-            )
+            return await client.invoke_utility("get_current_time", {}, delegation_token="test-token")
         finally:
             await client.close()
 
@@ -231,9 +227,7 @@ def test_invoke_utility_mcp_unreachable_error(monkeypatch):
 def test_parse_mcp_result_text_json():
     """主路径：text content 是 JSON 字符串 → 解析为 dict。"""
     client = AgentClient(registry=make_registry())
-    result = FakeCallResult(
-        content=[FakeTextContent(json.dumps({"response": "ok", "status": "completed"}))]
-    )
+    result = FakeCallResult(content=[FakeTextContent(json.dumps({"response": "ok", "status": "completed"}))])
     parsed = client._parse_mcp_result(result)
     assert parsed == {"response": "ok", "status": "completed"}
 
@@ -249,9 +243,7 @@ def test_parse_mcp_result_text_non_json():
 def test_parse_mcp_result_structured_list():
     """回退：structured_content（list）中含业务 dict 的项。"""
     client = AgentClient(registry=make_registry())
-    result = FakeCallResult(
-        structured_content=[{"response": "结构化结果", "status": "completed"}]
-    )
+    result = FakeCallResult(structured_content=[{"response": "结构化结果", "status": "completed"}])
     parsed = client._parse_mcp_result(result)
     assert parsed["response"] == "结构化结果"
 

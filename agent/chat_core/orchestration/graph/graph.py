@@ -85,9 +85,13 @@ def build_graph() -> StateGraph:
 
     # ── Agent 路径（循环 / 审批 / 汇聚 / 降级）──
     builder.add_conditional_edges("agent_invoker", after_agent_invoke, _AGENT_AFTER_ROUTES)
-    builder.add_conditional_edges("human_approval", after_human_approval, {
-        "invoke_next": "agent_invoker",
-    })
+    builder.add_conditional_edges(
+        "human_approval",
+        after_human_approval,
+        {
+            "invoke_next": "agent_invoker",
+        },
+    )
 
     # ── Utility 路径 ──
     builder.add_conditional_edges("utility_tool_executor", after_utility, _UTILITY_AFTER_ROUTES)

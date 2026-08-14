@@ -27,12 +27,12 @@ class AgentInvocation(TypedDict, total=False):
     agent_name: str
     input_message: str
     output_response: str
-    output_status: str                    # completed | needs_confirmation | failed | cancelled | confirmed
+    output_status: str  # completed | needs_confirmation | failed | cancelled | confirmed
     confirmation_required: dict[str, Any] | None
-    shared_context: dict[str, Any]        # 跨 Agent 传递的结构化数据
-    actions_taken: list[dict[str, Any]]   # [{action, status, result}]
-    match_results: list[dict[str, Any]]   # 可供前端直接渲染的候选详情
-    request_id: str | None                # Domain Agent request ID（排障关联）
+    shared_context: dict[str, Any]  # 跨 Agent 传递的结构化数据
+    actions_taken: list[dict[str, Any]]  # [{action, status, result}]
+    match_results: list[dict[str, Any]]  # 可供前端直接渲染的候选详情
+    request_id: str | None  # Domain Agent request ID（排障关联）
     error: str | None
 
 
@@ -43,7 +43,7 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
     # ── 意图路由 ──
-    intent_type: str | None            # "domain_agent" | "utility" | "chat"
+    intent_type: str | None  # "domain_agent" | "utility" | "chat"
     targets: list[str]
     agent_plan: list[str]
     utility_plan: list[str]
@@ -70,10 +70,10 @@ class AgentState(TypedDict, total=False):
     # ── 安全上下文 ──
     user_id: str | None
     user_role: str | None
-    delegation_tokens: dict[str, str]     # agent_name → delegation token
+    delegation_tokens: dict[str, str]  # agent_name → delegation token
     nonce: str | None
     trace_id: str | None
-    session_id: str | None                # 会话 ID（传给 Agent 做 per_session 限流/上下文）
+    session_id: str | None  # 会话 ID（传给 Agent 做 per_session 限流/上下文）
 
     # ── 跨 Agent 上下文 ──
     conversation_context: dict[str, Any]
@@ -81,4 +81,4 @@ class AgentState(TypedDict, total=False):
     # ── 降级 ──
     error: str | None
     failed_agents: list[str]
-    service_failures: list[str]           # 工具/子 Agent 失败描述（转主 Agent 兜底）
+    service_failures: list[str]  # 工具/子 Agent 失败描述（转主 Agent 兜底）

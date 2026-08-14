@@ -12,7 +12,11 @@ from orchestration.graph.nodes import chat_responder, fallback_handler
 def test_fallback_handler_en_input_outputs_english() -> None:
     result = fallback_handler(
         {
-            "messages": [HumanMessage(content="I just found a student card on the third floor corridor of ISS College.")],
+            "messages": [
+                HumanMessage(
+                    content="I just found a student card on the third floor corridor of ISS College."
+                )
+            ],
             "failed_agents": ["lost-found-agent"],
         }
     )
@@ -43,7 +47,10 @@ def test_fallback_handler_no_failed_agents_follows_language() -> None:
 async def test_chat_responder_error_branch_follows_language() -> None:
     """error 分支不调用 LLM,直接验证语言跟随。"""
     en = await chat_responder(
-        {"messages": [HumanMessage(content="I just found a student card.")], "error": "detected_prompt_injection"}
+        {
+            "messages": [HumanMessage(content="I just found a student card.")],
+            "error": "detected_prompt_injection",
+        }
     )
     assert "Sorry, I did not understand" in en["messages"][-1].content
 

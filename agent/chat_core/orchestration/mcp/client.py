@@ -28,10 +28,7 @@ try:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 except ImportError as _e:  # pragma: no cover - 依赖缺失时的清晰报错
-    raise ImportError(
-        "No module named 'mcp'"
-        "Try pip install \"mcp>=1.28,<2\""
-    ) from _e
+    raise ImportError("No module named 'mcp'Try pip install \"mcp>=1.28,<2\"") from _e
 
 from .registry import DEFAULT_CONFIG_PATH, ServiceRegistry
 
@@ -68,8 +65,7 @@ def _describe_mcp_failure(e: BaseException, service: str, url: str) -> str:
     root = _root_exc(e)
     if isinstance(root, httpx.TransportError):
         return (
-            f"MCP service '{service}' is unreachable at {url}: {root}. "
-            "Please ensure the service is running."
+            f"MCP service '{service}' is unreachable at {url}: {root}. Please ensure the service is running."
         )
     return _root_cause(e) or root.__class__.__name__
 
@@ -109,11 +105,13 @@ class AgentClient:
         if not agent:
             return {"response": f"Agent {agent_name} 未配置", "status": "failed", "error": "not_found"}
         if not agent.mcp_url:
-            return {"response": f"Agent {agent_name} 未配置 MCP 端点", "status": "failed", "error": "no_mcp_url"}
+            return {
+                "response": f"Agent {agent_name} 未配置 MCP 端点",
+                "status": "failed",
+                "error": "no_mcp_url",
+            }
 
-        token = delegation_token or await self._obtain_delegation_token(
-            user_id, user_role, agent_name
-        )
+        token = delegation_token or await self._obtain_delegation_token(user_id, user_role, agent_name)
         if not token:
             return {
                 "response": "安全令牌获取失败，请稍后重试",
@@ -158,9 +156,7 @@ class AgentClient:
         if not utility_mcp:
             return {"error": "utility mcp not configured", "status": "failed"}
 
-        token = delegation_token or await self._obtain_delegation_token(
-            user_id, user_role, "utility-tools"
-        )
+        token = delegation_token or await self._obtain_delegation_token(user_id, user_role, "utility-tools")
         if not token:
             return {"status": "failed", "error": "token_unavailable"}
 
@@ -208,9 +204,7 @@ class AgentClient:
             return {"error": "mcp tool error", "status": "failed"}
 
         # 1) text content（Server 端约定返回 JSON 字符串）
-        texts = [
-            c.text for c in (result.content or []) if getattr(c, "type", "") == "text"
-        ]
+        texts = [c.text for c in (result.content or []) if getattr(c, "type", "") == "text"]
         text = "\n".join(texts).strip()
         if text:
             try:
@@ -225,14 +219,10 @@ class AgentClient:
         structured = getattr(result, "structured_content", None)
         if structured:
             for item in structured:
-                if isinstance(item, dict) and (
-                    "response" in item or "status" in item
-                ):
+                if isinstance(item, dict) and ("response" in item or "status" in item):
                     return item
                 value = getattr(item, "value", None)
-                if isinstance(value, dict) and (
-                    "response" in value or "status" in value
-                ):
+                if isinstance(value, dict) and ("response" in value or "status" in value):
                     return value
 
         return {"response": "", "status": "completed"}

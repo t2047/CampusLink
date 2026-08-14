@@ -64,7 +64,8 @@ class OrchestrationInboundSecurity:
             raise HTTPException(status_code=401, detail="nonce reused — replay detected")
         self._nonce_cache[nonce] = now
         self._nonce_cache = {
-            n: t for n, t in self._nonce_cache.items()
+            n: t
+            for n, t in self._nonce_cache.items()
             if now - t < 60  # 60s 后清理
         }
 

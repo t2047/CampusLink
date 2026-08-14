@@ -243,7 +243,8 @@ class RuleEngine:
             # 不再冒泡成"内部错误"（2026-08-11 修复；report 路径另有精准降级）
             logger.warning(
                 "L&F validation degraded to needs_more_info: request_id=%s err=%.200s",
-                request_id, exc,
+                request_id,
+                exc,
             )
             message = (
                 "请补充完整、正确的信息：日期需为 YYYY-MM-DD 且不能是未来日期，"
@@ -932,12 +933,12 @@ def drop_invalid_fields(model_cls: type[BaseModel], context: dict[str, Any]) -> 
     try:
         model_cls.model_validate(context)
     except ValidationError as exc:
-        invalid = {
-            str(err.get("loc", ())[0]) for err in exc.errors() if err.get("loc")
-        }
+        invalid = {str(err.get("loc", ())[0]) for err in exc.errors() if err.get("loc")}
         logger.warning(
             "drop_invalid_fields: model=%s invalid=%s err=%.200s",
-            model_cls.__name__, sorted(invalid), exc,
+            model_cls.__name__,
+            sorted(invalid),
+            exc,
         )
         for field in invalid:
             context.pop(field, None)

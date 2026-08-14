@@ -28,9 +28,7 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = os.environ.get(
-    "ORCHESTRATION_CONFIG", "config/services.yaml"
-)
+DEFAULT_CONFIG_PATH = os.environ.get("ORCHESTRATION_CONFIG", "config/services.yaml")
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
 
@@ -50,6 +48,7 @@ class AgentConfig:
 def _resolve_env(value: Any) -> Any:
     """递归解析 ${ENV_VAR} 与 ${ENV_VAR:default} 占位符（字符串内全部替换）。"""
     if isinstance(value, str):
+
         def repl(match: re.Match) -> str:
             var = match.group(1)
             default = match.group(2)
@@ -57,6 +56,7 @@ def _resolve_env(value: Any) -> Any:
             if env_value is not None:
                 return env_value
             return default if default is not None else ""
+
         return _ENV_PATTERN.sub(repl, value)
     if isinstance(value, dict):
         return {k: _resolve_env(v) for k, v in value.items()}
@@ -91,9 +91,7 @@ class ServiceRegistry:
 
         registry = cls()
         registry.shared_secret = config.get("security", {}).get("shared_secret", "")
-        registry.time_window_seconds = int(
-            config.get("security", {}).get("time_window_seconds", 30)
-        )
+        registry.time_window_seconds = int(config.get("security", {}).get("time_window_seconds", 30))
 
         # Token Service
         token_cfg = services.get("token_service")
