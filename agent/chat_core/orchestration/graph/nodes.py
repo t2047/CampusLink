@@ -71,7 +71,11 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
    典型语义（含问句形式）：查询/登记/查找失物下落、报失、捡到东西、认领、
    预约或查询教室/场馆/研讨室、查邮件、技能搜索与交易等——即使表述为
    "我的东西在哪""帮我看看"等口语问句，只要涉及上述业务域，即为 domain_agent
-2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索
+2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索。
+   联网搜索包括查询任何实时/最新信息（新闻、天气、汇率、股价、赛事、百科事实等），
+   典型语义："搜索/搜一下/查一下/查询/有什么新闻/今天天气/最新消息/帮我找找资料"——
+   即使表述为问句（"最近有什么新闻？"）也归 utility，targets=["web_search"]；
+   不得把含"搜索/查询"意图的消息归为 chat（chat 只用于纯闲聊/知识问答且用户未要求联网）
 3. intent_type="chat"：闲聊、问候、一般知识问答（与校园业务无关）
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
 5. 无法确定时：若消息明显涉及校园业务域（失物/设施/邮件/技能），返回
@@ -681,13 +685,19 @@ async def chat_responder(state: AgentState) -> AgentState:
         )
         return {"messages": [AIMessage(content=text)]}
 
+    user_msg = state["messages"][-1].content if state.get("messages") else ""
+    fallback_text = (
+        "抱歉，我现在暂时无法回复，请稍后重试。"
+        if _looks_chinese(user_msg)
+        else "Sorry, I can't reply right now. Please try again later."
+    )
     llm = chat_llm()
     try:
         response = await llm.ainvoke(state.get("messages", [HumanMessage(content="你好")]))
         content = getattr(response, "content", "") or ""
-        return {"messages": [AIMessage(content=content.strip() or "抱歉，我现在暂时无法回复，请稍后重试。")]}
+        return {"messages": [AIMessage(content=content.strip() or fallback_text)]}
     except Exception:
-        return {"messages": [AIMessage(content="抱歉，我现在暂时无法回复，请稍后重试。")]}
+        return {"messages": [AIMessage(content=fallback_text)]}
 
 
 # ---------------------------------------------------------------------------
@@ -760,7 +770,13 @@ async def response_aggregator(state: AgentState) -> AgentState:
             parts.append(_format_utility_result(tool_name, result))
 
     if not parts:
-        final = "抱歉，暂时无法处理你的请求。"
+        # 语言跟随：无任何可聚合内容时的兜底文案（英文用户默认英文）
+        user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+        final = (
+            "抱歉，暂时无法处理你的请求。"
+            if _looks_chinese("".join(user_msgs))
+            else "Sorry, I couldn't process your request right now."
+        )
     elif len(parts) == 1:
         final = parts[0]
     else:
@@ -768,7 +784,12 @@ async def response_aggregator(state: AgentState) -> AgentState:
         try:
             summary = llm.invoke(
                 [
-                    SystemMessage(content="将以下多个结果整合成一段连贯、自然的回复："),
+                    SystemMessage(
+                        content=(
+                            "Combine the following results into one coherent, natural reply. "
+                            "Use the same language as the user's request."
+                        )
+                    ),
                     HumanMessage(content="\n".join(parts)),
                 ]
             )
