@@ -798,9 +798,7 @@ def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def extract_fields(
-    message: str, intent: Intent, today: str | None = None
-) -> dict[str, Any]:
+def extract_fields(message: str, intent: Intent, today: str | None = None) -> dict[str, Any]:
     """从消息提取结构化字段。
 
     today：相对日期词（今天/昨天/前天/明天/后天）的基准日期，优先传编排层注入的
