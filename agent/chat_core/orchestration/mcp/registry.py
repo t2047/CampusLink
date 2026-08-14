@@ -15,7 +15,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -44,7 +44,7 @@ class AgentConfig:
     timeout_ms: int = 30000
     type: str = "domain_agent"  # domain_agent | tool_provider
     # Sprint 3：MCP streamable HTTP 端点（如 http://host:port/mcp/）；设置后走 MCP 协议
-    mcp_url: Optional[str] = None
+    mcp_url: str | None = None
 
 
 def _resolve_env(value: Any) -> Any:
@@ -70,14 +70,14 @@ class ServiceRegistry:
     """服务注册表：加载配置、解析环境变量、提供查询。"""
 
     agents: dict[str, AgentConfig] = field(default_factory=dict)
-    utility_url: Optional[str] = None
-    utility_mcp_url: Optional[str] = None
-    token_service_url: Optional[str] = None
+    utility_url: str | None = None
+    utility_mcp_url: str | None = None
+    token_service_url: str | None = None
     shared_secret: str = ""
     time_window_seconds: int = 30
 
     @classmethod
-    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> "ServiceRegistry":
+    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> ServiceRegistry:
         """从 YAML 配置文件构建注册表。"""
         if not os.path.exists(path):
             logger.warning("Config file not found: %s, using empty registry", path)
@@ -131,7 +131,7 @@ class ServiceRegistry:
 
         return registry
 
-    def get_agent(self, name: str) -> Optional[AgentConfig]:
+    def get_agent(self, name: str) -> AgentConfig | None:
         return self.agents.get(name)
 
     def list_agents(self) -> list[str]:

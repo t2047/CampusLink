@@ -25,7 +25,7 @@ import json
 
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-import orchestration.main as main
+from orchestration import main
 from orchestration.streaming.sse_handler import structural_events_from_update
 
 

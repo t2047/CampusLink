@@ -14,7 +14,8 @@ LangGraph 核心数据模型。所有节点通过读写该状态协作。
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Optional, Sequence, TypedDict
+from collections.abc import Sequence
+from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -42,7 +43,7 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
     # ── 意图路由 ──
-    intent_type: Optional[str]            # "domain_agent" | "utility" | "chat"
+    intent_type: str | None            # "domain_agent" | "utility" | "chat"
     targets: list[str]
     agent_plan: list[str]
     utility_plan: list[str]

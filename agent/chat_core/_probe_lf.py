@@ -24,7 +24,7 @@ except Exception:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from orchestration.mcp.client import AgentClient  # noqa: E402
+from orchestration.mcp.client import AgentClient
 
 REQUIRED_REPORT = ["item_name", "category", "description", "location", "event_date"]
 

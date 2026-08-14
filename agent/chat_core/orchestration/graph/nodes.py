@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -416,9 +417,10 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
 
     # 统一注入系统事实包：权威日期/时间/时区/用户语言（Asia/Singapore, UTC+8）。
     # agent 解析相对时间（"刚刚/今天/明天"）时使用注入值，而不是各自猜测/重复计算。
-    from datetime import datetime, timedelta, timezone as dt_timezone
+    from datetime import datetime, timedelta
+    from datetime import timezone as dt_timezone
 
-    now = datetime.now(dt_timezone.utc).astimezone(dt_timezone(timedelta(hours=8)))
+    now = datetime.now(UTC).astimezone(dt_timezone(timedelta(hours=8)))
     user_msgs = [
         m.content
         for m in state.get("messages", [])
@@ -582,12 +584,20 @@ async def chat_responder(state: AgentState) -> AgentState:
     failures = list(state.get("service_failures") or [])
     if failures:
         user_msg = state["messages"][-1].content if state.get("messages") else ""
+        # 语言跟随：英文用户必须得到英文兜底（2026-08-15 修复：失败路径此前固定中文）
+        user_zh = _looks_chinese(user_msg)
+        fallback_text = (
+            "抱歉，部分服务暂时不可用，请稍后重试。"
+            if user_zh
+            else "Sorry, some services are temporarily unavailable. Please try again later."
+        )
         llm = chat_llm()
         try:
             response = await llm.ainvoke([
                 SystemMessage(content=(
                     "你是校园助手。部分服务当前不可用时，请用自然、友好的语气向用户说明情况，"
                     "给出替代建议或请其稍后重试。不要提及内部技术细节。"
+                    "请使用与用户消息相同的语言回复（用户用英文则回复英文，用户用中文则回复中文）。"
                     "重要：你只知道自己列出的不可用服务名称，不具备任何额外业务信息——"
                     "绝对不要编造需要用户提供的具体字段（如物品名称、地点、日期等），"
                     "也不要让用户以为系统还在正常工作；如实告知服务暂时无法处理即可。"
@@ -595,16 +605,18 @@ async def chat_responder(state: AgentState) -> AgentState:
                 HumanMessage(content=f"用户请求：{user_msg}\n不可用的服务：{'; '.join(failures)}"),
             ])
             content = getattr(response, "content", "") or ""
-            return {"messages": [
-                AIMessage(content=content.strip() or "抱歉，部分服务暂时不可用，请稍后重试。")
-            ]}
+            return {"messages": [AIMessage(content=content.strip() or fallback_text)]}
         except Exception:
-            return {"messages": [
-                AIMessage(content="抱歉，部分服务暂时不可用，请稍后重试。")
-            ]}
+            return {"messages": [AIMessage(content=fallback_text)]}
 
     if state.get("error"):
-        return {"messages": [AIMessage(content="抱歉，我没有理解你的请求，请换一种说法。")]}
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        text = (
+            "抱歉，我没有理解你的请求，请换一种说法。"
+            if _looks_chinese(user_msg)
+            else "Sorry, I did not understand your request. Please rephrase it."
+        )
+        return {"messages": [AIMessage(content=text)]}
 
     llm = chat_llm()
     try:
@@ -799,9 +811,21 @@ def human_approval(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 
 def fallback_handler(state: AgentState) -> AgentState:
-    """降级：Agent 不可用 / 超时 / 安全拦截时返回友好文案。"""
+    """降级：Agent 不可用 / 超时 / 安全拦截时返回友好文案（语言跟随用户）。"""
+    user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+    user_zh = _looks_chinese("".join(user_msgs))
     failed = state.get("failed_agents", [])
     if failed:
-        names = "、".join(failed)
-        return {"messages": [AIMessage(content=f"「{names}」暂时不可用，请稍后重试。")]}
-    return {"messages": [AIMessage(content="抱歉，服务暂时不可用，请稍后重试。")]}
+        names = "、".join(failed) if user_zh else ", ".join(failed)
+        text = (
+            f"「{names}」暂时不可用，请稍后重试。"
+            if user_zh
+            else f"「{names}」is temporarily unavailable. Please try again later."
+        )
+        return {"messages": [AIMessage(content=text)]}
+    text = (
+        "抱歉，服务暂时不可用，请稍后重试。"
+        if user_zh
+        else "Sorry, the service is temporarily unavailable. Please try again later."
+    )
+    return {"messages": [AIMessage(content=text)]}

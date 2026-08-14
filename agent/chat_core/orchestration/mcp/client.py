@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -82,7 +82,7 @@ class AgentClient:
     _http: httpx.AsyncClient = field(default_factory=lambda: httpx.AsyncClient(timeout=_MCP_TIMEOUT))
 
     @classmethod
-    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> "AgentClient":
+    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> AgentClient:
         return cls(registry=ServiceRegistry.from_yaml(path))
 
     # ──────────────────────────────────────────────────────────────────
@@ -95,11 +95,11 @@ class AgentClient:
         message: str,
         user_id: str,
         user_role: str,
-        delegation_token: Optional[str] = None,
-        conversation_context: Optional[dict] = None,
-        trace_id: Optional[str] = None,
+        delegation_token: str | None = None,
+        conversation_context: dict | None = None,
+        trace_id: str | None = None,
         confirmed: bool = False,
-        confirmation_id: Optional[str] = None,
+        confirmation_id: str | None = None,
     ) -> dict[str, Any]:
         """通过 MCP 调用 Domain Agent 的 ``invoke`` 工具。
 
@@ -151,7 +151,7 @@ class AgentClient:
         params: dict[str, Any],
         user_id: str = "",
         user_role: str = "",
-        delegation_token: Optional[str] = None,
+        delegation_token: str | None = None,
     ) -> dict[str, Any]:
         """通过 MCP 调用 Utility Tool Server 的对应工具。"""
         utility_mcp = self.registry.utility_mcp_url
@@ -260,8 +260,8 @@ class AgentClient:
         role: str,
         target_agent: str,
         intended_action: str = "invoke",
-        jti: Optional[str] = None,
-    ) -> Optional[str]:
+        jti: str | None = None,
+    ) -> str | None:
         """从 Token Service 兑换 RS256 Delegation Token（当前内嵌于 Chat Backend）。
 
         MCP 层不要求 jti 绑定 X-Nonce（jti 由签发方随机生成即可）。
@@ -309,8 +309,8 @@ class AgentClient:
             return None
 
     async def _obtain_delegation_token(
-        self, user_id: str, role: str, target_agent: str, jti: Optional[str] = None
-    ) -> Optional[str]:
+        self, user_id: str, role: str, target_agent: str, jti: str | None = None
+    ) -> str | None:
         """从 Token Service 兑换 RS256 Delegation Token（fail-closed）。
 
         兑换失败（未配置 / 网络 / 非 2xx）返回 None → 调用方拒绝调用，

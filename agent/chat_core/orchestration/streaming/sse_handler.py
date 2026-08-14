@@ -11,8 +11,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Optional
+from typing import Any
 
 from ..graph.state import AgentState
 
@@ -23,7 +24,7 @@ class SSEEvent:
 
     event: str
     data: dict[str, Any] = field(default_factory=dict)
-    id: Optional[str] = None
+    id: str | None = None
 
 
 def _format_event(evt: SSEEvent) -> str:

@@ -16,8 +16,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
@@ -29,8 +28,8 @@ class VerifiedInbound:
     """编排层入站验证通过后的安全上下文。"""
 
     trace_id: str
-    user_id: Optional[str] = None
-    role: Optional[str] = None
+    user_id: str | None = None
+    role: str | None = None
 
 
 class OrchestrationInboundSecurity:
