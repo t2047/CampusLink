@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiClient } from './client'
+import { apiClient, apiErrorMessage } from './client'
 import { facilitiesApi } from './facilities'
 
 describe('facilitiesApi', () => {
@@ -95,5 +95,39 @@ describe('facilitiesApi', () => {
       startDateTime: '2026-08-13T14:00:00',
       endDateTime: '2026-08-13T16:00:00',
     })).rejects.toBe(conflict)
+  })
+
+  it('lists bookings owned by the authenticated user', async () => {
+    const response = [{ bookingId: 42, status: 'CONFIRMED' }]
+    const get = vi.spyOn(apiClient, 'get').mockResolvedValue({ data: response })
+
+    await expect(facilitiesApi.listBookings()).resolves.toBe(response)
+    expect(get).toHaveBeenCalledWith('/facilities/bookings')
+  })
+
+  it('gets one owned booking by ID', async () => {
+    const response = { bookingId: 42, status: 'CONFIRMED' }
+    const get = vi.spyOn(apiClient, 'get').mockResolvedValue({ data: response })
+
+    await expect(facilitiesApi.getBooking(42)).resolves.toBe(response)
+    expect(get).toHaveBeenCalledWith('/facilities/bookings/42')
+  })
+
+  it('cancels a booking with PATCH and preserves backend errors for UI mapping', async () => {
+    const response = { bookingId: 42, status: 'CANCELLED' }
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValueOnce({ data: response })
+
+    await expect(facilitiesApi.cancelBooking(42)).resolves.toBe(response)
+    expect(patch).toHaveBeenCalledWith('/facilities/bookings/42/cancel')
+
+    const conflict = {
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: { status: 409, data: { code: 'BOOKING_CANCELLATION_NOT_ALLOWED', error: 'A booking cannot be cancelled after its start time' } },
+    }
+    patch.mockRejectedValueOnce(conflict)
+
+    await expect(facilitiesApi.cancelBooking(42)).rejects.toBe(conflict)
+    expect(apiErrorMessage(conflict)).toBe('A booking cannot be cancelled after its start time')
   })
 })

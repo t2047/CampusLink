@@ -24,6 +24,8 @@ const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((mod
 const FacilitiesLayout = lazy(() => import('./pages/facilities/FacilitiesLayout').then((module) => ({ default: module.FacilitiesLayout })))
 const SpacesPage = lazy(() => import('./pages/facilities/SpacesPage').then((module) => ({ default: module.SpacesPage })))
 const SpaceDetailsPage = lazy(() => import('./pages/facilities/SpaceDetailsPage').then((module) => ({ default: module.SpaceDetailsPage })))
+const MyBookingsPage = lazy(() => import('./pages/facilities/MyBookingsPage').then((module) => ({ default: module.MyBookingsPage })))
+const BookingDetailsPage = lazy(() => import('./pages/facilities/BookingDetailsPage').then((module) => ({ default: module.BookingDetailsPage })))
 const MailPage = lazy(() => import('./pages/MailPage').then((module) => ({ default: module.MailPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
@@ -64,6 +66,8 @@ export default function App() {
           <Route path="/facilities" element={<FacilitiesLayout />}>
             <Route index element={<SpacesPage />} />
             <Route path="spaces/:spaceId" element={<SpaceDetailsPage />} />
+            <Route path="bookings" element={<MyBookingsPage />} />
+            <Route path="bookings/:bookingId" element={<BookingDetailsPage />} />
           </Route>
           <Route path="/lost-found" element={<ReportsPage />} />
           <Route path="/lost-found/new/lost" element={<CreateReportPage reportType="LOST" />} />

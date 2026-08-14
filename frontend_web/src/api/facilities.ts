@@ -93,6 +93,9 @@ export const facilitiesApi = {
     return apiClient.get<AvailabilityResponse>(`/facilities/spaces/${spaceId}/availability`, { params }).then((response) => response.data)
   },
   createBooking: (request: CreateBookingRequest) => apiClient.post<BookingResponse>('/facilities/bookings', request).then((response) => response.data),
+  listBookings: () => apiClient.get<BookingResponse[]>('/facilities/bookings').then((response) => response.data),
+  getBooking: (bookingId: number) => apiClient.get<BookingResponse>(`/facilities/bookings/${bookingId}`).then((response) => response.data),
+  cancelBooking: (bookingId: number) => apiClient.patch<BookingResponse>(`/facilities/bookings/${bookingId}/cancel`).then((response) => response.data),
   getDashboard: async () => {
     const [spacesResponse, bookingsResponse, maintenanceResponse] = await Promise.all([
       apiClient.get<Space[]>('/facilities/spaces'),

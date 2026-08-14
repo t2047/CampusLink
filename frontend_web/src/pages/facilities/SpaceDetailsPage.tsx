@@ -233,7 +233,10 @@ export function SpaceDetailsPage() {
                 <Typography>Space: {booking.response.space.name}</Typography>
                 <Typography>Date/time: {bookingDateTime(booking.response.startDateTime)} – {booking.response.endDateTime.split('T')[1]?.slice(0, 5)}</Typography>
                 <Typography>Status: {displayLabel(booking.response.status)}</Typography>
-                <Button component={RouterLink} to="/facilities" sx={{ alignSelf: 'flex-start', mt: 0.5 }}>Back to Facilities</Button>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignSelf: 'flex-start', mt: 0.5 }}>
+                  <Button component={RouterLink} to={`/facilities/bookings/${booking.response.bookingId}`}>View booking</Button>
+                  <Button component={RouterLink} to="/facilities/bookings">View My Bookings</Button>
+                </Stack>
               </Stack>
             </Alert>
           )}
