@@ -52,11 +52,15 @@ def test_intent_router_llm_chat(monkeypatch):
 
 def test_intent_router_llm_domain_agent(monkeypatch):
     state = make_state("帮我找一下张三的邮件")
-    fake = FakeLLM(json.dumps({
-        "intent_type": "domain_agent",
-        "targets": ["mail-agent"],
-        "reasoning": "用户要查邮件",
-    }))
+    fake = FakeLLM(
+        json.dumps(
+            {
+                "intent_type": "domain_agent",
+                "targets": ["mail-agent"],
+                "reasoning": "用户要查邮件",
+            }
+        )
+    )
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
     result = intent_router(state)
     assert result["intent_type"] == "domain_agent"
@@ -66,11 +70,15 @@ def test_intent_router_llm_domain_agent(monkeypatch):
 
 def test_intent_router_llm_utility(monkeypatch):
     state = make_state("把 15 美元换算成人民币")
-    fake = FakeLLM(json.dumps({
-        "intent_type": "utility",
-        "targets": ["unit_converter"],
-        "reasoning": "单位换算",
-    }))
+    fake = FakeLLM(
+        json.dumps(
+            {
+                "intent_type": "utility",
+                "targets": ["unit_converter"],
+                "reasoning": "单位换算",
+            }
+        )
+    )
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
     result = intent_router(state)
     assert result["intent_type"] == "utility"
@@ -80,11 +88,15 @@ def test_intent_router_llm_utility(monkeypatch):
 
 def test_intent_router_llm_multi_target(monkeypatch):
     state = make_state("邮件里提到的会议室帮我订了")
-    fake = FakeLLM(json.dumps({
-        "intent_type": "domain_agent",
-        "targets": ["mail-agent", "facility-agent"],
-        "reasoning": "先查邮件再订会议室",
-    }))
+    fake = FakeLLM(
+        json.dumps(
+            {
+                "intent_type": "domain_agent",
+                "targets": ["mail-agent", "facility-agent"],
+                "reasoning": "先查邮件再订会议室",
+            }
+        )
+    )
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
     result = intent_router(state)
     assert result["intent_type"] == "domain_agent"
@@ -94,11 +106,15 @@ def test_intent_router_llm_multi_target(monkeypatch):
 def test_intent_router_negation_delegated_to_llm(monkeypatch):
     """否定语境（'不要用计算器'）交给 LLM 语义判定：LLM 判 chat → 路由 chat。"""
     state = make_state("不要用计算器，2+2 等于几")
-    fake = FakeLLM(json.dumps({
-        "intent_type": "chat",
-        "targets": [],
-        "reasoning": "用户明确拒绝使用计算工具，直接回答",
-    }))
+    fake = FakeLLM(
+        json.dumps(
+            {
+                "intent_type": "chat",
+                "targets": [],
+                "reasoning": "用户明确拒绝使用计算工具，直接回答",
+            }
+        )
+    )
     monkeypatch.setattr("orchestration.graph.nodes.intent_llm", lambda: fake)
     result = intent_router(state)
     assert result["intent_type"] == "chat"
@@ -133,8 +149,10 @@ def test_intent_router_llm_raises_falls_back_to_chat(monkeypatch):
 # 澄清循环（编排层主动信息收集）
 # ──────────────────────────────────────────────────────────────────────
 
+
 def test_intent_router_clarification_skips_llm(monkeypatch):
     """澄清轮：pending_info 存在时跳过 LLM 分类，直接回同一 Agent。"""
+
     class BombLLM:
         def invoke(self, messages):
             raise AssertionError("澄清轮不应调用意图分类 LLM")
@@ -150,6 +168,7 @@ def test_intent_router_clarification_skips_llm(monkeypatch):
 
 def test_intent_router_clarification_abandon(monkeypatch):
     """澄清轮显式放弃：退出循环转闲聊并清空 pending_info。"""
+
     class BombLLM:
         def invoke(self, messages):
             raise AssertionError("放弃澄清后不应再调用意图分类 LLM")

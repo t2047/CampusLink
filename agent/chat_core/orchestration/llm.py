@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Optional
 
 from langchain_openai import ChatOpenAI
 
@@ -29,8 +28,8 @@ def _env(key: str, default: str) -> str:
 @lru_cache(maxsize=1)
 def get_llm(
     temperature: float = 0.0,
-    max_tokens: Optional[int] = None,
-    model: Optional[str] = None,
+    max_tokens: int | None = None,
+    model: str | None = None,
 ) -> ChatOpenAI:
     """创建 LLM 实例（进程内缓存）。streaming=True 支持 token 级流式。"""
     return ChatOpenAI(

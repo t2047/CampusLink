@@ -15,7 +15,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -28,9 +28,7 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = os.environ.get(
-    "ORCHESTRATION_CONFIG", "config/services.yaml"
-)
+DEFAULT_CONFIG_PATH = os.environ.get("ORCHESTRATION_CONFIG", "config/services.yaml")
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
 
@@ -44,12 +42,13 @@ class AgentConfig:
     timeout_ms: int = 30000
     type: str = "domain_agent"  # domain_agent | tool_provider
     # Sprint 3：MCP streamable HTTP 端点（如 http://host:port/mcp/）；设置后走 MCP 协议
-    mcp_url: Optional[str] = None
+    mcp_url: str | None = None
 
 
 def _resolve_env(value: Any) -> Any:
     """递归解析 ${ENV_VAR} 与 ${ENV_VAR:default} 占位符（字符串内全部替换）。"""
     if isinstance(value, str):
+
         def repl(match: re.Match) -> str:
             var = match.group(1)
             default = match.group(2)
@@ -57,6 +56,7 @@ def _resolve_env(value: Any) -> Any:
             if env_value is not None:
                 return env_value
             return default if default is not None else ""
+
         return _ENV_PATTERN.sub(repl, value)
     if isinstance(value, dict):
         return {k: _resolve_env(v) for k, v in value.items()}
@@ -70,14 +70,14 @@ class ServiceRegistry:
     """服务注册表：加载配置、解析环境变量、提供查询。"""
 
     agents: dict[str, AgentConfig] = field(default_factory=dict)
-    utility_url: Optional[str] = None
-    utility_mcp_url: Optional[str] = None
-    token_service_url: Optional[str] = None
+    utility_url: str | None = None
+    utility_mcp_url: str | None = None
+    token_service_url: str | None = None
     shared_secret: str = ""
     time_window_seconds: int = 30
 
     @classmethod
-    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> "ServiceRegistry":
+    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> ServiceRegistry:
         """从 YAML 配置文件构建注册表。"""
         if not os.path.exists(path):
             logger.warning("Config file not found: %s, using empty registry", path)
@@ -91,9 +91,7 @@ class ServiceRegistry:
 
         registry = cls()
         registry.shared_secret = config.get("security", {}).get("shared_secret", "")
-        registry.time_window_seconds = int(
-            config.get("security", {}).get("time_window_seconds", 30)
-        )
+        registry.time_window_seconds = int(config.get("security", {}).get("time_window_seconds", 30))
 
         # Token Service
         token_cfg = services.get("token_service")
@@ -131,7 +129,7 @@ class ServiceRegistry:
 
         return registry
 
-    def get_agent(self, name: str) -> Optional[AgentConfig]:
+    def get_agent(self, name: str) -> AgentConfig | None:
         return self.agents.get(name)
 
     def list_agents(self) -> list[str]:

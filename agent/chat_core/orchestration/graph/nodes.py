@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -126,6 +127,7 @@ _SYSTEM_ERROR_PATTERNS: list[str] = [
 # 1. 输入护栏
 # ---------------------------------------------------------------------------
 
+
 def input_guardrail(state: AgentState) -> AgentState:
     """输入安全护栏：Prompt injection 检测 + 敏感信息提示。"""
     last_msg = state["messages"][-1].content if state.get("messages") else ""
@@ -147,6 +149,7 @@ def input_guardrail(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 # 2. 意图路由（LLM 语义分类）
 # ---------------------------------------------------------------------------
+
 
 def intent_router(state: AgentState) -> AgentState:
     """意图分类：完全由 LLM 语义判定（DeepSeek，temperature=0）。
@@ -174,7 +177,8 @@ def intent_router(state: AgentState) -> AgentState:
     pending_info = state.get("pending_info") or {}
     if pending_info.get("agent_name"):
         abandon = any(
-            k in user_msg for k in ("算了", "不用了", "不用找", "不找了", "放弃", "换一个", "先不管", "先不弄")
+            k in user_msg
+            for k in ("算了", "不用了", "不用找", "不找了", "放弃", "换一个", "先不管", "先不弄")
         )
         if abandon:
             logger.info("intent_router: abandon clarification for %s", pending_info["agent_name"])
@@ -188,7 +192,8 @@ def intent_router(state: AgentState) -> AgentState:
             }
         logger.info(
             "intent_router: clarification turn for %s (attempt %s), skip LLM routing",
-            pending_info["agent_name"], pending_info.get("attempts", 1),
+            pending_info["agent_name"],
+            pending_info.get("attempts", 1),
         )
         return {
             "intent_type": "domain_agent",
@@ -214,8 +219,7 @@ def intent_router(state: AgentState) -> AgentState:
                 SystemMessage(content=prompt),
                 HumanMessage(
                     content=(
-                        f"对话历史：\n{history_text}\n\n"
-                        f"当前消息：{user_msg}"
+                        f"对话历史：\n{history_text}\n\n当前消息：{user_msg}"
                         if history_text
                         else f"当前消息：{user_msg}"
                     )
@@ -258,7 +262,10 @@ def intent_router(state: AgentState) -> AgentState:
 
     logger.info(
         "intent_router: msg=%.80s intent_type=%s targets=%s reasoning=%s",
-        user_msg, intent_type, targets, parsed.get("reasoning", ""),
+        user_msg,
+        intent_type,
+        targets,
+        parsed.get("reasoning", ""),
     )
 
     return {
@@ -273,6 +280,7 @@ def intent_router(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 # 3. Agent 调用器
 # ---------------------------------------------------------------------------
+
 
 async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     """调用 Domain Agent 的 POST /agent/invoke（异步节点）。
@@ -330,8 +338,7 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         # 注意：确认重调（is_confirmation_call）仍返回 needs_confirmation 时也必须前进
         # （见下方 needs_confirmation 分支的活锁防御）
         "current_agent_index": (
-            index if result.get("status") == "needs_confirmation" and not is_confirmation_call
-            else index + 1
+            index if result.get("status") == "needs_confirmation" and not is_confirmation_call else index + 1
         ),
         # 消费确认标记（确认重调只执行一次）
         "pending_confirmation": None,
@@ -365,7 +372,8 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
             # 契约未生效：标记失败并前进（防"确认-确认"活锁），记录日志便于排查
             logger.error(
                 "confirmed re-invoke still needs_confirmation: agent=%s confirmation_id=%s",
-                agent_name, confirmation_id,
+                agent_name,
+                confirmation_id,
             )
             failed = list(state.get("failed_agents") or [])
             if agent_name not in failed:
@@ -416,14 +424,11 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
 
     # 统一注入系统事实包：权威日期/时间/时区/用户语言（Asia/Singapore, UTC+8）。
     # agent 解析相对时间（"刚刚/今天/明天"）时使用注入值，而不是各自猜测/重复计算。
-    from datetime import datetime, timedelta, timezone as dt_timezone
+    from datetime import datetime, timedelta
+    from datetime import timezone as dt_timezone
 
-    now = datetime.now(dt_timezone.utc).astimezone(dt_timezone(timedelta(hours=8)))
-    user_msgs = [
-        m.content
-        for m in state.get("messages", [])
-        if isinstance(m, HumanMessage)
-    ]
+    now = datetime.now(UTC).astimezone(dt_timezone(timedelta(hours=8)))
+    user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
     shared["system_facts"] = {
         "today": now.strftime("%Y-%m-%d"),
         "now": now.isoformat(timespec="seconds"),
@@ -445,6 +450,7 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 4. Utility Tool 执行器
 # ---------------------------------------------------------------------------
+
 
 async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentState:
     """调用 Utility MCP Server 的 POST /tools/call（异步节点）。"""
@@ -505,24 +511,25 @@ async def _rephrase_in_user_language(user_msg: str, text: str) -> str | None:
         return None
     try:
         llm = chat_llm()
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "你是校园助手。以下是一段系统生成的结果文本（可能是子 Agent 的"
-                "原始回复，语言可能与用户不一致）。请用与用户消息相同的语言，把内容"
-                "组织成一段自然、简洁的回复。"
-                "严格只做语言转换和润色：保留原文本全部事实（编号、数量、时间、"
-                "地点等），不得添加、删减或推断原文本没有的信息，不得评论功能是否"
-                "可用、是否成功或‘暂时无法’等，不得替用户下任何结论，不得提及内部细节。"
-                "如果结果文本本身是一个问题/澄清/请求补充信息（如 asking for a space"
-                "ID, asking to clarify time），必须保持提问或请求形式——绝不能把它"
-                "改写成已完成、已成功的陈述（例如绝不能输出‘已为您预订’除非原文明确"
-                "说明预订已完成）。"
-            )),
-            HumanMessage(content=(
-                f"用户消息：{user_msg}\n"
-                f"结果文本：{text}"
-            )),
-        ])
+        response = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "你是校园助手。以下是一段系统生成的结果文本（可能是子 Agent 的"
+                        "原始回复，语言可能与用户不一致）。请用与用户消息相同的语言，把内容"
+                        "组织成一段自然、简洁的回复。"
+                        "严格只做语言转换和润色：保留原文本全部事实（编号、数量、时间、"
+                        "地点等），不得添加、删减或推断原文本没有的信息，不得评论功能是否"
+                        "可用、是否成功或‘暂时无法’等，不得替用户下任何结论，不得提及内部细节。"
+                        "如果结果文本本身是一个问题/澄清/请求补充信息（如 asking for a space"
+                        "ID, asking to clarify time），必须保持提问或请求形式——绝不能把它"
+                        "改写成已完成、已成功的陈述（例如绝不能输出‘已为您预订’除非原文明确"
+                        "说明预订已完成）。"
+                    )
+                ),
+                HumanMessage(content=(f"用户消息：{user_msg}\n结果文本：{text}")),
+            ]
+        )
         content = getattr(response, "content", "") or ""
         return content.strip() or None
     except Exception:
@@ -536,17 +543,23 @@ async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> s
     """
     llm = chat_llm()
     try:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "你是校园助手。以下是工具调用返回的原始结果（JSON/文本）。"
-                "请用与用户消息相同的语言，把结果组织成一段自然、简洁的回复。"
-                "不要编造结果中没有的信息，不要提及工具名等内部细节。"
-            )),
-            HumanMessage(content=(
-                f"用户消息：{user_msg}\n"
-                f"工具结果：{json.dumps(results, ensure_ascii=False, default=str)}"
-            )),
-        ])
+        response = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "你是校园助手。以下是工具调用返回的原始结果（JSON/文本）。"
+                        "请用与用户消息相同的语言，把结果组织成一段自然、简洁的回复。"
+                        "不要编造结果中没有的信息，不要提及工具名等内部细节。"
+                    )
+                ),
+                HumanMessage(
+                    content=(
+                        f"用户消息：{user_msg}\n"
+                        f"工具结果：{json.dumps(results, ensure_ascii=False, default=str)}"
+                    )
+                ),
+            ]
+        )
         content = getattr(response, "content", "") or ""
         return content.strip() or None
     except Exception:
@@ -569,6 +582,7 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
 # 5. 闲聊回复（异步：await llm.ainvoke，streaming=True → messages 模式捕获 token）
 # ---------------------------------------------------------------------------
 
+
 async def chat_responder(state: AgentState) -> AgentState:
     """闲聊/知识问答：LLM 回复（DeepSeek，异步 ainvoke）。
 
@@ -582,29 +596,43 @@ async def chat_responder(state: AgentState) -> AgentState:
     failures = list(state.get("service_failures") or [])
     if failures:
         user_msg = state["messages"][-1].content if state.get("messages") else ""
+        # 语言跟随：英文用户必须得到英文兜底（2026-08-15 修复：失败路径此前固定中文）
+        user_zh = _looks_chinese(user_msg)
+        fallback_text = (
+            "抱歉，部分服务暂时不可用，请稍后重试。"
+            if user_zh
+            else "Sorry, some services are temporarily unavailable. Please try again later."
+        )
         llm = chat_llm()
         try:
-            response = await llm.ainvoke([
-                SystemMessage(content=(
-                    "你是校园助手。部分服务当前不可用时，请用自然、友好的语气向用户说明情况，"
-                    "给出替代建议或请其稍后重试。不要提及内部技术细节。"
-                    "重要：你只知道自己列出的不可用服务名称，不具备任何额外业务信息——"
-                    "绝对不要编造需要用户提供的具体字段（如物品名称、地点、日期等），"
-                    "也不要让用户以为系统还在正常工作；如实告知服务暂时无法处理即可。"
-                )),
-                HumanMessage(content=f"用户请求：{user_msg}\n不可用的服务：{'; '.join(failures)}"),
-            ])
+            response = await llm.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "你是校园助手。部分服务当前不可用时，请用自然、友好的语气向用户说明情况，"
+                            "给出替代建议或请其稍后重试。不要提及内部技术细节。"
+                            "请使用与用户消息相同的语言回复（用户用英文则回复英文，用户用中文则回复中文）。"
+                            "重要：你只知道自己列出的不可用服务名称，不具备任何额外业务信息——"
+                            "绝对不要编造需要用户提供的具体字段（如物品名称、地点、日期等），"
+                            "也不要让用户以为系统还在正常工作；如实告知服务暂时无法处理即可。"
+                        )
+                    ),
+                    HumanMessage(content=f"用户请求：{user_msg}\n不可用的服务：{'; '.join(failures)}"),
+                ]
+            )
             content = getattr(response, "content", "") or ""
-            return {"messages": [
-                AIMessage(content=content.strip() or "抱歉，部分服务暂时不可用，请稍后重试。")
-            ]}
+            return {"messages": [AIMessage(content=content.strip() or fallback_text)]}
         except Exception:
-            return {"messages": [
-                AIMessage(content="抱歉，部分服务暂时不可用，请稍后重试。")
-            ]}
+            return {"messages": [AIMessage(content=fallback_text)]}
 
     if state.get("error"):
-        return {"messages": [AIMessage(content="抱歉，我没有理解你的请求，请换一种说法。")]}
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        text = (
+            "抱歉，我没有理解你的请求，请换一种说法。"
+            if _looks_chinese(user_msg)
+            else "Sorry, I did not understand your request. Please rephrase it."
+        )
+        return {"messages": [AIMessage(content=text)]}
 
     llm = chat_llm()
     try:
@@ -618,6 +646,7 @@ async def chat_responder(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 # 6. 输出护栏
 # ---------------------------------------------------------------------------
+
 
 def output_guardrail(state: AgentState) -> AgentState:
     """输出护栏：PII 脱敏 + 系统错误过滤（对所有已生成回复生效）。"""
@@ -645,6 +674,7 @@ def output_guardrail(state: AgentState) -> AgentState:
 # 7. 回复聚合器
 # ---------------------------------------------------------------------------
 
+
 async def response_aggregator(state: AgentState) -> AgentState:
     """汇总所有 Agent / Utility 结果生成最终自然语言回复。
 
@@ -662,8 +692,7 @@ async def response_aggregator(state: AgentState) -> AgentState:
     # 追问文本不再输出（避免"追问 + 最终结果"拼接残留）；仅当没有任何进展
     # （首轮追问、用户还在补充中）时才输出追问文本
     has_progress = any(
-        inv.get("output_status") not in ("needs_confirmation", "needs_more_info")
-        for inv in agent_invocations
+        inv.get("output_status") not in ("needs_confirmation", "needs_more_info") for inv in agent_invocations
     )
 
     for inv in agent_invocations:
@@ -691,8 +720,10 @@ async def response_aggregator(state: AgentState) -> AgentState:
         llm = summary_llm()
         try:
             summary = llm.invoke(
-                [SystemMessage(content="将以下多个结果整合成一段连贯、自然的回复："),
-                 HumanMessage(content="\n".join(parts))]
+                [
+                    SystemMessage(content="将以下多个结果整合成一段连贯、自然的回复："),
+                    HumanMessage(content="\n".join(parts)),
+                ]
             )
             final = summary.content
         except Exception:
@@ -704,11 +735,7 @@ async def response_aggregator(state: AgentState) -> AgentState:
     if final:
         # 用户语言用整个会话历史判断（而不是最后一条消息）：中文会话中用户可能
         # 输入纯英文房间名/短语（如 "Room 101"），只看末条会误判为英文用户
-        user_msgs = [
-            m.content
-            for m in state.get("messages", [])
-            if isinstance(m, HumanMessage)
-        ]
+        user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
         user_msg = user_msgs[-1] if user_msgs else ""
         user_zh = _looks_chinese("".join(user_msgs))
         final_zh = _looks_chinese(final)
@@ -743,6 +770,7 @@ def _format_utility_result(tool_name: str, result: Any) -> str:
 # 8. Human-in-the-loop 审批
 # ---------------------------------------------------------------------------
 
+
 def human_approval(state: AgentState) -> AgentState:
     """审批节点：依赖 LangGraph interrupt 暂停等待用户确认。
 
@@ -752,18 +780,16 @@ def human_approval(state: AgentState) -> AgentState:
 
     approval_agent = state.get("approval_agent", "")
     approval_context = state.get("approval_context", {}) or {}
-    decision = interrupt({
-        "type": "confirm_action",
-        "agent": approval_agent,
-        "details": approval_context,
-        # 确认信息优先用 Agent 的真实摘要（L&F confirmation_required.summary），
-        # 前端确认框展示的就是用户要确认的具体内容
-        "message": (
-            approval_context.get("message")
-            or approval_context.get("summary")
-            or "请确认此操作"
-        ),
-    })
+    decision = interrupt(
+        {
+            "type": "confirm_action",
+            "agent": approval_agent,
+            "details": approval_context,
+            # 确认信息优先用 Agent 的真实摘要（L&F confirmation_required.summary），
+            # 前端确认框展示的就是用户要确认的具体内容
+            "message": (approval_context.get("message") or approval_context.get("summary") or "请确认此操作"),
+        }
+    )
 
     update: dict[str, Any] = {
         "requires_approval": False,
@@ -798,10 +824,23 @@ def human_approval(state: AgentState) -> AgentState:
 # 9. 降级处理
 # ---------------------------------------------------------------------------
 
+
 def fallback_handler(state: AgentState) -> AgentState:
-    """降级：Agent 不可用 / 超时 / 安全拦截时返回友好文案。"""
+    """降级：Agent 不可用 / 超时 / 安全拦截时返回友好文案（语言跟随用户）。"""
+    user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+    user_zh = _looks_chinese("".join(user_msgs))
     failed = state.get("failed_agents", [])
     if failed:
-        names = "、".join(failed)
-        return {"messages": [AIMessage(content=f"「{names}」暂时不可用，请稍后重试。")]}
-    return {"messages": [AIMessage(content="抱歉，服务暂时不可用，请稍后重试。")]}
+        names = "、".join(failed) if user_zh else ", ".join(failed)
+        text = (
+            f"「{names}」暂时不可用，请稍后重试。"
+            if user_zh
+            else f"「{names}」is temporarily unavailable. Please try again later."
+        )
+        return {"messages": [AIMessage(content=text)]}
+    text = (
+        "抱歉，服务暂时不可用，请稍后重试。"
+        if user_zh
+        else "Sorry, the service is temporarily unavailable. Please try again later."
+    )
+    return {"messages": [AIMessage(content=text)]}

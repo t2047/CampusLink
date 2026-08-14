@@ -1,10 +1,18 @@
+from datetime import date, timedelta
 from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
 from lost_found_agent.config import Settings
+from lost_found_agent.confirmation import ConfirmationStore
 from lost_found_agent.embeddings import embed_image, visual_fingerprint
-from lost_found_agent.rules import detect_explicit_intent
+from lost_found_agent.models import (
+    ConversationContext,
+    InvokeRequest,
+    TraceParent,
+    VerifiedRequest,
+)
+from lost_found_agent.rules import RuleEngine, detect_explicit_intent
 from lost_found_agent.tools import ReportLostInput
 
 from .conftest import FakeCampusApiClient
@@ -490,3 +498,72 @@ def candidate(
         "status": "OPEN",
         "imageUrls": [f"https://images.example.test/{item_id}.jpg"],
     }
+
+
+async def test_interpreted_future_date_is_dropped_and_asked(
+    settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    """LLM 提取字段给出未来日期时，规则引擎清除该字段并追问日期，
+    而不是冒泡成"内部错误"（2026-08-11 修复）。"""
+    engine = RuleEngine(fake_api, ConfirmationStore(ttl_seconds=600), 0.5)
+    payload = InvokeRequest(
+        message="I found a student card on the second floor of the library",
+        conversation_context=ConversationContext(session_id="lf-session", shared_data={}),
+        trace_parent=TraceParent(trace_id="rule-future-date"),
+    )
+    verified = VerifiedRequest(
+        user_id="42", user_role="STUDENT", intended_action="invoke", nonce=""
+    )
+    future = (date.today() + timedelta(days=5)).isoformat()
+
+    response = await engine.handle(
+        payload,
+        verified,
+        "rule-future-date",
+        lambda _event: None,
+        interpreted_intent="report_found",
+        interpreted_fields={
+            "item_name": "Student card",
+            "category": "ID_CARD",
+            "description": "A student card found on the second floor of the library",
+            "location": "Central Library",
+            "event_date": future,
+        },
+    )
+
+    assert response.status == "needs_more_info"
+    assert "event_date" not in response.shared_context
+    assert future not in response.response
+    assert fake_api.calls == []
+
+
+async def test_claim_invalid_fields_degrades_to_needs_more_info(
+    settings: Settings, fake_api: FakeCampusApiClient
+) -> None:
+    """claim 路径字段校验失败（非 report 路径）同样由 handle 顶层兜底降级为
+    needs_more_info，不冒泡成"内部错误"（2026-08-11 修复的配套覆盖）。"""
+    engine = RuleEngine(fake_api, ConfirmationStore(ttl_seconds=600), 0.5)
+    payload = InvokeRequest(
+        message="I found a student card on the second floor of the library",
+        conversation_context=ConversationContext(session_id="lf-session", shared_data={}),
+        trace_parent=TraceParent(trace_id="rule-claim-invalid"),
+    )
+    verified = VerifiedRequest(
+        user_id="42", user_role="STUDENT", intended_action="invoke", nonce=""
+    )
+
+    response = await engine.handle(
+        payload,
+        verified,
+        "rule-claim-invalid",
+        lambda _event: None,
+        interpreted_intent="claim_item",
+        interpreted_fields={
+            "report_id": "not-an-int",  # LLM 幻觉值：无法解析为 int
+            "proof_description": "It is my card with my name on the back",
+        },
+    )
+
+    assert response.status == "needs_more_info"
+    assert "内部错误" not in response.response
+    assert fake_api.calls == []

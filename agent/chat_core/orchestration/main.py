@@ -38,11 +38,12 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
+from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from dotenv import find_dotenv, load_dotenv
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -112,7 +113,8 @@ def _thread_config(graph, session_id: str) -> dict:
         if snapshot and snapshot.next:
             logger.warning(
                 "thread %s 上次运行未结束（停在 %s），换新 thread 避免恢复挂起",
-                base, snapshot.next,
+                base,
+                snapshot.next,
             )
             config["configurable"]["thread_id"] = f"{base}:{uuid.uuid4()}"
     except Exception:
@@ -145,6 +147,7 @@ class ResumeRequest(BaseModel):
 # 健康检查
 # ──────────────────────────────────────────────────────────────────────
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "orchestration", "version": "0.1.0"}
@@ -153,6 +156,7 @@ async def health():
 # ──────────────────────────────────────────────────────────────────────
 # 聊天入口（SSE 流式）
 # ──────────────────────────────────────────────────────────────────────
+
 
 @app.post("/chat/stream")
 async def chat_stream(request: Request):
@@ -174,8 +178,9 @@ async def chat_stream(request: Request):
     trace_id = payload.traceId or verified.trace_id or str(uuid.uuid4())
     session_id = _sanitize_thread_id(payload.sessionId)
 
-    logger.info("chat_stream: userId=%s, sessionId=%s, traceId=%s",
-                payload.userId, session_id or "(new)", trace_id)
+    logger.info(
+        "chat_stream: userId=%s, sessionId=%s, traceId=%s", payload.userId, session_id or "(new)", trace_id
+    )
 
     # 构建初始状态
     initial_state: dict[str, Any] = {
@@ -199,7 +204,7 @@ async def chat_stream(request: Request):
         "pending_info": None,
         "error": None,
         "failed_agents": [],
-        "service_failures": [],   # 失败兜底上下文，每轮重置（防跨轮残留误触发）
+        "service_failures": [],  # 失败兜底上下文，每轮重置（防跨轮残留误触发）
         "delegation_tokens": {},
     }
 
@@ -240,7 +245,10 @@ async def chat_resume(request: Request):
 
     logger.info(
         "chat_resume: userId=%s, sessionId=%s, approved=%s, traceId=%s",
-        payload.userId, session_id, payload.approved, trace_id,
+        payload.userId,
+        session_id,
+        payload.approved,
+        trace_id,
     )
 
     graph = _get_graph()
@@ -260,14 +268,16 @@ async def chat_resume(request: Request):
     if state_user is not None and str(state_user) != str(payload.userId):
         logger.warning(
             "chat_resume owner mismatch: session=%s state_user=%s caller=%s",
-            thread_id, state_user, payload.userId,
+            thread_id,
+            state_user,
+            payload.userId,
         )
         raise HTTPException(status_code=403, detail="session owner mismatch")
 
     return StreamingResponse(
         _sse_stream(
             graph,
-            {},   # resume 分支不使用 initial_state（图从 checkpoint 恢复）
+            {},  # resume 分支不使用 initial_state（图从 checkpoint 恢复）
             payload.userId,
             trace_id,
             session_id,
@@ -282,8 +292,14 @@ async def chat_resume(request: Request):
     )
 
 
-async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_id: str,
-                      session_id: str = "", resume: dict | None = None) -> AsyncGenerator[str, None]:
+async def _sse_stream(
+    graph,
+    initial_state: dict[str, Any],
+    user_id: str,
+    trace_id: str,
+    session_id: str = "",
+    resume: dict | None = None,
+) -> AsyncGenerator[str, None]:
     """流式执行 LangGraph 并逐事件生成 SSE 文本。
 
     stream_mode=["messages", "updates"]：
@@ -300,12 +316,12 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
     多轮上下文：同一会话复用 thread_id（前端 session_id 透传）——
     MemorySaver checkpoint 累积 messages；上次停在中断时由 _thread_config 换新 thread。
     """
-    emitted_content = False   # 是否已向用户发出过内容
-    emitted_error = False     # 是否已发出错误事件
-    chat_streamed = False     # chat_responder 是否已通过 messages 模式逐字发出
-    chat_buf = ""             # 已发出的 chat_responder token 拼接（末尾完整重放检测用）
+    emitted_content = False  # 是否已向用户发出过内容
+    emitted_error = False  # 是否已发出错误事件
+    chat_streamed = False  # chat_responder 是否已通过 messages 模式逐字发出
+    chat_buf = ""  # 已发出的 chat_responder token 拼接（末尾完整重放检测用）
     pending_chat_reply: str | None = None  # updates 模式完整回复的缓冲（流末按需补发）
-    stream_failed = False     # 图执行异常（异常路径已由 _direct_llm_reply 兜底，跳过补发）
+    stream_failed = False  # 图执行异常（异常路径已由 _direct_llm_reply 兜底，跳过补发）
 
     try:
         if resume is not None:
@@ -358,13 +374,18 @@ async def _sse_stream(graph, initial_state: dict[str, Any], user_id: str, trace_
                         interrupt_obj = update[0] if isinstance(update, tuple) else update
                         value = getattr(interrupt_obj, "value", interrupt_obj)
                         if isinstance(value, dict):
-                            yield _format_sse(SSEEvent("confirm_required", {
-                                "agent": value.get("agent", ""),
-                                "details": value.get("details", {}),
-                                # interrupt 顶层 message（human_approval 的确认提示）透传，
-                                # 前端优先展示；details 里无 message 时回退 summary
-                                "message": value.get("message", ""),
-                            }))
+                            yield _format_sse(
+                                SSEEvent(
+                                    "confirm_required",
+                                    {
+                                        "agent": value.get("agent", ""),
+                                        "details": value.get("details", {}),
+                                        # interrupt 顶层 message（human_approval 的确认提示）透传，
+                                        # 前端优先展示；details 里无 message 时回退 summary
+                                        "message": value.get("message", ""),
+                                    },
+                                )
+                            )
                             # 中断是正常暂停而非"无输出"：置位以抑制流末 LLM 抢答
                             # （否则用户同时看到确认框和一条 LLM 即时回复）
                             emitted_content = True
@@ -466,6 +487,7 @@ def _format_sse(evt: SSEEvent) -> str:
 # ──────────────────────────────────────────────────────────────────────
 # 调试端点
 # ──────────────────────────────────────────────────────────────────────
+
 
 @app.get("/debug/graph")
 async def debug_graph(request: Request):

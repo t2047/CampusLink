@@ -22,7 +22,7 @@ from .models import (
 )
 from .pretrained import PretrainedEmbeddingClient
 from .rate_limit import RateLimiter
-from .rules import RuleEngine, map_category, search_candidates
+from .rules import RuleEngine, detect_language, map_category, search_candidates
 from .security import AgentSecurity
 from .tools import BackendApiError, CampusApiClient
 
@@ -143,7 +143,14 @@ def create_app(
                             ),
                         )
                         return InvokeResponse(
-                            response="智能识别服务（llm）暂时不可用，请稍后重试。",
+                            response=(
+                                "智能识别服务（llm）暂时不可用，请稍后重试。"
+                                if detect_language(payload.message) == "zh"
+                                else (
+                                    "The AI interpretation service is temporarily "
+                                    "unavailable. Please try again later."
+                                )
+                            ),
                             status="failed",
                             request_id=request_id,
                         )
@@ -167,7 +174,11 @@ def create_app(
             )
         except Exception:
             response = InvokeResponse(
-                response="Agent 处理请求时发生内部错误。",
+                response=(
+                    "Agent 处理请求时发生内部错误。"
+                    if detect_language(payload.message) == "zh"
+                    else "The agent encountered an internal error while processing your request."
+                ),
                 status="failed",
                 request_id=request_id,
             )

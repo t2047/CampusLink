@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -28,10 +28,7 @@ try:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 except ImportError as _e:  # pragma: no cover - 依赖缺失时的清晰报错
-    raise ImportError(
-        "No module named 'mcp'"
-        "Try pip install \"mcp>=1.28,<2\""
-    ) from _e
+    raise ImportError("No module named 'mcp'Try pip install \"mcp>=1.28,<2\"") from _e
 
 from .registry import DEFAULT_CONFIG_PATH, ServiceRegistry
 
@@ -68,8 +65,7 @@ def _describe_mcp_failure(e: BaseException, service: str, url: str) -> str:
     root = _root_exc(e)
     if isinstance(root, httpx.TransportError):
         return (
-            f"MCP service '{service}' is unreachable at {url}: {root}. "
-            "Please ensure the service is running."
+            f"MCP service '{service}' is unreachable at {url}: {root}. Please ensure the service is running."
         )
     return _root_cause(e) or root.__class__.__name__
 
@@ -82,7 +78,7 @@ class AgentClient:
     _http: httpx.AsyncClient = field(default_factory=lambda: httpx.AsyncClient(timeout=_MCP_TIMEOUT))
 
     @classmethod
-    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> "AgentClient":
+    def from_yaml(cls, path: str = DEFAULT_CONFIG_PATH) -> AgentClient:
         return cls(registry=ServiceRegistry.from_yaml(path))
 
     # ──────────────────────────────────────────────────────────────────
@@ -95,11 +91,11 @@ class AgentClient:
         message: str,
         user_id: str,
         user_role: str,
-        delegation_token: Optional[str] = None,
-        conversation_context: Optional[dict] = None,
-        trace_id: Optional[str] = None,
+        delegation_token: str | None = None,
+        conversation_context: dict | None = None,
+        trace_id: str | None = None,
         confirmed: bool = False,
-        confirmation_id: Optional[str] = None,
+        confirmation_id: str | None = None,
     ) -> dict[str, Any]:
         """通过 MCP 调用 Domain Agent 的 ``invoke`` 工具。
 
@@ -109,11 +105,13 @@ class AgentClient:
         if not agent:
             return {"response": f"Agent {agent_name} 未配置", "status": "failed", "error": "not_found"}
         if not agent.mcp_url:
-            return {"response": f"Agent {agent_name} 未配置 MCP 端点", "status": "failed", "error": "no_mcp_url"}
+            return {
+                "response": f"Agent {agent_name} 未配置 MCP 端点",
+                "status": "failed",
+                "error": "no_mcp_url",
+            }
 
-        token = delegation_token or await self._obtain_delegation_token(
-            user_id, user_role, agent_name
-        )
+        token = delegation_token or await self._obtain_delegation_token(user_id, user_role, agent_name)
         if not token:
             return {
                 "response": "安全令牌获取失败，请稍后重试",
@@ -151,16 +149,14 @@ class AgentClient:
         params: dict[str, Any],
         user_id: str = "",
         user_role: str = "",
-        delegation_token: Optional[str] = None,
+        delegation_token: str | None = None,
     ) -> dict[str, Any]:
         """通过 MCP 调用 Utility Tool Server 的对应工具。"""
         utility_mcp = self.registry.utility_mcp_url
         if not utility_mcp:
             return {"error": "utility mcp not configured", "status": "failed"}
 
-        token = delegation_token or await self._obtain_delegation_token(
-            user_id, user_role, "utility-tools"
-        )
+        token = delegation_token or await self._obtain_delegation_token(user_id, user_role, "utility-tools")
         if not token:
             return {"status": "failed", "error": "token_unavailable"}
 
@@ -208,9 +204,7 @@ class AgentClient:
             return {"error": "mcp tool error", "status": "failed"}
 
         # 1) text content（Server 端约定返回 JSON 字符串）
-        texts = [
-            c.text for c in (result.content or []) if getattr(c, "type", "") == "text"
-        ]
+        texts = [c.text for c in (result.content or []) if getattr(c, "type", "") == "text"]
         text = "\n".join(texts).strip()
         if text:
             try:
@@ -225,14 +219,10 @@ class AgentClient:
         structured = getattr(result, "structured_content", None)
         if structured:
             for item in structured:
-                if isinstance(item, dict) and (
-                    "response" in item or "status" in item
-                ):
+                if isinstance(item, dict) and ("response" in item or "status" in item):
                     return item
                 value = getattr(item, "value", None)
-                if isinstance(value, dict) and (
-                    "response" in value or "status" in value
-                ):
+                if isinstance(value, dict) and ("response" in value or "status" in value):
                     return value
 
         return {"response": "", "status": "completed"}
@@ -260,8 +250,8 @@ class AgentClient:
         role: str,
         target_agent: str,
         intended_action: str = "invoke",
-        jti: Optional[str] = None,
-    ) -> Optional[str]:
+        jti: str | None = None,
+    ) -> str | None:
         """从 Token Service 兑换 RS256 Delegation Token（当前内嵌于 Chat Backend）。
 
         MCP 层不要求 jti 绑定 X-Nonce（jti 由签发方随机生成即可）。
@@ -309,8 +299,8 @@ class AgentClient:
             return None
 
     async def _obtain_delegation_token(
-        self, user_id: str, role: str, target_agent: str, jti: Optional[str] = None
-    ) -> Optional[str]:
+        self, user_id: str, role: str, target_agent: str, jti: str | None = None
+    ) -> str | None:
         """从 Token Service 兑换 RS256 Delegation Token（fail-closed）。
 
         兑换失败（未配置 / 网络 / 非 2xx）返回 None → 调用方拒绝调用，

@@ -55,10 +55,7 @@ def after_utility(state: AgentState) -> UtilityAfterResult:
     """Utility 调用后：全部失败 → 转主 Agent（LLM）兜底；
     还有 Agent 待调用则进入 Agent 路径，否则汇聚。"""
     results = state.get("utility_results", {}) or {}
-    if results and all(
-        not isinstance(r, dict) or r.get("status") == "failed"
-        for r in results.values()
-    ):
+    if results and all(not isinstance(r, dict) or r.get("status") == "failed" for r in results.values()):
         return "to_chat"
     if state.get("agent_plan"):
         return "agent_invoker"

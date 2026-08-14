@@ -25,7 +25,7 @@ import json
 
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-import orchestration.main as main
+from orchestration import main
 from orchestration.streaming.sse_handler import structural_events_from_update
 
 
@@ -149,13 +149,15 @@ def test_agent_update_emits_structured_match_results():
         "match_reason": ["物品类别一致"],
     }
     update = {
-        "agent_invocations": [{
-            "agent_name": "lost-found-agent",
-            "output_status": "match_found",
-            "actions_taken": [{"action": "search_lost_items", "status": "success"}],
-            "match_results": [match],
-            "request_id": "request-8",
-        }]
+        "agent_invocations": [
+            {
+                "agent_name": "lost-found-agent",
+                "output_status": "match_found",
+                "actions_taken": [{"action": "search_lost_items", "status": "success"}],
+                "match_results": [match],
+                "request_id": "request-8",
+            }
+        ]
     }
 
     events = structural_events_from_update("agent_invoker", update)

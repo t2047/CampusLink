@@ -11,8 +11,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Optional
+from typing import Any
 
 from ..graph.state import AgentState
 
@@ -23,7 +24,7 @@ class SSEEvent:
 
     event: str
     data: dict[str, Any] = field(default_factory=dict)
-    id: Optional[str] = None
+    id: str | None = None
 
 
 def _format_event(evt: SSEEvent) -> str:
@@ -48,50 +49,66 @@ class OrchestrationStreamer:
         events: list[SSEEvent] = []
 
         intent = self.state.get("intent_type", "chat")
-        events.append(SSEEvent("intent_detected", {"intent_type": intent, "targets": self.state.get("targets", [])}))
+        events.append(
+            SSEEvent("intent_detected", {"intent_type": intent, "targets": self.state.get("targets", [])})
+        )
 
         # Agent 调用事件
         for inv in self.state.get("agent_invocations", []):
             agent_name = inv.get("agent_name", "")
-            request_meta = (
-                {"request_id": inv["request_id"]} if inv.get("request_id") else {}
-            )
-            events.append(
-                SSEEvent("agent_start", {"agent": agent_name, **request_meta})
-            )
+            request_meta = {"request_id": inv["request_id"]} if inv.get("request_id") else {}
+            events.append(SSEEvent("agent_start", {"agent": agent_name, **request_meta}))
 
             for action in inv.get("actions_taken", []):
-                events.append(SSEEvent("agent_step", {
-                    "agent": agent_name,
-                    "action": action.get("action"),
-                    "status": action.get("status", "ok"),
-                    **request_meta,
-                }))
+                events.append(
+                    SSEEvent(
+                        "agent_step",
+                        {
+                            "agent": agent_name,
+                            "action": action.get("action"),
+                            "status": action.get("status", "ok"),
+                            **request_meta,
+                        },
+                    )
+                )
 
             if inv.get("match_results"):
-                events.append(SSEEvent("match_results", {
-                    "agent": agent_name,
-                    "items": inv["match_results"],
-                    **request_meta,
-                }))
+                events.append(
+                    SSEEvent(
+                        "match_results",
+                        {
+                            "agent": agent_name,
+                            "items": inv["match_results"],
+                            **request_meta,
+                        },
+                    )
+                )
 
             status = inv.get("output_status", "")
             if status == "needs_confirmation":
-                events.append(SSEEvent("confirm_required", {
-                    "agent": agent_name,
-                    "details": inv.get("confirmation_required", {}),
-                    **request_meta,
-                }))
-            elif status == "failed":
-                events.append(SSEEvent("agent_error", {
-                    "agent": agent_name,
-                    "message": inv.get("output_response", "调用失败"),
-                    **request_meta,
-                }))
-            else:
                 events.append(
-                    SSEEvent("agent_done", {"agent": agent_name, **request_meta})
+                    SSEEvent(
+                        "confirm_required",
+                        {
+                            "agent": agent_name,
+                            "details": inv.get("confirmation_required", {}),
+                            **request_meta,
+                        },
+                    )
                 )
+            elif status == "failed":
+                events.append(
+                    SSEEvent(
+                        "agent_error",
+                        {
+                            "agent": agent_name,
+                            "message": inv.get("output_response", "调用失败"),
+                            **request_meta,
+                        },
+                    )
+                )
+            else:
+                events.append(SSEEvent("agent_done", {"agent": agent_name, **request_meta}))
 
         # Utility 事件
         for tool_name, result in self.state.get("utility_results", {}).items():
@@ -131,49 +148,72 @@ def structural_events_from_update(node_name: str, update: dict[str, Any]) -> lis
         return events
 
     if node_name == "intent_router":
-        events.append(SSEEvent("intent_detected", {
-            "intent_type": update.get("intent_type", "chat"),
-            "targets": update.get("targets", []),
-        }))
+        events.append(
+            SSEEvent(
+                "intent_detected",
+                {
+                    "intent_type": update.get("intent_type", "chat"),
+                    "targets": update.get("targets", []),
+                },
+            )
+        )
 
     elif node_name == "agent_invoker":
         invs = update.get("agent_invocations", [])
         if invs:
             inv = invs[-1]  # 本次新增的调用记录
             agent = inv.get("agent_name", "")
-            request_meta = (
-                {"request_id": inv["request_id"]} if inv.get("request_id") else {}
-            )
+            request_meta = {"request_id": inv["request_id"]} if inv.get("request_id") else {}
             events.append(SSEEvent("agent_start", {"agent": agent, **request_meta}))
 
             for action in inv.get("actions_taken", []):
-                events.append(SSEEvent("agent_step", {
-                    "agent": agent,
-                    "action": action.get("action"),
-                    "status": action.get("status", "ok"),
-                    **request_meta,
-                }))
+                events.append(
+                    SSEEvent(
+                        "agent_step",
+                        {
+                            "agent": agent,
+                            "action": action.get("action"),
+                            "status": action.get("status", "ok"),
+                            **request_meta,
+                        },
+                    )
+                )
 
             if inv.get("match_results"):
-                events.append(SSEEvent("match_results", {
-                    "agent": agent,
-                    "items": inv["match_results"],
-                    **request_meta,
-                }))
+                events.append(
+                    SSEEvent(
+                        "match_results",
+                        {
+                            "agent": agent,
+                            "items": inv["match_results"],
+                            **request_meta,
+                        },
+                    )
+                )
 
             status = inv.get("output_status", "")
             if status == "needs_confirmation":
-                events.append(SSEEvent("confirm_required", {
-                    "agent": agent,
-                    "details": inv.get("confirmation_required", {}),
-                    **request_meta,
-                }))
+                events.append(
+                    SSEEvent(
+                        "confirm_required",
+                        {
+                            "agent": agent,
+                            "details": inv.get("confirmation_required", {}),
+                            **request_meta,
+                        },
+                    )
+                )
             elif status == "failed":
-                events.append(SSEEvent("agent_error", {
-                    "agent": agent,
-                    "message": inv.get("output_response", "调用失败"),
-                    **request_meta,
-                }))
+                events.append(
+                    SSEEvent(
+                        "agent_error",
+                        {
+                            "agent": agent,
+                            "message": inv.get("output_response", "调用失败"),
+                            **request_meta,
+                        },
+                    )
+                )
             else:
                 events.append(SSEEvent("agent_done", {"agent": agent, **request_meta}))
 

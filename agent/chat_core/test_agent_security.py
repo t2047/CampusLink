@@ -25,7 +25,6 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import jwt as pyjwt
-
 from shared.security import AgentSecurityMiddleware, SecurityConfig
 
 SECRET = "agent-test-secret"
@@ -80,14 +79,13 @@ def make_valid_request(agent: str = "mail-agent") -> FakeRequest:
 
 
 def make_security(agent: str = "mail-agent", jwks_url: str = "") -> AgentSecurityMiddleware:
-    return AgentSecurityMiddleware(
-        SecurityConfig(agent_name=agent, shared_secret=SECRET, jwks_url=jwks_url)
-    )
+    return AgentSecurityMiddleware(SecurityConfig(agent_name=agent, shared_secret=SECRET, jwks_url=jwks_url))
 
 
 # ──────────────────────────────────────────────────────────────────────
 # HS256 模式
 # ──────────────────────────────────────────────────────────────────────
+
 
 def test_valid_request_passes():
     security = make_security()
@@ -195,6 +193,7 @@ def test_expired_token_rejected():
 # ──────────────────────────────────────────────────────────────────────
 # RS256 模式（monkeypatch PyJWKClient / jwt.decode，避免依赖 cryptography）
 # ──────────────────────────────────────────────────────────────────────
+
 
 class FakeSigningKey:
     key = "fake-rsa-public-key"

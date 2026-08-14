@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from datetime import date, timedelta
 from typing import Any, cast
 
 import httpx
@@ -413,3 +414,47 @@ def test_explicit_search_wording_overrides_model_report_misclassification() -> N
     assert result["status"] == "no_match"
     assert result["confirmation_required"] is None
     assert [call[0] for call in fake_api.calls] == ["search_found_items"]
+
+
+def test_model_hallucinated_future_date_is_asked_not_internal_error() -> None:
+    """LLM 幻觉出未来 event_date 时降级为 needs_more_info 追问日期，
+    而不是冒泡成"内部错误"整单 failed（2026-08-11 修复）。"""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return model_response(
+            {
+                "intent": "report_found",
+                "language": "en",
+                "fields": {
+                    "item_name": "Student card",
+                    "category": "ID_CARD",
+                    "description": "A student card found on the second floor of the library",
+                    "location": "Central Library",
+                    "event_date": (date.today() + timedelta(days=5)).isoformat(),
+                },
+            }
+        )
+
+    fake_api = FakeCampusApiClient()
+    client, settings = app_with_model(handler, fake_api)
+    with client:
+        result = invoke(
+            client,
+            settings,
+            "I found a student card on the second floor of the library",
+        )
+
+    assert result["status"] == "needs_more_info"
+    assert "date" in result["response"].lower()
+    assert "内部错误" not in result["response"]
+    assert "event_date" not in result["shared_context"]
+    assert fake_api.calls == []
+
+
+def test_system_prompt_forbids_inventing_dates() -> None:
+    """提示词必须明确禁止编造/猜测日期（防止 LLM 幻觉未来日期，2026-08-11 修复）。"""
+    from lost_found_agent.llm import SYSTEM_PROMPT
+
+    assert "event_date MUST be null" in SYSTEM_PROMPT
+    assert "never output a future" in SYSTEM_PROMPT
+    assert "NEVER guess, invent, or approximate" in SYSTEM_PROMPT

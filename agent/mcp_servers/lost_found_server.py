@@ -66,7 +66,7 @@ from lost_found_agent.llm import LlmInterpreter, LlmUnavailable, interpret_with_
 from lost_found_agent.models import ConversationContext, InvokeRequest, InvokeResponse, TraceParent
 from lost_found_agent.pretrained import PretrainedEmbeddingClient
 from lost_found_agent.rate_limit import RateLimiter
-from lost_found_agent.rules import RuleEngine
+from lost_found_agent.rules import RuleEngine, detect_language
 from lost_found_agent.security import VerifiedRequest
 from lost_found_agent.tools import CampusApiClient
 
@@ -226,7 +226,14 @@ async def invoke(
                     )
                     return json.dumps(
                         {
-                            "response": "智能识别服务暂时不可用，请稍后重试。",
+                            "response": (
+                                "智能识别服务暂时不可用，请稍后重试。"
+                                if detect_language(payload.message) == "zh"
+                                else (
+                                    "The AI interpretation service is temporarily "
+                                    "unavailable. Please try again later."
+                                )
+                            ),
                             "status": "failed",
                             "error": f"llm_fail_closed: {exc}",
                             "request_id": request_id,
@@ -258,7 +265,11 @@ async def invoke(
     except Exception as exc:
         logger.exception("L&F invoke internal error: request_id=%s", request_id)
         response = InvokeResponse(
-            response="Agent 处理请求时发生内部错误。",
+            response=(
+                "Agent 处理请求时发生内部错误。"
+                if detect_language(payload.message) == "zh"
+                else "The agent encountered an internal error while processing your request."
+            ),
             status="failed",
             request_id=request_id,
         )

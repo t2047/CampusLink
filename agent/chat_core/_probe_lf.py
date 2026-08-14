@@ -11,6 +11,7 @@
                       report_lost 必填: item_name, category, description, location, event_date
 - confirmation_required : 需要确认时携带的确认信息（confirmation_id 等）
 """
+
 import asyncio
 import json
 import sys
@@ -24,7 +25,7 @@ except Exception:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from orchestration.mcp.client import AgentClient  # noqa: E402
+from orchestration.mcp.client import AgentClient
 
 REQUIRED_REPORT = ["item_name", "category", "description", "location", "event_date"]
 
@@ -34,7 +35,7 @@ async def main(message: str) -> None:
     r = await client.invoke_agent(
         "lost-found-agent",
         message,
-        "6",          # 替换为你的 userId（后端日志可见）
+        "6",  # 替换为你的 userId（后端日志可见）
         "STUDENT",
         trace_id="dev-probe",
     )

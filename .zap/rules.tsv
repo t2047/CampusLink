@@ -1,0 +1,11 @@
+# CampusLink DAST (ZAP baseline) 规则配置
+# 格式: <rule_id>\t<action>\t<说明>  (action: IGNORE / INFO / WARN / FAIL)
+#
+# 说明: 后端是纯 API 服务（Spring Boot JSON），以下被动扫描告警只对浏览器
+# 渲染的 HTML 页面有意义，对 JSON API 响应属于误报/噪音，统一 IGNORE。
+# 参考: https://www.zaproxy.org/docs/docker/baseline-scan/
+
+10038	IGNORE	Content-Security-Policy 头仅对 HTML 页面有意义，API 返回 JSON 不适用
+10049	IGNORE	API 响应（401/404/JSON）无需浏览器缓存，Non-Storable 为噪音
+10063	IGNORE	Permissions-Policy 头仅对 HTML 页面有意义，API 返回 JSON 不适用
+90005	IGNORE	Sec-Fetch-Dest 是浏览器自动发送的请求头，服务端无法设置
