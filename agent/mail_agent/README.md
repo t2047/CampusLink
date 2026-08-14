@@ -11,6 +11,7 @@ automatically tagged with an ML-predicted category (`campus`, `career`,
 agent/mail_agent/
 ├── mail_agent/                    # FastAPI service package
 │   ├── main.py                    # REST routes (/api/mail/**)
+│   ├── agent.py                   # LangChain agent + 6 tools
 │   ├── gmail_service.py           # Gmail API operations -> MailMessage
 │   ├── models.py                  # Pydantic models + MailCategory enum
 │   ├── classifier.py              # ML classifier wrapper (lazy load + cache)
@@ -89,6 +90,57 @@ Classification is best-effort:
 * the model path can be overridden with the `MAIL_CLASSIFIER_MODEL` env var
   (default: `ml/models/email_classifier.joblib`).
 
+## Mail agent (LangChain)
+
+The service exposes a natural-language mail agent built with LangChain
+(`create_react_agent`). It runs an OpenAI-compatible chat model (DeepSeek by
+default) and can call the following tools against the connected Gmail account:
+
+| Tool            | Description                                    |
+|-----------------|------------------------------------------------|
+| `search_mail`   | Search / list messages                         |
+| `read_mail`     | Read the full body (marks the message read)    |
+| `delete_mail`   | Move a message to trash                        |
+| `star_mail`     | Star / unstar a message                        |
+| `archive_mail`  | Remove a message from the inbox                |
+| `send_mail`     | Compose and send a new message                 |
+
+Every mutation tool accepts either an explicit `message_id` (returned by
+`search_mail`) or a natural-language `query` that resolves to the first
+matching message. Multi-turn conversation is kept per `session_id` (reused as
+the LangGraph thread id).
+
+Model configuration comes from the repository root `.env`:
+
+| Env var                 | Default / fallback                                  |
+|-------------------------|-----------------------------------------------------|
+| `MAIL_LLM_API_KEY`      | falls back to `DEEPSEEK_API_KEY`                    |
+| `MAIL_LLM_BASE_URL`     | falls back to `DEEPSEEK_BASE_URL` (api.deepseek.com)|
+| `MAIL_LLM_MODEL`        | falls back to `DEEPSEEK_MODEL` (deepseek-v4-flash)  |
+| `MAIL_AGENT_MAX_TOKENS` | 2000                                                |
+
+Chat endpoint (same `Authorization: Bearer <jwt>` contract as the rest of the
+service):
+
+```bash
+curl -X POST http://localhost:5000/api/mail/agent/chat \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "帮我找最近的未读邮件", "session_id": "session-1"}'
+```
+
+Response:
+
+```json
+{
+  "response": "找到 3 封未读邮件：...",
+  "status": "completed",
+  "session_id": "session-1",
+  "actions_taken": [{"tool": "search_mail", "args": {"query": "", "unread": true}}],
+  "model": "deepseek-v4-flash"
+}
+```
+
 ## API
 
 | Method | Path                              | Description                                    |
@@ -103,11 +155,23 @@ Classification is best-effort:
 | PATCH  | `/api/mail/messages/{id}`         | `read` / `starred` / `folder`                  |
 | POST   | `/api/mail/messages/{id}/archive` | Remove from inbox                              |
 | POST   | `/api/mail/messages/{id}/delete`  | Move to trash                                  |
+| POST   | `/api/mail/agent/chat`            | LangChain agent chat (search/read/delete/star/archive/send) |
 
 All `/api/mail/**` endpoints require `Authorization: Bearer <jwt>`. Listing is
 paginated: `page` (0-based) and `size` (default 20, max 50); the response is a
 `PageResponse` with `content`, `total_elements`, `total_pages`, `first` and
 `last`.
+
+### Search (`q` parameter)
+
+`q` uses **fuzzy matching** for natural-language terms: Gmail first pre-filters
+candidates with an `OR` query (up to 200 messages), then each message is scored
+locally against subject / sender / preview using substring hits, token coverage
+and edit-distance similarity (typo tolerance, e.g. `exma` matches `exam`).
+Results are ranked by score (newest first on ties) and paginated locally.
+
+Queries that contain Gmail search syntax (e.g. `from:prof@nus.edu.sg`,
+`subject:exam`) are passed through unchanged as exact Gmail queries.
 
 Message shape (each message includes the predicted category):
 

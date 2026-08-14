@@ -16,6 +16,7 @@ import re
 import secrets
 import time
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any
 
 from google.oauth2.credentials import Credentials
@@ -36,6 +37,10 @@ _LABEL_SENT = "SENT"
 _LABEL_TRASH = "TRASH"
 
 MAX_PAGE_SIZE = 50  # "最多 50 条" - the service only ever exposes the latest 50.
+
+# 模糊搜索：用 Gmail OR 预筛候选 + 本地打分排序，避免把整个邮箱拉下来。
+_FUZZY_MAX_CANDIDATES = 200  # 预筛阶段最多取多少封候选邮件
+_FUZZY_MIN_SCORE = 0.30      # 低于该分数的结果不返回
 
 # Gmail list pageTokens are opaque cursors tied to one query. Cache them per
 # query so consecutive pagination is a single list call instead of re-walking
@@ -444,6 +449,135 @@ def _fetch_page_ids(
     return ids, estimate, has_next
 
 
+# ---------------------------------------------------------------------------
+# Fuzzy search (本地模糊匹配)
+# ---------------------------------------------------------------------------
+
+
+def _split_tokens(text: str) -> list[str]:
+    """按空白分词；中文等无空格语言整体保留（交给子串/相似度匹配）。"""
+    return [token for token in text.lower().split() if token]
+
+
+def _fuzzy_score(query: str, subject: str, sender: str, preview: str) -> float:
+    """0..1 的模糊匹配分，综合子串命中、词元覆盖率和编辑距离相似度。
+
+    * 完整子串命中（大小写不敏感）-> 1.0
+    * 查询每个空格分词都在字段中出现 -> 1.0
+    * 单词查询没命中时，用与字段词元的编辑距离相似度容忍拼写错误（exma -> exam）
+    """
+    q = query.strip().lower()
+    if not q:
+        return 1.0
+    fields = [subject.lower(), sender.lower(), preview.lower()]
+    q_tokens = _split_tokens(q)
+    best = 0.0
+    for field in fields:
+        if not field:
+            continue
+        if q in field:
+            best = 1.0
+            continue
+        if q_tokens:
+            hits = sum(1 for token in q_tokens if len(token) >= 2 and token in field)
+            score = hits / len(q_tokens)
+        else:
+            score = 0.0
+        if len(q_tokens) == 1:
+            field_tokens = _split_tokens(field)
+            token_ratio = max(
+                (SequenceMatcher(None, q, field_token).ratio()
+                 for field_token in field_tokens if len(field_token) >= 3),
+                default=0.0,
+            )
+            # 编辑距离分支只用于拼写纠错（exma -> exam），要求足够相似，
+            # 避免 "exam" 和 "career" 这种偶发 0.4 相似度造成误匹配。
+            if token_ratio >= 0.6:
+                score = max(score, token_ratio)
+        best = max(best, score)
+    return round(best, 4)
+
+
+def _fuzzy_candidate_ids(
+    service: Any,
+    folder: MailFolder,
+    q: str,
+    unread: bool | None,
+    starred: bool | None,
+    label_ids: list[str] | None,
+) -> list[str]:
+    """先用 Gmail 的 OR 语法预筛候选（命中任一词元即可），避免全量拉取。
+
+    预筛为空（例如中文整句或特殊字符导致 Gmail 检索不到）时，兜底拉取最近
+    ``_FUZZY_MAX_CANDIDATES`` 封邮件交给本地模糊打分。
+    """
+    tokens = _split_tokens(q)
+    candidates: list[str] = []
+    if tokens:
+        or_query = " OR ".join(tokens)
+        page_token: str | None = None
+        try:
+            while len(candidates) < _FUZZY_MAX_CANDIDATES:
+                listed = _list_page(
+                    service,
+                    min(50, _FUZZY_MAX_CANDIDATES - len(candidates)),
+                    _build_query(folder, or_query, unread, starred),
+                    label_ids,
+                    page_token,
+                )
+                candidates.extend(ref["id"] for ref in (listed.get("messages") or []))
+                page_token = listed.get("nextPageToken")
+                if not page_token:
+                    break
+        except HttpError:
+            candidates = []  # OR 语法失败（特殊字符等），走兜底
+    if not candidates:
+        page_token = None
+        while len(candidates) < _FUZZY_MAX_CANDIDATES:
+            listed = _list_page(
+                service,
+                min(50, _FUZZY_MAX_CANDIDATES - len(candidates)),
+                _build_query(folder, "", unread, starred),
+                label_ids,
+                page_token,
+            )
+            candidates.extend(ref["id"] for ref in (listed.get("messages") or []))
+            page_token = listed.get("nextPageToken")
+            if not page_token:
+                break
+    return candidates
+
+
+def _fuzzy_search(
+    service: Any,
+    folder: MailFolder,
+    q: str,
+    unread: bool | None,
+    starred: bool | None,
+    label_ids: list[str] | None,
+    page: int,
+    size: int,
+) -> tuple[list[MailMessage], int, bool]:
+    """本地模糊检索：拉候选 -> 打分 -> 过滤/排序 -> 分页。"""
+    candidate_ids = _fuzzy_candidate_ids(
+        service, folder, q, unread, starred, label_ids
+    )
+    messages = _fetch_metadata(service, candidate_ids)
+    ranked: list[tuple[float, MailMessage]] = []
+    for message in messages:
+        score = _fuzzy_score(q, message.subject, message.sender, message.preview)
+        if score >= _FUZZY_MIN_SCORE:
+            ranked.append((score, message))
+    ranked.sort(
+        key=lambda item: (-item[0], -item[1].created_at.timestamp()),
+    )
+    total = len(ranked)
+    start = page * size
+    page_messages = [message for _score, message in ranked[start : start + size]]
+    has_next = start + size < total
+    return page_messages, total, has_next
+
+
 def list_messages(
     folder: MailFolder,
     q: str = "",
@@ -463,6 +597,13 @@ def list_messages(
     size = max(1, min(size, MAX_PAGE_SIZE))
     page = max(0, page)
     service = _service()
+    # 模糊匹配：普通自然语言词走 OR 预筛 + 本地打分；带 Gmail 语法（from:/subject: 等）
+    # 的查询仍按精确语法透传，保留高级检索能力。
+    if q.strip() and ":" not in q:
+        label_ids = _folder_label_ids(folder)
+        return _fuzzy_search(
+            service, folder, q, unread, starred, label_ids, page, size
+        )
     query = _build_query(folder, q, unread, starred)
     label_ids = _folder_label_ids(folder)
     key = (folder.value, query, unread, starred, size)
