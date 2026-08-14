@@ -98,6 +98,7 @@ describe('SpaceDetailsPage availability and booking', () => {
     expect(screen.getByLabelText('Date')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Check Availability' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Book this space' })).toBeDisabled()
+    expect(screen.getByRole('link', { name: 'Report a facility issue' })).toHaveAttribute('href', '/facilities/maintenance/new?spaceId=7')
     expect(checkSpaceAvailability).not.toHaveBeenCalled()
   })
 

@@ -58,9 +58,34 @@ export interface BookingResponse {
 
 export type Booking = BookingResponse
 
-export interface MaintenanceRequest {
-  success: boolean; ticketId: number; spaceId: number | null; spaceName: string | null; building: string; roomNumber: string; facilityType: string; description: string; priority: string; status: string; createdAt: string; updatedAt: string; adminNote?: string
+export type MaintenancePriority = 'LOW' | 'MEDIUM' | 'HIGH'
+export type MaintenanceStatus = 'SUBMITTED' | 'IN_PROGRESS' | 'RESOLVED' | 'CANCELLED'
+
+export interface SubmitMaintenanceRequest {
+  spaceId?: number
+  building?: string
+  roomNumber?: string
+  facilityType: string
+  description: string
+  priority?: MaintenancePriority
 }
+
+export interface MaintenanceResponse {
+  success: boolean
+  ticketId: number
+  spaceId: number | null
+  spaceName: string | null
+  building: string
+  roomNumber: string
+  facilityType: string
+  description: string
+  priority: MaintenancePriority
+  status: MaintenanceStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type MaintenanceRequest = MaintenanceResponse
 
 const localDate = (date: Date) => {
   const year = date.getFullYear()
@@ -96,6 +121,9 @@ export const facilitiesApi = {
   listBookings: () => apiClient.get<BookingResponse[]>('/facilities/bookings').then((response) => response.data),
   getBooking: (bookingId: number) => apiClient.get<BookingResponse>(`/facilities/bookings/${bookingId}`).then((response) => response.data),
   cancelBooking: (bookingId: number) => apiClient.patch<BookingResponse>(`/facilities/bookings/${bookingId}/cancel`).then((response) => response.data),
+  submitMaintenanceRequest: (request: SubmitMaintenanceRequest) => apiClient.post<MaintenanceResponse>('/facilities/maintenance', request).then((response) => response.data),
+  listMaintenanceRequests: () => apiClient.get<MaintenanceResponse[]>('/facilities/maintenance').then((response) => response.data),
+  getMaintenanceRequest: (ticketId: number) => apiClient.get<MaintenanceResponse>(`/facilities/maintenance/${ticketId}`).then((response) => response.data),
   getDashboard: async () => {
     const [spacesResponse, bookingsResponse, maintenanceResponse] = await Promise.all([
       apiClient.get<Space[]>('/facilities/spaces'),

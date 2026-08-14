@@ -253,6 +253,16 @@ export function SpaceDetailsPage() {
         </Stack>
       </CardContent></Card>
 
+      <Card variant="outlined"><CardContent>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={2}>
+          <Box>
+            <Typography component="h3" variant="h6" fontWeight={700}>Facility issue?</Typography>
+            <Typography color="text.secondary">Report a problem with this room or its equipment.</Typography>
+          </Box>
+          <Button component={RouterLink} to={`/facilities/maintenance/new?spaceId=${space.spaceId}`} variant="outlined">Report a facility issue</Button>
+        </Stack>
+      </CardContent></Card>
+
       <Dialog open={confirmationOpen} onClose={() => booking.status !== 'creating' && setConfirmationOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Confirm booking</DialogTitle>
         <DialogContent>

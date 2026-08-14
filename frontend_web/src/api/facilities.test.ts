@@ -130,4 +130,46 @@ describe('facilitiesApi', () => {
     await expect(facilitiesApi.cancelBooking(42)).rejects.toBe(conflict)
     expect(apiErrorMessage(conflict)).toBe('A booking cannot be cancelled after its start time')
   })
+
+  it('submits a maintenance request without sending user identity', async () => {
+    const request = {
+      spaceId: 7,
+      facilityType: 'projector',
+      description: 'The projector does not turn on.',
+      priority: 'HIGH' as const,
+    }
+    const response = { success: true, ticketId: 81, status: 'SUBMITTED' }
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ status: 201, data: response })
+
+    await expect(facilitiesApi.submitMaintenanceRequest(request)).resolves.toBe(response)
+    expect(post).toHaveBeenCalledWith('/facilities/maintenance', request)
+    expect(post.mock.calls[0][1]).not.toHaveProperty('userId')
+  })
+
+  it('lists owned maintenance requests and gets one request by ID', async () => {
+    const response = [{ ticketId: 81, status: 'SUBMITTED' }]
+    const get = vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ data: response })
+      .mockResolvedValueOnce({ data: response[0] })
+
+    await expect(facilitiesApi.listMaintenanceRequests()).resolves.toBe(response)
+    await expect(facilitiesApi.getMaintenanceRequest(81)).resolves.toBe(response[0])
+    expect(get).toHaveBeenNthCalledWith(1, '/facilities/maintenance')
+    expect(get).toHaveBeenNthCalledWith(2, '/facilities/maintenance/81')
+  })
+
+  it('preserves maintenance validation errors for the shared error mapper', async () => {
+    const validationError = {
+      isAxiosError: true,
+      message: 'Request failed with status code 400',
+      response: { status: 400, data: { errors: { description: 'must not be blank' } } },
+    }
+    vi.spyOn(apiClient, 'post').mockRejectedValue(validationError)
+
+    await expect(facilitiesApi.submitMaintenanceRequest({
+      spaceId: 7,
+      facilityType: 'projector',
+      description: '',
+    })).rejects.toBe(validationError)
+    expect(apiErrorMessage(validationError)).toBe('must not be blank')
+  })
 })
