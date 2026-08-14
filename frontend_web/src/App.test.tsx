@@ -137,16 +137,14 @@ describe('admin application routes', () => {
   })
   afterEach(() => cleanup())
 
-  it('lets an authenticated user open Facilities from the application navigation', async () => {
+  it('keeps the authenticated Facilities route available and provides a return to Chat', async () => {
     storeSession('USER')
-    renderApp('/lost-found')
-
-    const facilitiesLink = await screen.findByRole('link', { name: 'Facilities' })
-    fireEvent.click(facilitiesLink)
+    renderApp('/facilities')
 
     expect(await screen.findByRole('heading', { name: 'Facilities' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Search Spaces' })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/facilities')
+    expect(screen.getByRole('link', { name: 'CampusLink' })).toHaveAttribute('href', '/chat')
   })
 
   it('redirects an unauthenticated Facilities visitor to login', async () => {

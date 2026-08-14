@@ -646,6 +646,15 @@ export default function ChatPage() {
             {submenuOpen && (
               <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
                 <Link
+                  to="/mail"
+                  onClick={() => setSubmenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <span className="text-base leading-none">✉️</span>
+                  <span className="flex-1">{t('mail')}</span>
+                  <span className="text-xs text-slate-400">/mail</span>
+                </Link>
+                <Link
                   to="/lost-found"
                   onClick={() => setSubmenuOpen(false)}
                   className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -655,35 +664,24 @@ export default function ChatPage() {
                   <span className="text-xs text-slate-400">/lost-found</span>
                 </Link>
                 <Link
-                  to="/mail"
+                  to="/facilities"
                   onClick={() => setSubmenuOpen(false)}
                   className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
-                  <span className="text-base leading-none">✉️</span>
-                  <span className="flex-1">{t('mail')}</span>
-                  <span className="text-xs text-slate-400">/mail</span>
+                  <span className="text-base leading-none">🏢</span>
+                  <span className="flex-1">{t('facilities')}</span>
+                  <span className="text-xs text-slate-400">/facilities</span>
                 </Link>
                 {user?.role && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && (
-                  <>
-                    <Link
-                      to="/admin/facilities"
-                      onClick={() => setSubmenuOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                      <span className="text-base leading-none">🏢</span>
-                      <span className="flex-1">{t('facilities')}</span>
-                      <span className="text-xs text-slate-400">/admin/facilities</span>
-                    </Link>
-                    <Link
-                      to="/admin/dashboard"
-                      onClick={() => setSubmenuOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                      <span className="text-base leading-none">🛠</span>
-                      <span className="flex-1">{t('admin')}</span>
-                      <span className="text-xs text-slate-400">/admin</span>
-                    </Link>
-                  </>
+                  <Link
+                    to="/admin/dashboard"
+                    onClick={() => setSubmenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <span className="text-base leading-none">🛠</span>
+                    <span className="flex-1">{t('admin')}</span>
+                    <span className="text-xs text-slate-400">/admin</span>
+                  </Link>
                 )}
               </div>
             )}
