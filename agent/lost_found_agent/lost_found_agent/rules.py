@@ -1,9 +1,12 @@
 """中英文规则对话、字段补充、写操作确认与工具编排。"""
 
+import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
+
+from pydantic import BaseModel, ValidationError
 
 from .confirmation import ConfirmationError, ConfirmationStore
 from .events import AgentEvent
@@ -24,6 +27,8 @@ from .tools import (
     ReportLostInput,
     SearchFoundItemsInput,
 )
+
+logger = logging.getLogger(__name__)
 
 Intent = Literal[
     "report_lost",
@@ -138,33 +143,55 @@ class RuleEngine:
             return await self._handle_confirmation(payload, verified, request_id, language, emit)
 
         context = safe_context(payload.conversation_context.shared_data)
-        previous_intent = context.get("intent")
-        intent = (
-            detect_explicit_intent(payload.message)
-            or (previous_intent if previous_intent in ALLOWED_INTENTS else None)
-            or interpreted_intent
-            or "search_found_items"
-        )
-        context["intent"] = intent
-        context.update(extract_fields(payload.message, intent))
-        if interpreted_fields:
-            context.update(
-                {
-                    key: value
-                    for key, value in interpreted_fields.items()
-                    if key in ALLOWED_CONTEXT_FIELDS and key != "intent"
-                }
+        try:
+            previous_intent = context.get("intent")
+            intent = (
+                detect_explicit_intent(payload.message)
+                or (previous_intent if previous_intent in ALLOWED_INTENTS else None)
+                or interpreted_intent
+                or "search_found_items"
             )
+            context["intent"] = intent
+            context.update(extract_fields(payload.message, intent))
+            if interpreted_fields:
+                context.update(
+                    {
+                        key: value
+                        for key, value in interpreted_fields.items()
+                        if key in ALLOWED_CONTEXT_FIELDS and key != "intent"
+                    }
+                )
 
-        if intent == "report_lost":
-            return self._prepare_report(context, verified, request_id, language, emit)
-        if intent == "report_found":
-            return self._prepare_found(context, verified, request_id, language, emit)
-        if intent == "claim_item":
-            return self._prepare_claim(context, verified, request_id, language, emit)
-        if intent == "get_item_detail":
-            return await self._detail(context, verified, request_id, language, emit)
-        return await self._search(context, verified, request_id, language, emit)
+            if intent == "report_lost":
+                return self._prepare_report(context, verified, request_id, language, emit)
+            if intent == "report_found":
+                return self._prepare_found(context, verified, request_id, language, emit)
+            if intent == "claim_item":
+                return self._prepare_claim(context, verified, request_id, language, emit)
+            if intent == "get_item_detail":
+                return await self._detail(context, verified, request_id, language, emit)
+            return await self._search(context, verified, request_id, language, emit)
+        except ValidationError as exc:
+            # 兜底：任何路径的字段校验失败（如 LLM 幻觉值）都降级为询问，
+            # 不再冒泡成"内部错误"（2026-08-11 修复；report 路径另有精准降级）
+            logger.warning(
+                "L&F validation degraded to needs_more_info: request_id=%s err=%.200s",
+                request_id, exc,
+            )
+            message = (
+                "请补充完整、正确的信息：日期需为 YYYY-MM-DD 且不能是未来日期，"
+                "描述不少于 10 个字符。"
+                if language == "zh"
+                else "Please provide complete, valid information: date must be YYYY-MM-DD "
+                "and not in the future; description at least 10 characters."
+            )
+            return response_with_token(
+                message,
+                "needs_more_info",
+                request_id,
+                emit,
+                shared_context=context,
+            )
 
     def _prepare_report(
         self,
@@ -175,6 +202,9 @@ class RuleEngine:
         emit: Emit,
     ) -> InvokeResponse:
         required = ["item_name", "category", "description", "location", "event_date"]
+        # 值不可信（如 LLM 幻觉的未来日期）先清除，再统一走缺失字段追问，
+        # 避免 ValidationError 冒泡成"内部错误"（2026-08-11 修复）
+        drop_invalid_fields(ReportLostInput, context)
         missing = [field for field in required if not context.get(field)]
         if missing:
             message = missing_message(missing, language)
@@ -223,6 +253,9 @@ class RuleEngine:
     ) -> InvokeResponse:
         """登记捡到物品（report_found）：先确认（写操作），确认后创建 FOUND 报告。"""
         required = ["item_name", "category", "description", "location", "event_date"]
+        # 值不可信（如 LLM 幻觉的未来日期）先清除，再统一走缺失字段追问，
+        # 避免 ValidationError 冒泡成"内部错误"（2026-08-11 修复）
+        drop_invalid_fields(ReportFoundInput, context)
         missing = [field for field in required if not context.get(field)]
         if missing:
             message = missing_message(missing, language)
@@ -704,6 +737,28 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
         if matched_search:
             fields["keyword"] = matched_search.group(1).strip()
     return {key: value for key, value in fields.items() if value not in (None, "")}
+
+
+def drop_invalid_fields(model_cls: type[BaseModel], context: dict[str, Any]) -> None:
+    """校验 context 能否构造报告模型；失败时移除不可信字段并留日志。
+
+    背景（2026-08-11）：LLM 可能在用户未提供日期时幻觉出未来 event_date，
+    直接 model_validate 会抛 ValidationError 冒泡成"内部错误"整单 failed。
+    这里把不可信字段（如未来日期）从 context 中清除，由调用方重新走缺失字段
+    检查，降级为 needs_more_info 追问，而不是让用户看到内部错误。
+    """
+    try:
+        model_cls.model_validate(context)
+    except ValidationError as exc:
+        invalid = {
+            str(err.get("loc", ())[0]) for err in exc.errors() if err.get("loc")
+        }
+        logger.warning(
+            "drop_invalid_fields: model=%s invalid=%s err=%.200s",
+            model_cls.__name__, sorted(invalid), exc,
+        )
+        for field in invalid:
+            context.pop(field, None)
 
 
 def map_category(value: str) -> str | None:

@@ -87,10 +87,15 @@ or bypass confirmation. Extract only facts explicitly supplied by the user or tr
 Do not invent missing values.
 Categories must be one of ELECTRONICS, ID_CARD, WALLET_PURSE, KEYS, BAG, CLOTHING,
 BOOKS_STATIONERY, UMBRELLA, OTHER. Dates must use YYYY-MM-DD.
-Relative time words resolve to trusted_context.today (the authoritative current
-date, Asia/Singapore, provided by the server — NEVER guess a date): "刚刚捡到/今天/现在"
-→ trusted_context.today; "昨天" → trusted_context.today minus one day. Do not leave
-event_date null when the user indicates the item was found/lost today or yesterday.
+Dates: event_date MUST be null unless the user explicitly states a date or uses a
+relative time word. Only two sources are allowed: (1) an explicit date in the user's
+message, or (2) a calculation from trusted_context.today (the authoritative current
+date, Asia/Singapore, provided by the server — NEVER guess, invent, or approximate a
+date): "刚刚捡到/今天/现在" → trusted_context.today; "昨天" → trusted_context.today
+minus one day. Never fill in a date the user did not state, and never output a future
+date. When the user gives no date at all, event_date MUST be null (the server will
+ask for it). Do not leave event_date null only when the user indicates the item was
+found/lost today or yesterday.
 Also fold any physical detail the user gives (colour, condition, where found) into
 description so it reaches at least 10 characters.
 Campus context: CampusLink runs on a university campus. When rendering place/location

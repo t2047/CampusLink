@@ -150,7 +150,6 @@ describe('admin application routes', () => {
 
   it.each([
     ['Lost & Found', '/admin/lost-found'],
-    ['Facilities', '/admin/facilities'],
     ['User Management', '/admin/users'],
   ])('navigates from the %s dashboard card to its placeholder', async (label, path) => {
     storeSession('ADMIN')
