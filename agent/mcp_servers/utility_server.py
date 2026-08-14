@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+from html import unescape as html_unescape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -141,15 +142,72 @@ def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
     return json.dumps({"value": value, "from_unit": from_unit, "to_unit": to_unit, "result": result})
 
 
+def _parse_ddg_results(html_text: str, max_results: int = 5) -> list[dict[str, str]]:
+    """从 DuckDuckGo HTML 响应提取搜索结果（标题/链接/摘要），纯标准库。
+
+    DDG html 端点每个结果块含 ``result__a``（标题+链接）与 ``result__snippet``
+    （摘要）。解析失败/无结果时返回空列表，绝不抛异常（搜索为低风险读操作）。
+    """
+    results: list[dict[str, str]] = []
+
+    def _clean(text: str) -> str:
+        text = re.sub(r"<[^>]+>", "", text)  # 去内嵌标签
+        return html_unescape(text).strip()
+
+    titles = re.findall(
+        r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+        html_text,
+        re.DOTALL,
+    )
+    snippets = re.findall(
+        r'<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>',
+        html_text,
+        re.DOTALL,
+    )
+    for index, (url, title) in enumerate(titles[:max_results]):
+        results.append(
+            {
+                "title": _clean(title),
+                "url": url,
+                "snippet": _clean(snippets[index]) if index < len(snippets) else "",
+            }
+        )
+    return results
+
+
 @mcp.tool()
-def web_search(query: str) -> str:
-    """联网搜索（Sprint 3+ 接入搜索 API；当前返回占位）。"""
-    return json.dumps({
-        "query": query,
-        "results": [],
-        "note": "联网搜索需接入搜索 API（Sprint 3+ 待办）",
-        "status": "placeholder",
-    })
+async def web_search(query: str, max_results: int = 5) -> str:
+    """联网搜索（DuckDuckGo HTML 端点，无需 API key；2026-08-15 接入）。
+
+    返回最多 max_results 条结果（标题/链接/摘要）。搜索失败时返回 status=failed
+    并附错误信息（低风险读操作，fail-open：绝不抛异常中断调用链）。
+    """
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+                )
+            },
+        ) as client:
+            response = await client.get(
+                "https://html.duckduckgo.com/html/", params={"q": query}
+            )
+            response.raise_for_status()
+    except Exception as exc:
+        return json.dumps(
+            {"query": query, "results": [], "error": f"search failed: {exc}", "status": "failed"},
+            ensure_ascii=False,
+        )
+    results = _parse_ddg_results(response.text, max_results)
+    return json.dumps(
+        {"query": query, "results": results, "status": "ok" if results else "no_results"},
+        ensure_ascii=False,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────

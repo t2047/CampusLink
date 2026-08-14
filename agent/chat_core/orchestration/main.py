@@ -150,6 +150,7 @@ def _build_initial_state(payload: ChatRequest, trace_id: str, session_id: str) -
         "approval_context": None,
         "approval_agent": None,
         "pending_confirmation": None,
+        "pending_utility_confirm": None,
         "error": None,
         "failed_agents": [],
         "service_failures": [],  # 失败兜底上下文，每轮重置（防跨轮残留误触发）
