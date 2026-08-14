@@ -61,7 +61,8 @@ public class LostFoundAgentInternalController {
                 request.eventDate(),
                 request.timeDescription());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(reportService.create(serviceRequest, List.of(), currentUser));
+                .body(reportService.createFromStaged(
+                        serviceRequest, imageKeys(request.imageKeys()), currentUser));
     }
 
     @PostMapping("/reports/found")
@@ -78,7 +79,8 @@ public class LostFoundAgentInternalController {
                 request.eventDate(),
                 request.timeDescription());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(reportService.create(serviceRequest, List.of(), currentUser));
+                .body(reportService.createFromStaged(
+                        serviceRequest, imageKeys(request.imageKeys()), currentUser));
     }
 
     @GetMapping("/candidates")
@@ -91,6 +93,54 @@ public class LostFoundAgentInternalController {
             @RequestParam(required = false) LocalDate dateTo,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "100") int size) {
+        return searchCandidates(
+                ReportType.FOUND,
+                keyword,
+                category,
+                colour,
+                location,
+                dateFrom,
+                dateTo,
+                page,
+                size);
+    }
+
+    @GetMapping("/lost-candidates")
+    public PageResponse<AgentCandidateResponse> lostCandidates(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) ItemCategory category,
+            @RequestParam(required = false) String colour,
+            @RequestParam(required = false) String location,
+            @RequestParam(required = false) LocalDate dateFrom,
+            @RequestParam(required = false) LocalDate dateTo,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        return searchCandidates(
+                ReportType.LOST,
+                keyword,
+                category,
+                colour,
+                location,
+                dateFrom,
+                dateTo,
+                page,
+                size);
+    }
+
+    private static List<String> imageKeys(List<String> imageKeys) {
+        return imageKeys == null ? List.of() : imageKeys;
+    }
+
+    private PageResponse<AgentCandidateResponse> searchCandidates(
+            ReportType reportType,
+            String keyword,
+            ItemCategory category,
+            String colour,
+            String location,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            int page,
+            int size) {
         if (page < 0 || size < 1 || size > 100) {
             throw new LostFoundApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
@@ -98,6 +148,7 @@ public class LostFoundAgentInternalController {
                     "page must be at least 0 and size must be between 1 and 100");
         }
         return reportService.searchCandidates(
+                reportType,
                 keyword,
                 category,
                 colour,

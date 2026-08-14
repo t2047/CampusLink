@@ -4,7 +4,7 @@ import { Alert, Box, Button, Card, CardMedia, FormControl, Grid, IconButton, Inp
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
-import { createReport } from '../api/lostFound'
+import { createReport, suggestCategory } from '../api/lostFound'
 import { categoryLabels } from '../labels'
 import type { CreateReportInput, ItemCategory, ReportType } from '../types'
 
@@ -31,6 +31,21 @@ export function CreateReportPage({ reportType }: { reportType: ReportType }) {
   const [progress, setProgress] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const imagesRef = useRef<SelectedImage[]>([])
+  // ref 供 await 后读取最新值，防止异步返回时覆盖用户刚手动选过的分类
+  const categoryTouchedRef = useRef(false)
+
+  async function autoSuggestCategory() {
+    const name = form.itemName.trim()
+    if (!name || categoryTouchedRef.current) return
+    try {
+      const suggested = await suggestCategory(name)
+      if (suggested && !categoryTouchedRef.current) {
+        setForm((current) => ({ ...current, category: suggested }))
+      }
+    } catch {
+      /* 静默失败：分类建议失败不影响创建报告 */
+    }
+  }
 
   useEffect(() => { imagesRef.current = images }, [images])
   useEffect(() => () => { imagesRef.current.forEach((image) => URL.revokeObjectURL(image.preview)) }, [])
@@ -83,8 +98,8 @@ export function CreateReportPage({ reportType }: { reportType: ReportType }) {
       {error && <Alert severity="error">{error}</Alert>}
       <Card sx={{ p: 3 }}>
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Item name" inputProps={{ minLength: 3, maxLength: 100 }} value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><FormControl fullWidth required><InputLabel>Category</InputLabel><Select label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as ItemCategory })}>{categories.map((category) => <MenuItem key={category} value={category}>{categoryLabels[category]}</MenuItem>)}</Select></FormControl></Grid>
+          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Item name" inputProps={{ minLength: 3, maxLength: 100 }} value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} onBlur={autoSuggestCategory} /></Grid>
+          <Grid size={{ xs: 12, md: 6 }}><FormControl fullWidth required><InputLabel>Category</InputLabel><Select label="Category" value={form.category} onChange={(e) => { categoryTouchedRef.current = true; setForm({ ...form, category: e.target.value as ItemCategory }) }}>{categories.map((category) => <MenuItem key={category} value={category}>{categoryLabels[category]}</MenuItem>)}</Select></FormControl></Grid>
           <Grid size={12}><TextField fullWidth required multiline minRows={4} label="Description" helperText="Include brand, distinguishing marks and other identifying details (10–2000 characters)." inputProps={{ minLength: 10, maxLength: 2000 }} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Colour" inputProps={{ maxLength: 50 }} value={form.colour} onChange={(e) => setForm({ ...form, colour: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Location" inputProps={{ maxLength: 200 }} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>

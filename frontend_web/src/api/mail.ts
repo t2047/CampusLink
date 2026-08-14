@@ -42,3 +42,28 @@ export async function deleteMail(id: string): Promise<MailMessage> {
   const response = await apiClient.post<MailMessage>(`/mail/messages/${id}/delete`)
   return response.data
 }
+
+export interface MailOAuthStatus {
+  connected: boolean
+  email: string | null
+}
+
+export interface MailOAuthUrl {
+  auth_url: string
+  connected: boolean
+}
+
+export async function getMailOAuthStatus(): Promise<MailOAuthStatus> {
+  const response = await apiClient.get<MailOAuthStatus>('/mail/oauth/status')
+  return response.data
+}
+
+export async function getMailOAuthUrl(): Promise<MailOAuthUrl> {
+  const response = await apiClient.get<MailOAuthUrl>('/mail/oauth/url')
+  return response.data
+}
+
+export async function disconnectMail(): Promise<MailOAuthStatus> {
+  const response = await apiClient.post<MailOAuthStatus>('/mail/oauth/disconnect')
+  return response.data
+}

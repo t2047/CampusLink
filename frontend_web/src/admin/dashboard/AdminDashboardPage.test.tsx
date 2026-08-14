@@ -19,6 +19,7 @@ const overviewFixture: AdminLostFoundOverview = {
   lostReports: 7,
   foundReports: 5,
   submittedClaims: 2,
+  hiddenReports: 0,
 }
 
 function storeSession(role = 'ADMIN') {

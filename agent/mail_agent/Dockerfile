@@ -4,9 +4,12 @@ WORKDIR /app
 
 COPY agent/mail_agent/pyproject.toml ./pyproject.toml
 COPY agent/mail_agent/mail_agent ./mail_agent
+COPY agent/mail_agent/ml ./ml
 
 RUN pip install --no-cache-dir .
 
-EXPOSE 8091
+# Port 5000 matches the OAuth redirect URI registered in Google Cloud Console
+# (http://localhost:5000/callback) so the /callback exchange works in dev.
+EXPOSE 5000
 
-CMD ["uvicorn", "mail_agent.main:app", "--host", "0.0.0.0", "--port", "8091"]
+CMD ["uvicorn", "mail_agent.main:app", "--host", "0.0.0.0", "--port", "5000"]

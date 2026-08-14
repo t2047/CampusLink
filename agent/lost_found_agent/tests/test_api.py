@@ -12,7 +12,7 @@ def test_public_health_reports_rules_mode(client: TestClient) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "lost-found-agent",
-        "version": "0.4.0",
+        "version": "0.7.0",
         "mode": "rules",
         "model_configured": False,
     }
@@ -26,7 +26,9 @@ def test_public_capabilities_do_not_expose_secrets(client: TestClient) -> None:
     assert data["capabilities"]["write_confirmation_required"] is True
     assert data["capabilities"]["actions"] == [
         "report_lost",
+        "report_found",
         "search_found_items",
+        "search_lost_items",
         "get_item_detail",
         "claim_item",
     ]

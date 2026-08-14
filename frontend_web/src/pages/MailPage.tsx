@@ -1,4 +1,6 @@
 import ArchiveIcon from '@mui/icons-material/Archive'
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
+import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead'
@@ -18,6 +20,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Drawer,
   IconButton,
   List,
   ListItemButton,
@@ -31,8 +34,9 @@ import {
 } from '@mui/material'
 import { FormEvent, useEffect, useState } from 'react'
 import { apiErrorMessage } from '../api/client'
-import { archiveMail, deleteMail, getMailMessage, listMail, sendMail, updateMail } from '../api/mail'
-import type { MailFolder, MailMessage } from '../types'
+import { archiveMail, deleteMail, disconnectMail, getMailMessage, getMailOAuthStatus, getMailOAuthUrl, listMail, sendMail, updateMail } from '../api/mail'
+import { MailAgentPanel } from '../components/MailAgentPanel'
+import type { MailCategory, MailFolder, MailMessage } from '../types'
 
 const folders: Array<{ value: MailFolder; label: string }> = [
   { value: 'inbox', label: 'Inbox' },
@@ -41,9 +45,18 @@ const folders: Array<{ value: MailFolder; label: string }> = [
   { value: 'trash', label: 'Trash' },
 ]
 
+const categoryMeta: Record<MailCategory, { label: string; color: 'success' | 'info' | 'warning' | 'default' }> = {
+  campus: { label: 'Campus', color: 'success' },
+  career: { label: 'Career', color: 'info' },
+  finance: { label: 'Finance', color: 'warning' },
+  other: { label: 'Other', color: 'default' },
+}
+
 export function MailPage() {
   const [folder, setFolder] = useState<MailFolder>('inbox')
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
   const [messages, setMessages] = useState<MailMessage[]>([])
   const [selected, setSelected] = useState<MailMessage | null>(null)
   const [loading, setLoading] = useState(true)
@@ -52,25 +65,87 @@ export function MailPage() {
   const [composeOpen, setComposeOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [draft, setDraft] = useState({ recipients: '', subject: '', body: '' })
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [connectUrl, setConnectUrl] = useState('')
+  const [notice, setNotice] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
-  async function loadMessages(nextFolder = folder, nextQuery = query) {
+  async function loadMessages(nextFolder = folder, nextQuery = query, nextPage = page) {
     setLoading(true)
     setError('')
     try {
-      const result = await listMail({ folder: nextFolder, q: nextQuery || undefined, size: 50 })
+      const result = await listMail({ folder: nextFolder, q: nextQuery || undefined, page: nextPage, size: 5 })
+      setPage(nextPage)
+      setTotalPages(result.total_pages)
       setMessages(result.content)
       if (!result.content.some((message) => message.id === selected?.id)) {
         setSelected(null)
       }
     } catch (requestError) {
-      setError(apiErrorMessage(requestError))
+      if (
+        requestError &&
+        typeof requestError === 'object' &&
+        'response' in requestError &&
+        (requestError as { response?: { status?: number } }).response?.status === 409
+      ) {
+        setConnected(false)
+        const data = (requestError as { response?: { data?: { auth_url?: string } } }).response?.data
+        setConnectUrl(data?.auth_url ?? '')
+        setMessages([])
+      } else {
+        setError(apiErrorMessage(requestError))
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  async function refreshConnection(): Promise<boolean> {
+    try {
+      const status = await getMailOAuthStatus()
+      setConnected(status.connected)
+      if (!status.connected) {
+        setConnectUrl((await getMailOAuthUrl()).auth_url)
+      }
+      return status.connected
+    } catch {
+      setConnected(true)
+      return true
+    }
+  }
+
+  async function disconnectGmail() {
+    if (!window.confirm('Disconnect Gmail? You will need to re-authorize to use mail again.')) {
+      return
+    }
+    try {
+      await disconnectMail()
+      setConnected(false)
+      setMessages([])
+      setSelected(null)
+      setTotalPages(0)
+      setPage(0)
+      setConnectUrl((await getMailOAuthUrl()).auth_url)
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError))
+    }
+  }
+
   useEffect(() => {
-    void loadMessages(folder, query)
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('connected') === '1') {
+      setNotice('Gmail connected successfully.')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    void (async () => {
+      const ok = await refreshConnection()
+      if (ok) {
+        await loadMessages(folder, query, 0)
+      } else {
+        setLoading(false)
+        setMessages([])
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder])
 
@@ -123,7 +198,17 @@ export function MailPage() {
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault()
-    await loadMessages(folder, query)
+    await loadMessages(folder, query, 0)
+  }
+
+  async function goToPreviousPage() {
+    if (page <= 0) return
+    await loadMessages(folder, query, page - 1)
+  }
+
+  async function goToNextPage() {
+    if (page + 1 >= totalPages) return
+    await loadMessages(folder, query, page + 1)
   }
 
   async function submitDraft() {
@@ -155,11 +240,35 @@ export function MailPage() {
           <Typography color="text.secondary">Read, search, send, and organize campus mail.</Typography>
         </Box>
         <Stack direction="row" spacing={1}>
+          {connected === true && (
+            <Button variant="outlined" color="error" onClick={disconnectGmail}>
+              Disconnect
+            </Button>
+          )}
+          {connected === false && (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => connectUrl && window.location.assign(connectUrl)}
+            >
+              Connect Gmail
+            </Button>
+          )}
+          {connected === true && (
+            <Button
+              variant="outlined"
+              startIcon={<ChatBubbleOutlineIcon />}
+              onClick={() => setAssistantOpen(true)}
+            >
+              Assistant
+            </Button>
+          )}
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadMessages()}>Refresh</Button>
           <Button variant="contained" startIcon={<SendIcon />} onClick={() => setComposeOpen(true)}>Compose</Button>
         </Stack>
       </Stack>
 
+      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
       <Paper sx={{ overflow: 'hidden' }}>
@@ -202,6 +311,12 @@ export function MailPage() {
                           {message.subject}
                         </Typography>
                         {message.starred && <StarIcon color="warning" fontSize="small" />}
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color={categoryMeta[message.category].color}
+                          label={categoryMeta[message.category].label}
+                        />
                       </Stack>
                       <Typography noWrap variant="body2" color="text.secondary">{message.sender}</Typography>
                       <Typography noWrap variant="body2">{message.preview}</Typography>
@@ -214,6 +329,25 @@ export function MailPage() {
                 <Typography variant="h6">No messages</Typography>
                 <Typography color="text.secondary">Try another folder or search term.</Typography>
               </Box>
+            )}
+            {totalPages > 0 && (
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="center"
+                spacing={1}
+                sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}
+              >
+                <Button size="small" disabled={page <= 0} onClick={goToPreviousPage}>
+                  Prev
+                </Button>
+                <Typography variant="body2" sx={{ minWidth: 90, textAlign: 'center' }}>
+                  Page {page + 1} / {totalPages}
+                </Typography>
+                <Button size="small" disabled={page + 1 >= totalPages} onClick={goToNextPage}>
+                  Next
+                </Button>
+              </Stack>
             )}
           </Box>
 
@@ -228,7 +362,13 @@ export function MailPage() {
                     <Typography color="text.secondary">From {selected.sender}</Typography>
                     <Typography color="text.secondary">To {selected.recipients.join(', ')}</Typography>
                   </Box>
-                  <Chip label={selected.folder} />
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Chip label={selected.folder} />
+                    <Chip
+                      color={categoryMeta[selected.category].color}
+                      label={categoryMeta[selected.category].label}
+                    />
+                  </Stack>
                 </Stack>
                 <Stack direction="row" spacing={1}>
                   <Tooltip title={selected.starred ? 'Unstar' : 'Star'}>
@@ -253,7 +393,27 @@ export function MailPage() {
                   )}
                 </Stack>
                 <Divider />
-                <Typography sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>{selected.body}</Typography>
+                {selected.body_html ? (
+                  <Box
+                    sx={{
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <iframe
+                      title="Email body"
+                      sandbox="allow-popups"
+                      srcDoc={selected.body_html}
+                      style={{ width: '100%', height: '60vh', border: 'none', background: '#fff', display: 'block' }}
+                    />
+                  </Box>
+                ) : (
+                  <Typography sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                    {selected.body}
+                  </Typography>
+                )}
               </Stack>
             ) : (
               <Box sx={{ minHeight: 520, display: 'grid', placeItems: 'center', p: 4, textAlign: 'center' }}>
@@ -297,6 +457,23 @@ export function MailPage() {
           <Button variant="contained" startIcon={<SendIcon />} onClick={submitDraft} disabled={sending}>Send</Button>
         </DialogActions>
       </Dialog>
+
+      <Drawer
+        anchor="right"
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        sx={{ '& .MuiDrawer-paper': { width: { xs: '100%', sm: 420 } } }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+          <Typography variant="h6" fontWeight={700}>Mail Assistant</Typography>
+          <IconButton aria-label="Close assistant" onClick={() => setAssistantOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <Box sx={{ flex: 1, minHeight: 0, p: 2 }}>
+          <MailAgentPanel />
+        </Box>
+      </Drawer>
     </Stack>
   )
 }

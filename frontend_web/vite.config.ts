@@ -9,7 +9,7 @@ export default defineConfig({
     // Admin/Lost&Found 的 axios client 使用绝对地址，不受此影响
     proxy: {
       '/api/mail': {
-        target: 'http://localhost:8091',
+        target: 'http://localhost:5000',
         changeOrigin: true,
       },
       '/api': {

@@ -120,11 +120,13 @@ web 容器已映射 80/443 并挂载 certbot 卷。把域名 A 记录指向 VM �
 
 ```bash
 # 1. 首次签发证书（一次性命令；.env 已设 CERT_DOMAIN=your-domain.com）
-docker compose up -d web          # 先确保 nginx 起来（80 提供 acme 挑战）
+docker compose up -d web          # nginx 起来（无证书时用自签占位，80 提供 acme 挑战）
+# 清掉占位自签证书，避免 certbot 报"证书已存在"
+docker compose run --rm certbot sh -c 'rm -rf "/etc/letsencrypt/live/$CERT_DOMAIN" "/etc/letsencrypt/archive/$CERT_DOMAIN"'
 docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
     -d your-domain.com --email you@example.com --agree-tos --no-eff-email
 
-# 2. 重新加载 nginx 使 443 生效（证书挂载为只读卷，重启 web 即可）
+# 2. 重新加载 nginx 使 443 用真实证书（证书挂载为只读卷，重启 web 即可）
 docker compose restart web
 
 # 3. 证书续期由 certbot 容器自动处理（每 12h renew；web 的 443 server 直接读卷）
