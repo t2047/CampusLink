@@ -230,6 +230,7 @@ export interface ApiErrorBody {
   error?: string
   message?: string
   fieldErrors?: Record<string, string>
+  errors?: Record<string, string>
 }
 
 export type MailFolder = 'inbox' | 'sent' | 'archived' | 'trash'

@@ -31,14 +31,32 @@ export interface SpaceSearchFilters {
   endDateTime?: string
 }
 
-export interface Booking {
+export interface AvailabilityResponse {
+  available: boolean
+  reasonCode: string | null
+  space: Space
+  startDateTime: string
+  endDateTime: string
+}
+
+export interface CreateBookingRequest {
+  spaceId: number
+  startDateTime: string
+  endDateTime: string
+}
+
+export interface BookingResponse {
   success: boolean
   bookingId: number
-  space: Pick<Space, 'spaceId' | 'name'>
+  space: Space
   startDateTime: string
   endDateTime: string
   status: 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | string
+  createdAt: string
+  updatedAt: string
 }
+
+export type Booking = BookingResponse
 
 export interface MaintenanceRequest {
   success: boolean; ticketId: number; spaceId: number | null; spaceName: string | null; building: string; roomNumber: string; facilityType: string; description: string; priority: string; status: string; createdAt: string; updatedAt: string; adminNote?: string
@@ -70,6 +88,11 @@ export const facilitiesApi = {
     return apiClient.get<Space[]>('/facilities/spaces', { params }).then((response) => response.data)
   },
   getSpace: (spaceId: number) => apiClient.get<Space>(`/facilities/spaces/${spaceId}`).then((response) => response.data),
+  checkSpaceAvailability: (spaceId: number, startDateTime: string, endDateTime: string) => {
+    const params = new URLSearchParams({ startDateTime, endDateTime })
+    return apiClient.get<AvailabilityResponse>(`/facilities/spaces/${spaceId}/availability`, { params }).then((response) => response.data)
+  },
+  createBooking: (request: CreateBookingRequest) => apiClient.post<BookingResponse>('/facilities/bookings', request).then((response) => response.data),
   getDashboard: async () => {
     const [spacesResponse, bookingsResponse, maintenanceResponse] = await Promise.all([
       apiClient.get<Space[]>('/facilities/spaces'),
