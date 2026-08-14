@@ -20,14 +20,18 @@ describe('Lost & Found Agent API', () => {
       },
     })
 
-    expect(post).toHaveBeenCalledWith('/lost-found/agent/invoke', {
-      message: '我丢了耳机',
-      confirmed: false,
-      conversationContext: {
-        sessionId: 'session-1',
-        sharedData: { intent: 'report_lost' },
+    expect(post).toHaveBeenCalledWith(
+      '/lost-found/agent/invoke',
+      {
+        message: '我丢了耳机',
+        confirmed: false,
+        conversationContext: {
+          sessionId: 'session-1',
+          sharedData: { intent: 'report_lost' },
+        },
       },
-    })
+      { timeout: 25_000 },
+    )
   })
 
   it('forwards staged images on the invoke request', async () => {

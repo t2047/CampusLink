@@ -14,6 +14,9 @@ import com.app.campusagent.lostfound.dto.LostFoundReportResponse;
 import com.app.campusagent.lostfound.dto.PageResponse;
 import com.app.campusagent.lostfound.dto.UpdateLostFoundReportRequest;
 import com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse;
+import com.app.campusagent.lostfound.embedding.LostFoundEmbeddingClient;
+import com.app.campusagent.lostfound.embedding.StoredEmbedding;
+import com.app.campusagent.lostfound.embedding.TextEmbeddingBundle;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
 import com.app.campusagent.lostfound.repository.LostFoundClaimRepository;
 import com.app.campusagent.lostfound.repository.LostFoundNotificationRepository;
@@ -26,6 +29,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -39,6 +43,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Base64;
+import java.util.Optional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -51,7 +57,27 @@ public class LostFoundReportService {
     private final LostFoundNotificationRepository notificationRepository;
     private final LostFoundAuditService auditService;
     private final LostFoundImageStagingService stagingService;
+    private final LostFoundEmbeddingClient embeddingClient;
 
+    @Autowired
+    public LostFoundReportService(
+            LostFoundReportRepository reportRepository,
+            ObjectStorageService storageService,
+            LostFoundClaimRepository claimRepository,
+            LostFoundNotificationRepository notificationRepository,
+            LostFoundAuditService auditService,
+            LostFoundImageStagingService stagingService,
+            LostFoundEmbeddingClient embeddingClient) {
+        this.reportRepository = reportRepository;
+        this.storageService = storageService;
+        this.claimRepository = claimRepository;
+        this.notificationRepository = notificationRepository;
+        this.auditService = auditService;
+        this.stagingService = stagingService;
+        this.embeddingClient = embeddingClient;
+    }
+
+    /** 保留给不需要启动预训练模型的单元测试。 */
     public LostFoundReportService(
             LostFoundReportRepository reportRepository,
             ObjectStorageService storageService,
@@ -59,12 +85,8 @@ public class LostFoundReportService {
             LostFoundNotificationRepository notificationRepository,
             LostFoundAuditService auditService,
             LostFoundImageStagingService stagingService) {
-        this.reportRepository = reportRepository;
-        this.storageService = storageService;
-        this.claimRepository = claimRepository;
-        this.notificationRepository = notificationRepository;
-        this.auditService = auditService;
-        this.stagingService = stagingService;
+        this(reportRepository, storageService, claimRepository, notificationRepository,
+                auditService, stagingService, null);
     }
 
     @Transactional
@@ -85,6 +107,9 @@ public class LostFoundReportService {
                 request.eventDate(),
                 trimToNull(request.timeDescription()),
                 currentUser);
+        applyTextEmbeddings(report);
+
+        List<StoredEmbedding> pretrainedImages = embedMultipartImages(safeImages);
 
         List<StoredObject> uploaded = new ArrayList<>();
         registerRollbackCleanup(uploaded);
@@ -101,7 +126,9 @@ public class LostFoundReportService {
                         stored.size(),
                         index,
                         fingerprint));
+                assignImageEmbedding(report.getImages().getLast(), pretrainedImages, index);
             }
+            report.refreshEmbeddingStatus();
             LostFoundReport saved = reportRepository.saveAndFlush(report);
             auditService.record(
                     LostFoundAuditAction.REPORT_CREATED,
@@ -146,7 +173,8 @@ public class LostFoundReportService {
                 currentUser);
 
         for (int index = 0; index < keys.size(); index++) {
-            LostFoundImageStagingService.StagedImage staged = stagingService.retrieve(keys.get(index));
+            LostFoundImageStagingService.StagedImage staged =
+                    stagingService.retrieveOwned(keys.get(index), currentUser);
             String fingerprint = VisualFingerprintExtractor.extract(
                     staged.content(), staged.contentType());
             report.addImage(new LostFoundImage(
@@ -156,8 +184,16 @@ public class LostFoundReportService {
                     staged.fileSize(),
                     index,
                     fingerprint));
+            if (staged.visualEmbedding() != null) {
+                report.getImages().getLast().assignVisualEmbedding(
+                        staged.visualEmbedding(), staged.visualEmbeddingModel(),
+                        staged.visualEmbeddingRevision());
+            }
         }
+        applyTextEmbeddings(report);
+        report.refreshEmbeddingStatus();
         LostFoundReport saved = reportRepository.saveAndFlush(report);
+        consumeStagedImagesAfterCommit(keys);
         auditService.record(
                 LostFoundAuditAction.REPORT_CREATED,
                 saved.getId(),
@@ -230,7 +266,13 @@ public class LostFoundReportService {
                             // 与 imageUrls 同序：无指纹的图片位置为 null，Agent 端跳过
                             images.stream()
                                     .map(LostFoundImage::getVisualFingerprint)
-                                    .toList());
+                                    .toList(),
+                            encode(report.getSemanticTextEmbedding()),
+                            encode(report.getCrossModalTextEmbedding()),
+                            images.stream()
+                                    .map(image -> encode(image.getVisualEmbedding()))
+                                    .toList(),
+                            report.getEmbeddingStatus().name());
                 }));
 }
 
@@ -285,6 +327,8 @@ public class LostFoundReportService {
                 request.location().trim(),
                 request.eventDate(),
                 trimToNull(request.timeDescription()));
+        applyTextEmbeddings(report);
+        report.refreshEmbeddingStatus();
         LostFoundReport saved = reportRepository.save(report);
         auditService.record(
                 LostFoundAuditAction.REPORT_UPDATED,
@@ -358,6 +402,7 @@ public class LostFoundReportService {
 
     private void replaceImages(LostFoundReport report, List<MultipartFile> images) {
         validateImages(images);
+        List<StoredEmbedding> pretrainedImages = embedMultipartImages(images);
         List<String> oldKeys = report.imageObjectKeys();
         List<LostFoundImage> newImages = new ArrayList<>();
         List<StoredObject> uploaded = new ArrayList<>();
@@ -375,6 +420,7 @@ public class LostFoundReportService {
                         stored.size(),
                         index,
                         fingerprint));
+                assignImageEmbedding(newImages.getLast(), pretrainedImages, index);
             }
             report.replaceImages(newImages);
             oldKeys.forEach(storageService::delete);
@@ -383,6 +429,55 @@ public class LostFoundReportService {
             uploaded.clear();
             throw ex;
         }
+    }
+
+    private void applyTextEmbeddings(LostFoundReport report) {
+        if (embeddingClient == null) {
+            report.markEmbeddingsPending();
+            return;
+        }
+        Optional<TextEmbeddingBundle> bundle = embeddingClient.embedDocument(
+                report.getItemName() + "\n" + report.getDescription());
+        if (bundle.isEmpty() || bundle.get().semantic() == null) {
+            report.markEmbeddingsPending();
+            return;
+        }
+        StoredEmbedding semantic = bundle.get().semantic();
+        StoredEmbedding crossModal = bundle.get().crossModal();
+        report.assignTextEmbeddings(
+                semantic.vector(), semantic.model(), semantic.revision(),
+                crossModal == null ? null : crossModal.vector(),
+                crossModal == null ? null : crossModal.model(),
+                crossModal == null ? null : crossModal.revision());
+    }
+
+    private List<StoredEmbedding> embedMultipartImages(List<MultipartFile> images) {
+        if (embeddingClient == null || images.isEmpty()) {
+            return List.of();
+        }
+        try {
+            List<LostFoundEmbeddingClient.ImageInput> inputs = new ArrayList<>();
+            for (MultipartFile image : images) {
+                inputs.add(new LostFoundEmbeddingClient.ImageInput(
+                        image.getBytes(), image.getContentType(), image.getOriginalFilename()));
+            }
+            return embeddingClient.embedImages(inputs);
+        } catch (IOException exception) {
+            return List.of();
+        }
+    }
+
+    private static void assignImageEmbedding(
+            LostFoundImage image, List<StoredEmbedding> embeddings, int index) {
+        if (index >= embeddings.size() || embeddings.get(index) == null) {
+            return;
+        }
+        StoredEmbedding embedding = embeddings.get(index);
+        image.assignVisualEmbedding(embedding.vector(), embedding.model(), embedding.revision());
+    }
+
+    private static String encode(byte[] vector) {
+        return vector == null ? null : Base64.getEncoder().encodeToString(vector);
     }
 
     private void assertOwner(LostFoundReport report, User currentUser,
@@ -512,6 +607,19 @@ public class LostFoundReportService {
                 if (status != TransactionSynchronization.STATUS_COMMITTED) {
                     uploaded.forEach(stored -> storageService.delete(stored.objectKey()));
                 }
+            }
+        });
+    }
+
+    private void consumeStagedImagesAfterCommit(List<String> objectKeys) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            stagingService.consume(objectKeys);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                stagingService.consume(objectKeys);
             }
         });
     }

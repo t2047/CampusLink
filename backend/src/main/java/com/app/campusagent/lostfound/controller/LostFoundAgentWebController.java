@@ -36,8 +36,10 @@ public class LostFoundAgentWebController {
 
     /** Agent 面板图片暂存：登录用户上传单张图片，返回 objectKey / 指纹 / 回显 URL。 */
     @PostMapping("/upload-image")
-    public StagedImageResponse uploadImage(@RequestParam("image") MultipartFile file) {
-        return stagingService.upload(file);
+    public StagedImageResponse uploadImage(
+            @RequestParam("image") MultipartFile file,
+            @AuthenticationPrincipal User currentUser) {
+        return stagingService.upload(file, currentUser);
     }
 
     @PostMapping("/invoke")

@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY agent/mail_agent/pyproject.toml ./pyproject.toml
 COPY agent/mail_agent/mail_agent ./mail_agent
+COPY agent/mail_agent/ml ./ml
 
 RUN pip install --no-cache-dir .
 

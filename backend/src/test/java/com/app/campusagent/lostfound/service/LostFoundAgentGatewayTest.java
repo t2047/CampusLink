@@ -32,6 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class LostFoundAgentGatewayTest {
 
@@ -231,12 +235,18 @@ class LostFoundAgentGatewayTest {
         });
         server.start();
 
+        User user = user(42L, Role.STUDENT);
+        LostFoundImageStagingService stagingService = mock(LostFoundImageStagingService.class);
+        when(stagingService.trustedAgentImages(any(), eq(user))).thenReturn(List.of(Map.of(
+                "object_key", "lost-found-staging/k.png",
+                "visual_fingerprint", "VF1:trusted",
+                "visual_embedding", "AACAPwAAAAA=")));
         LostFoundAgentGateway gateway = new LostFoundAgentGateway(
                 new ObjectMapper(),
                 HttpClient.newHttpClient(),
                 URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/agent/invoke"),
-                SECRET);
-        User user = user(42L, Role.STUDENT);
+                SECRET,
+                stagingService);
         AgentWebSearchRequest request = new AgentWebSearchRequest(
                 "FOUND",
                 "耳机",
@@ -258,7 +268,8 @@ class LostFoundAgentGatewayTest {
         assertTrue(body.contains("\"keyword\":\"耳机\""));
         assertTrue(body.contains("\"date_from\":\"2026-08-01\""));
         assertTrue(body.contains("\"object_key\":\"lost-found-staging/k.png\""));
-        assertTrue(body.contains("\"visual_fingerprint\":\"VF1:fp\""));
+        assertTrue(body.contains("\"visual_fingerprint\":\"VF1:trusted\""));
+        assertTrue(body.contains("\"visual_embedding\":\"AACAPwAAAAA=\""));
 
         String nonce = firstHeader(capturedHeaders.get(), "X-nonce");
         String timestamp = firstHeader(capturedHeaders.get(), "X-timestamp");

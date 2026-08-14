@@ -13,6 +13,7 @@ export interface StagedAgentImage {
   contentType: string
   originalName: string
   fileSize: number
+  embeddingStatus?: 'READY' | 'PENDING' | 'BASELINE'
 }
 
 export interface AgentMatchResult {
@@ -29,6 +30,8 @@ export interface AgentMatchResult {
   status: string
   match_score: number
   match_reason: string[]
+  score_breakdown?: Record<string, number>
+  matching_mode?: 'pretrained_multimodal' | 'pretrained_image' | 'pretrained_text' | 'baseline'
 }
 
 export interface AgentConfirmationRequired {
@@ -70,6 +73,9 @@ export async function invokeLostFoundAgent(
   const response = await apiClient.post<AgentInvokeResponse>('/lost-found/agent/invoke', {
     ...request,
     confirmed: request.confirmed ?? false,
+  }, {
+    // Agent 内部模型最多等待 15 秒，额外预留规则降级和后端工具调用时间。
+    timeout: 25_000,
   })
   return response.data
 }

@@ -38,7 +38,7 @@ class LostFoundAgentUploadImageControllerTest {
     void stagesValidImageForAuthenticatedUser() throws Exception {
         MockMultipartFile image = new MockMultipartFile(
                 "image", "item.png", MediaType.IMAGE_PNG_VALUE, new byte[]{1, 2, 3, 4});
-        when(stagingService.upload(any(MultipartFile.class)))
+        when(stagingService.upload(any(MultipartFile.class), any(User.class)))
                 .thenReturn(new StagedImageResponse(
                         "lost-found-staging/k.png",
                         "VF1:fp",

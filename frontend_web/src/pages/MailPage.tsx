@@ -1,4 +1,6 @@
 import ArchiveIcon from '@mui/icons-material/Archive'
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
+import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead'
@@ -18,6 +20,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Drawer,
   IconButton,
   List,
   ListItemButton,
@@ -32,7 +35,8 @@ import {
 import { FormEvent, useEffect, useState } from 'react'
 import { apiErrorMessage } from '../api/client'
 import { archiveMail, deleteMail, disconnectMail, getMailMessage, getMailOAuthStatus, getMailOAuthUrl, listMail, sendMail, updateMail } from '../api/mail'
-import type { MailFolder, MailMessage } from '../types'
+import { MailAgentPanel } from '../components/MailAgentPanel'
+import type { MailCategory, MailFolder, MailMessage } from '../types'
 
 const folders: Array<{ value: MailFolder; label: string }> = [
   { value: 'inbox', label: 'Inbox' },
@@ -40,6 +44,13 @@ const folders: Array<{ value: MailFolder; label: string }> = [
   { value: 'archived', label: 'Archived' },
   { value: 'trash', label: 'Trash' },
 ]
+
+const categoryMeta: Record<MailCategory, { label: string; color: 'success' | 'info' | 'warning' | 'default' }> = {
+  campus: { label: 'Campus', color: 'success' },
+  career: { label: 'Career', color: 'info' },
+  finance: { label: 'Finance', color: 'warning' },
+  other: { label: 'Other', color: 'default' },
+}
 
 export function MailPage() {
   const [folder, setFolder] = useState<MailFolder>('inbox')
@@ -57,6 +68,7 @@ export function MailPage() {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [connectUrl, setConnectUrl] = useState('')
   const [notice, setNotice] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
   async function loadMessages(nextFolder = folder, nextQuery = query, nextPage = page) {
     setLoading(true)
@@ -242,6 +254,15 @@ export function MailPage() {
               Connect Gmail
             </Button>
           )}
+          {connected === true && (
+            <Button
+              variant="outlined"
+              startIcon={<ChatBubbleOutlineIcon />}
+              onClick={() => setAssistantOpen(true)}
+            >
+              Assistant
+            </Button>
+          )}
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadMessages()}>Refresh</Button>
           <Button variant="contained" startIcon={<SendIcon />} onClick={() => setComposeOpen(true)}>Compose</Button>
         </Stack>
@@ -290,6 +311,12 @@ export function MailPage() {
                           {message.subject}
                         </Typography>
                         {message.starred && <StarIcon color="warning" fontSize="small" />}
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color={categoryMeta[message.category].color}
+                          label={categoryMeta[message.category].label}
+                        />
                       </Stack>
                       <Typography noWrap variant="body2" color="text.secondary">{message.sender}</Typography>
                       <Typography noWrap variant="body2">{message.preview}</Typography>
@@ -335,7 +362,13 @@ export function MailPage() {
                     <Typography color="text.secondary">From {selected.sender}</Typography>
                     <Typography color="text.secondary">To {selected.recipients.join(', ')}</Typography>
                   </Box>
-                  <Chip label={selected.folder} />
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Chip label={selected.folder} />
+                    <Chip
+                      color={categoryMeta[selected.category].color}
+                      label={categoryMeta[selected.category].label}
+                    />
+                  </Stack>
                 </Stack>
                 <Stack direction="row" spacing={1}>
                   <Tooltip title={selected.starred ? 'Unstar' : 'Star'}>
@@ -424,6 +457,23 @@ export function MailPage() {
           <Button variant="contained" startIcon={<SendIcon />} onClick={submitDraft} disabled={sending}>Send</Button>
         </DialogActions>
       </Dialog>
+
+      <Drawer
+        anchor="right"
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        sx={{ '& .MuiDrawer-paper': { width: { xs: '100%', sm: 420 } } }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+          <Typography variant="h6" fontWeight={700}>Mail Assistant</Typography>
+          <IconButton aria-label="Close assistant" onClick={() => setAssistantOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <Box sx={{ flex: 1, minHeight: 0, p: 2 }}>
+          <MailAgentPanel />
+        </Box>
+      </Drawer>
     </Stack>
   )
 }

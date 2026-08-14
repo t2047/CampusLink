@@ -12,6 +12,7 @@ users can report/find/claim in natural language, and write operations are persis
 explicit user confirmation.
 
 Lost & Found Agent development status and future work are maintained in the [Chinese technical roadmap](docs/lost-found/TECHNICAL_ROADMAP_cn.md).
+Pretrained model boundaries and evaluation are documented in the [Chinese multimodal matching guide](docs/lost-found/PRETRAINED_MULTIMODAL_MATCHING_cn.md).
 
 ## Tech Stack
 
@@ -46,6 +47,14 @@ To add the optional Lost & Found REST Agent used by the module test panel, also 
 ```bash
 docker compose --profile agent up -d --build
 ```
+
+To opt into Multilingual-E5, CLIP image-to-image matching, and optional multilingual text-to-image matching:
+
+```bash
+docker compose --profile agent --profile multimodal up -d --build
+```
+
+Model files live in a Docker named volume. Normal startup does not load them, and report creation plus matching automatically fall back to the existing baseline when the model service is unavailable.
 
 `LOST_FOUND_LLM_API_KEY` may remain empty; `auto` mode then uses the rule engine. The normal `docker compose up -d` starts the platform base stack but does not expose the optional REST Agent on port 8083.
 
@@ -101,7 +110,7 @@ Web workflow of the L&F sub-module (Agent integration is covered in “Agent Pla
 - Give `ADMIN` and `SUPER_ADMIN` users a read-only operational overview with report metrics, filters, pagination, and reporter identification.
 - Let authenticated users try the real Lost & Found Agent from the main page with multi-turn lost/found reporting, write confirmation, search, and candidate links. Agent secrets remain server-side.
 
-Embedding and multimodal image matching, notifications, mobile UI, administrator write actions, report editing, and report deletion remain outside this iteration. Lost & Found is already Agent-integrated; see “Agent Platform (Core)”.
+Lost & Found now supports Multilingual-E5 text semantics, CLIP image-to-image similarity, optional multilingual text-to-image similarity, structured-field fusion, and automatic baseline fallback. Notifications and the mobile UI remain outside this iteration.
 
 ## API Reference
 
@@ -159,6 +168,12 @@ cd ../frontend_web
 npm run lint
 npm test
 npm run build
+
+cd ../services/lost_found_embedding
+uv sync --frozen --all-extras
+uv run ruff check .
+uv run mypy lost_found_embedding tests
+uv run pytest
 ```
 
 PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking high-severity SpotBugs checks, npm vulnerability auditing, and dependency-change review. The nightly workflow adds deeper SpotBugs analysis, OWASP dependency checking, and ZAP scanning. A CD workflow (`cd-deploy.yml`) deploys to a single DigitalOcean Droplet via SSH on `main` push — see `DEPLOYMENT.md` for setup.
@@ -176,9 +191,10 @@ project/
 │   └── src/main/java/com/app/campusagent/
 │       ├── chat/            Chat relay (SSE) + Token Service endpoints
 │       └── lostfound/       L&F web business (controller/ dto/ domain/ exception/ …)
-├── frontend_web/        React Web app (chat + L&F pages) and public/admin-test.html
-├── frontend_mobile/     Future mobile client
-├── ml-service/          Future matching/analytics services
-├── docker-compose.yml   MySQL and MinIO
+├── frontend_web/            React Web app (chat + L&F pages) and public/admin-test.html
+├── services/
+│   └── lost_found_embedding/ Standalone pretrained E5/CLIP service
+├── frontend_mobile/         Future mobile client
+├── docker-compose.yml       MySQL, MinIO, and optional model profile
 └── docs/
 ```

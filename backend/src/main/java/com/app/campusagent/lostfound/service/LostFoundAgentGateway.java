@@ -47,11 +47,13 @@ public class LostFoundAgentGateway {
     private final URI classifyUri;
     private final URI searchUri;
     private final String sharedSecret;
+    private final LostFoundImageStagingService stagingService;
 
     @Autowired
     public LostFoundAgentGateway(
             @Value("${app.agent.lost-found-url:http://localhost:8083}") String agentUrl,
-            @Value("${app.agent.shared-secret:}") String sharedSecret) {
+            @Value("${app.agent.shared-secret:}") String sharedSecret,
+            LostFoundImageStagingService stagingService) {
         this(
                 new ObjectMapper(),
                 HttpClient.newBuilder()
@@ -59,7 +61,8 @@ public class LostFoundAgentGateway {
                         .connectTimeout(Duration.ofSeconds(5))
                         .build(),
                 URI.create(agentUrl.replaceAll("/+$", "") + "/agent/invoke"),
-                sharedSecret);
+                sharedSecret,
+                stagingService);
     }
 
     LostFoundAgentGateway(
@@ -67,12 +70,22 @@ public class LostFoundAgentGateway {
             HttpClient httpClient,
             URI invokeUri,
             String sharedSecret) {
+        this(objectMapper, httpClient, invokeUri, sharedSecret, null);
+    }
+
+    LostFoundAgentGateway(
+            ObjectMapper objectMapper,
+            HttpClient httpClient,
+            URI invokeUri,
+            String sharedSecret,
+            LostFoundImageStagingService stagingService) {
         this(
                 objectMapper,
                 httpClient,
                 invokeUri,
                 URI.create(invokeUri.toString().replace("/agent/invoke", "/agent/classify")),
-                sharedSecret);
+                sharedSecret,
+                stagingService);
     }
 
     private LostFoundAgentGateway(
@@ -80,13 +93,15 @@ public class LostFoundAgentGateway {
             HttpClient httpClient,
             URI invokeUri,
             URI classifyUri,
-            String sharedSecret) {
+            String sharedSecret,
+            LostFoundImageStagingService stagingService) {
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
         this.invokeUri = invokeUri;
         this.classifyUri = classifyUri;
         this.searchUri = URI.create(invokeUri.toString().replace("/agent/invoke", "/agent/search"));
         this.sharedSecret = sharedSecret;
+        this.stagingService = stagingService;
     }
 
     public Map<String, Object> invoke(AgentWebInvokeRequest request, User currentUser) {
@@ -94,7 +109,9 @@ public class LostFoundAgentGateway {
         String traceId = UUID.randomUUID().toString();
         byte[] body;
         try {
-            body = objectMapper.writeValueAsBytes(request.toAgentPayload(traceId));
+            Map<String, Object> agentPayload = request.toAgentPayload(traceId);
+            replaceWithTrustedImages(agentPayload, request.images(), currentUser);
+            body = objectMapper.writeValueAsBytes(agentPayload);
         } catch (JsonProcessingException exception) {
             throw new LostFoundApiException(
                     HttpStatus.BAD_GATEWAY,
@@ -131,13 +148,24 @@ public class LostFoundAgentGateway {
         return new AgentClassifyResponse(category instanceof String ? (String) category : null);
     }
 
+    private void replaceWithTrustedImages(
+            Map<String, Object> payload,
+            java.util.List<AgentWebInvokeRequest.AgentImage> images,
+            User currentUser) {
+        if (stagingService != null && images != null && !images.isEmpty()) {
+            payload.put("images", stagingService.trustedAgentImages(images, currentUser));
+        }
+    }
+
     /** Browse 以图搜物：把查询（含视觉指纹）安全代理给 Agent 的轻量搜索端点。 */
     public Map<String, Object> search(AgentWebSearchRequest request, User currentUser) {
         ensureConfigured();
         String traceId = UUID.randomUUID().toString();
         byte[] body;
         try {
-            body = objectMapper.writeValueAsBytes(request.toAgentPayload());
+            Map<String, Object> agentPayload = request.toAgentPayload();
+            replaceWithTrustedImages(agentPayload, request.images(), currentUser);
+            body = objectMapper.writeValueAsBytes(agentPayload);
         } catch (JsonProcessingException exception) {
             throw new LostFoundApiException(
                     HttpStatus.BAD_GATEWAY,

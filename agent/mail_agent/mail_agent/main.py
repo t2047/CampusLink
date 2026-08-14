@@ -14,12 +14,15 @@ OAuth flow:
 from __future__ import annotations
 
 import math
+import re
+import uuid
 
 from fastapi import FastAPI, Header, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
-from . import config, gmail_service
+from . import agent, config, gmail_service
 from .models import (
     MailFolder,
     MailMessage,
@@ -102,6 +105,8 @@ async def health() -> dict[str, object]:
         "status": "ok",
         "service": "mail-agent",
         "gmail_connected": gmail_service.is_connected(),
+        "agent_configured": agent.is_configured(),
+        "agent_model": config.MAIL_LLM_MODEL,
     }
 
 
@@ -249,3 +254,72 @@ def delete_message(
         return gmail_service.trash_message(message_id)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# Mail agent (LangChain)
+# ---------------------------------------------------------------------------
+
+
+class MailAgentChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+    session_id: str = Field(default="", max_length=256, description="Multi-turn chat session id")
+
+
+class MailAgentAction(BaseModel):
+    tool: str
+    args: dict[str, object] = Field(default_factory=dict)
+
+
+class MailAgentChatResponse(BaseModel):
+    response: str
+    status: str = "completed"
+    session_id: str
+    actions_taken: list[MailAgentAction] = Field(default_factory=list)
+    model: str = ""
+
+
+def _sanitize_session_id(raw: str) -> str:
+    """Sanitize the session id before it becomes a LangGraph thread key."""
+    if not raw:
+        return ""
+    return re.sub(r"[^A-Za-z0-9_-]", "", raw)[:128]
+
+
+@app.post("/api/mail/agent/chat", response_model=MailAgentChatResponse)
+async def agent_chat(
+    request: MailAgentChatRequest,
+    authorization: str | None = Header(default=None),
+) -> MailAgentChatResponse:
+    """Run a natural-language request through the LangChain mail agent.
+
+    The agent can search, read, delete, star, archive and send mail via the
+    Gmail-backed ``gmail_service``. Reuse the same ``session_id`` to keep
+    multi-turn conversation context.
+    """
+    _user_from_auth(authorization)
+    if not agent.is_configured():
+        raise MailApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "MAIL_AGENT_NOT_CONFIGURED",
+            "Mail agent is not configured. Set MAIL_LLM_API_KEY (or DEEPSEEK_API_KEY) in .env.",
+        )
+    session_id = _sanitize_session_id(request.session_id) or f"anon-{uuid.uuid4().hex}"
+    try:
+        result = await agent.run_chat(request.message, session_id)
+    except Exception as exc:  # noqa: BLE001
+        raise MailApiError(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "MAIL_AGENT_ERROR",
+            f"Mail agent failed: {exc}",
+        ) from exc
+    return MailAgentChatResponse(
+        response=result["response"],
+        status="completed",
+        session_id=result["session_id"],
+        actions_taken=[
+            MailAgentAction(tool=action["tool"], args=action.get("args") or {})
+            for action in result["actions_taken"]
+        ],
+        model=result["model"],
+    )

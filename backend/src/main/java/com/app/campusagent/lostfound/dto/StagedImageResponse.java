@@ -11,5 +11,16 @@ public record StagedImageResponse(
         String url,
         String contentType,
         String originalName,
-        long fileSize) {
+        long fileSize,
+        String embeddingStatus) {
+
+    public StagedImageResponse(
+            String objectKey,
+            String visualFingerprint,
+            String url,
+            String contentType,
+            String originalName,
+            long fileSize) {
+        this(objectKey, visualFingerprint, url, contentType, originalName, fileSize, "BASELINE");
+    }
 }

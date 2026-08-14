@@ -14,6 +14,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+try:  # 加载仓库根目录 .env（本地运行 uvicorn 时无需手动 export）
+    from dotenv import find_dotenv, load_dotenv
+
+    load_dotenv(find_dotenv())
+except ImportError:  # pragma: no cover - 依赖缺失时退回环境变量
+    pass
+
 # Resolves to <repo>/agent/mail_agent
 _PACKAGE_DIR = Path(__file__).resolve().parent
 SERVICE_DIR = _PACKAGE_DIR.parent
@@ -50,6 +57,23 @@ TOKEN_PATH = Path(
 
 # Frontend origin to bounce back to after the OAuth callback completes.
 FRONTEND_URL = os.environ.get("MAIL_FRONTEND_URL", "http://localhost:5173")
+
+# ---- Mail Agent LLM (LangChain) ----------------------------------------------
+# 显式配置 MAIL_LLM_*（写入仓库根 .env）；未配置时回退到 DEEPSEEK_*，保证
+# Chat Core / Facility Agent 已有的 key 直接可用。
+MAIL_LLM_API_KEY = (
+    os.environ.get("MAIL_LLM_API_KEY", "").strip()
+    or os.environ.get("DEEPSEEK_API_KEY", "").strip()
+)
+MAIL_LLM_BASE_URL = (
+    os.environ.get("MAIL_LLM_BASE_URL", "").strip()
+    or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+)
+MAIL_LLM_MODEL = (
+    os.environ.get("MAIL_LLM_MODEL", "").strip()
+    or os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash").strip()
+)
+MAIL_AGENT_MAX_TOKENS = int(os.environ.get("MAIL_AGENT_MAX_TOKENS", "2000"))
 
 
 def client_config() -> dict:

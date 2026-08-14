@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://campuslink.local/schemas/lost-found-agent-1.7.0.json",
+  "$id": "https://campuslink.local/schemas/lost-found-agent-1.8.0.json",
   "agent": "lost-found-agent",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "校园失物招领领域 Agent。负责报失、登记拾获、双向搜索匹配、查看详情和提交认领；报失、登记拾获和认领必须经过用户确认。",
   "agentType": "domain_agent",
   "transport": {
@@ -91,6 +91,9 @@
             "properties": {
               "object_key": {"type": "string", "minLength": 1, "maxLength": 500},
               "visual_fingerprint": {"type": ["string", "null"]},
+              "visual_embedding": {"type": ["string", "null"], "maxLength": 4096},
+              "visual_embedding_model": {"type": ["string", "null"]},
+              "visual_embedding_revision": {"type": ["string", "null"]},
               "url": {"type": ["string", "null"]}
             },
             "required": ["object_key"]
@@ -115,7 +118,15 @@
         "image_urls": {"type": "array", "items": {"type": "string", "format": "uri"}},
         "status": {"type": "string", "enum": ["OPEN", "CLAIMED", "CLOSED"]},
         "match_score": {"type": "number", "minimum": 0, "maximum": 1},
-        "match_reason": {"type": "array", "items": {"type": "string"}}
+        "match_reason": {"type": "array", "items": {"type": "string"}},
+        "score_breakdown": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "matching_mode": {
+          "type": "string",
+          "enum": ["pretrained_multimodal", "pretrained_image", "pretrained_text", "baseline"]
+        }
       },
       "required": [
         "item_id",
@@ -128,7 +139,9 @@
         "image_urls",
         "status",
         "match_score",
-        "match_reason"
+        "match_reason",
+        "score_breakdown",
+        "matching_mode"
       ]
     },
     "invokeOutput": {
@@ -210,6 +223,9 @@
             "properties": {
               "object_key": {"type": "string", "minLength": 1, "maxLength": 500},
               "visual_fingerprint": {"type": ["string", "null"]},
+              "visual_embedding": {"type": ["string", "null"], "maxLength": 4096},
+              "visual_embedding_model": {"type": ["string", "null"]},
+              "visual_embedding_revision": {"type": ["string", "null"]},
               "url": {"type": ["string", "null"]}
             },
             "required": ["object_key"]
@@ -291,17 +307,27 @@
     "topK": 5,
     "defaultMinimumScore": 0.35,
     "weights": {
-      "text": 0.28,
-      "category": 0.28,
-      "colour": 0.14,
-      "location": 0.14,
-      "date": 0.06,
-      "visual": 0.10
+      "text": 0.25,
+      "visual": 0.20,
+      "cross_modal": 0.10,
+      "category": 0.20,
+      "location": 0.10,
+      "temporal": 0.10,
+      "colour": 0.05
     },
     "visualFingerprint": {
       "queryField": "visual_fingerprint",
       "candidateField": "visualFingerprints",
       "description": "Optional image fingerprint (VF1:...) used for explainable multimodal matching. Active only when both query and candidate carry fingerprints; missing fields are re-normalized away."
+    },
+    "pretrainedEmbeddings": {
+      "textModel": "intfloat/multilingual-e5-small",
+      "textRevision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "imageModel": "sentence-transformers/clip-ViT-B-32",
+      "imageRevision": "327ab6726d33c0e22f920c83f2ff9e4bd38ca37f",
+      "crossModalModel": "sentence-transformers/clip-ViT-B-32-multilingual-v1",
+      "crossModalRevision": "58edf8cada9e398793dca955574a48cbb7f18be2",
+      "fallback": "hash text embedding + VF1 colour histogram"
     },
     "missingFieldsRenormalizeWeights": true
   },

@@ -12,6 +12,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
@@ -63,6 +64,33 @@ public class LostFoundReport {
 
     @Column(name = "time_description", length = 100)
     private String timeDescription;
+
+    @Lob
+    @Column(name = "semantic_text_embedding", columnDefinition = "LONGBLOB")
+    private byte[] semanticTextEmbedding;
+
+    @Column(name = "semantic_text_model", length = 200)
+    private String semanticTextModel;
+
+    @Column(name = "semantic_text_revision", length = 64)
+    private String semanticTextRevision;
+
+    @Lob
+    @Column(name = "cross_modal_text_embedding", columnDefinition = "LONGBLOB")
+    private byte[] crossModalTextEmbedding;
+
+    @Column(name = "cross_modal_text_model", length = 200)
+    private String crossModalTextModel;
+
+    @Column(name = "cross_modal_text_revision", length = 64)
+    private String crossModalTextRevision;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "embedding_status", nullable = false, length = 16)
+    private EmbeddingStatus embeddingStatus = EmbeddingStatus.PENDING;
+
+    @Column(name = "embedding_updated_at")
+    private Instant embeddingUpdatedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -146,6 +174,62 @@ public class LostFoundReport {
         this.location = location;
         this.eventDate = eventDate;
         this.timeDescription = timeDescription;
+        markEmbeddingsPending();
+    }
+
+    public void assignTextEmbeddings(
+            byte[] semantic,
+            String semanticModel,
+            String semanticRevision,
+            byte[] crossModal,
+            String crossModalModel,
+            String crossModalRevision) {
+        this.semanticTextEmbedding = copy(semantic);
+        this.semanticTextModel = semanticModel;
+        this.semanticTextRevision = semanticRevision;
+        this.crossModalTextEmbedding = copy(crossModal);
+        this.crossModalTextModel = crossModalModel;
+        this.crossModalTextRevision = crossModalRevision;
+        this.embeddingStatus = crossModal == null ? EmbeddingStatus.PARTIAL : EmbeddingStatus.READY;
+        this.embeddingUpdatedAt = Instant.now();
+    }
+
+    public void markEmbeddingsPending() {
+        this.semanticTextEmbedding = null;
+        this.semanticTextModel = null;
+        this.semanticTextRevision = null;
+        this.crossModalTextEmbedding = null;
+        this.crossModalTextModel = null;
+        this.crossModalTextRevision = null;
+        this.embeddingStatus = EmbeddingStatus.PENDING;
+        this.embeddingUpdatedAt = null;
+    }
+
+    public void refreshEmbeddingStatus() {
+        boolean hasText = semanticTextEmbedding != null;
+        boolean allImagesReady = images.stream()
+                .filter(image -> image.getFileSize() > 0)
+                .allMatch(image -> image.getVisualEmbedding() != null);
+        if (hasText && allImagesReady && crossModalTextEmbedding != null) {
+            embeddingStatus = EmbeddingStatus.READY;
+        } else if (hasText || images.stream().anyMatch(image -> image.getVisualEmbedding() != null)) {
+            embeddingStatus = EmbeddingStatus.PARTIAL;
+        } else {
+            embeddingStatus = EmbeddingStatus.PENDING;
+        }
+        embeddingUpdatedAt = Instant.now();
+    }
+
+    private static byte[] copy(byte[] value) {
+        return value == null ? null : value.clone();
+    }
+
+    public byte[] getSemanticTextEmbedding() {
+        return copy(semanticTextEmbedding);
+    }
+
+    public byte[] getCrossModalTextEmbedding() {
+        return copy(crossModalTextEmbedding);
     }
 
     /** 报告删除前收集其全部图片的 MinIO 对象键，供 service 层清理存储。 */

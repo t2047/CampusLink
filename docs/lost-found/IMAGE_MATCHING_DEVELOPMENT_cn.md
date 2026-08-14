@@ -1,8 +1,10 @@
 # Lost & Found 图片上传与图片匹配 — 开发记录与计划
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-12
 > 创建分支：`feature/lost-found-image-matching`（基线 b20ac26）
-> 状态：**阶段 1（图片显示修复）、阶段 2（Agent 图片上传 + 图片匹配）与阶段 3（Browse 以图搜物）均已完成**，阶段 1/2/3 均通过真实运行验证（阶段 3 冒烟见 §9，含"同图 Not Found"根因排查）（本文件是后续开发的唯一事实来源，随每个阶段 PR 更新）
+> 状态：**阶段 1（图片显示修复）、阶段 2（Agent 图片上传 + 基线匹配）、阶段 3（Browse 以图搜物）以及阶段 4（预训练多模态升级）均已完成**。本文保留阶段 1–3 的历史决策；阶段 4 的当前事实来源为[预训练多模态匹配说明](PRETRAINED_MULTIMODAL_MATCHING_cn.md)。
+
+阶段 4 已把颜色直方图从主视觉信号降为兜底：新增固定 revision 的 Multilingual-E5、CLIP 图片对图片和可选多语言文字对图片，MySQL 保存向量与版本，模型失败时自动退回本文记录的基础算法。当前融合权重为 E5 25%、CLIP 图片 20%、图文 10%、类别 20%、地点 10%、日期与时间 10%、颜色 5%。
 
 ## 1. 背景与需求
 
@@ -83,7 +85,7 @@ Spring Boot 内部 API（/api/internal/lost-found/**，AGENT_LOST_FOUND 角色�
 
 关键约束（沿用架构边界）：
 - **Agent 不直接访问 MySQL / MinIO**——图片上传/存储/指纹入库全部由 Spring Boot 完成，Agent 只接收和传递 objectKey 与 fingerprint 字符串。
-- 匹配双向复用现有 `rank_candidates`（文字 28% / 类别 28% / 颜色 14% / 地点 14% / 日期 6% / 视觉 10%，缺失分量自动归一化），只在查询和候选两端补上视觉指纹。
+- 阶段 1–3 的基线匹配双向复用 `rank_candidates`；阶段 4 仍复用同一入口，但主信号已升级为 E5/CLIP，颜色直方图只在模型向量缺失时参与降级。
 - 全部图片回显 URL 由后端统一签发，不再下发 MinIO 预签名地址。
 
 ## 4. 分阶段开发计划
@@ -216,7 +218,7 @@ ReportsPage（暂存图走已有 POST /agent/upload-image）
 
 ## 7. 已知风险与技术债
 
-- 颜色直方图（64 桶）区分度有限：同色系不同物品易混淆，视觉分量权重 0.10 时对总分影响小。→ 匹配 2.1 可插拔换更强 embedding（CLIP 等），`matching.py` 已按字符串指纹设计，替换点集中。
+- 颜色直方图（64 桶）区分度有限的问题已通过 CLIP 图片向量解决；原指纹继续保留，作为服务不可用时的确定性降级数据。
 - `AgentCandidateResponse` 增加 `visualFingerprints` 后候选体积增大（每候选最多 5 × 88 字符），100 候选量级可接受，需观察。
 - 暂存图片 TTL 目前计划单实例定时任务，横向扩容前与现有 Nonce/SSE 存储同属内存/单机债（见 TECHNICAL_ROADMAP §8）。
 - 图片代理接口（`/api/lost-found/images/**`，含 `/staging/{objectName}`）已按方案 A 放开鉴权并记录在此。已关联图片用自增 id 可枚举（权衡已记录）；**暂存图预览用随机 UUID objectName，不可枚举**。对象为物品照片、敏感度低，维持现状。
