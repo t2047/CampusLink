@@ -122,6 +122,41 @@ def _thread_config(graph, session_id: str) -> dict:
     return config
 
 
+def _build_initial_state(payload: ChatRequest, trace_id: str, session_id: str) -> dict[str, Any]:
+    """构造每轮图的初始状态（LangGraph 输入与 checkpoint 合并时输入优先）。
+
+    注意：pending_info 刻意不在此处设置——澄清循环状态必须来自 checkpoint 跨轮
+    保留。若在这里重置为 None，会覆盖上一轮 needs_more_info 后 agent_invoker
+    写入的澄清状态，导致补充消息（如 "today"、"15-8-2026"）被 LLM 意图分类
+    误判为闲聊，出现"请提供日期 → 补充日期 → 答非所问"（2026-08-15 修复）。
+    消费/清空由 agent_invoker（每轮默认 None 再按需覆盖）与 intent_router 的
+    abandon 分支负责。
+    """
+    return {
+        "messages": [HumanMessage(content=payload.message)],
+        "intent_type": None,
+        "targets": [],
+        "agent_plan": [],
+        "utility_plan": [],
+        "utility_results": {},
+        "utility_response": None,
+        "current_agent_index": 0,
+        "user_id": payload.userId,
+        "user_role": payload.role,
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "conversation_context": payload.conversationContext,
+        "requires_approval": False,
+        "approval_context": None,
+        "approval_agent": None,
+        "pending_confirmation": None,
+        "error": None,
+        "failed_agents": [],
+        "service_failures": [],  # 失败兜底上下文，每轮重置（防跨轮残留误触发）
+        "delegation_tokens": {},
+    }
+
+
 class ChatRequest(BaseModel):
     """Chat Backend 转发到编排层的请求体。"""
 
@@ -182,31 +217,8 @@ async def chat_stream(request: Request):
         "chat_stream: userId=%s, sessionId=%s, traceId=%s", payload.userId, session_id or "(new)", trace_id
     )
 
-    # 构建初始状态
-    initial_state: dict[str, Any] = {
-        "messages": [HumanMessage(content=payload.message)],
-        "intent_type": None,
-        "targets": [],
-        "agent_plan": [],
-        "utility_plan": [],
-        "utility_results": {},
-        "utility_response": None,
-        "current_agent_index": 0,
-        "user_id": payload.userId,
-        "user_role": payload.role,
-        "trace_id": trace_id,
-        "session_id": session_id,
-        "conversation_context": payload.conversationContext,
-        "requires_approval": False,
-        "approval_context": None,
-        "approval_agent": None,
-        "pending_confirmation": None,
-        "pending_info": None,
-        "error": None,
-        "failed_agents": [],
-        "service_failures": [],  # 失败兜底上下文，每轮重置（防跨轮残留误触发）
-        "delegation_tokens": {},
-    }
+    # 构建初始状态（注意：不含 pending_info 重置，澄清循环状态依赖 checkpoint 跨轮保留）
+    initial_state: dict[str, Any] = _build_initial_state(payload, trace_id, session_id)
 
     logger.info("chat_stream: userId=%s, traceId=%s", payload.userId, trace_id)
 

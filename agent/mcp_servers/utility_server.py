@@ -20,6 +20,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -84,9 +85,20 @@ def calculator(expression: str) -> str:
 
 
 @mcp.tool()
-def get_current_time(timezone: str = "Asia/Shanghai", format: str = "datetime") -> str:
-    """获取当前日期时间。format: datetime | date | time | iso8601。"""
-    now = datetime.datetime.now()
+def get_current_time(timezone: str = "Asia/Singapore", format: str = "datetime") -> str:
+    """获取指定时区的当前日期时间。format: datetime | date | time | iso8601。
+
+    timezone 缺省 Asia/Singapore（项目部署地，与编排层 system_facts 一致；
+    2026-08-15 修复：此前默认 Asia/Shanghai 且未做时区转换，服务器 UTC 时
+    返回的时间值与标注时区不符）。
+    """
+    try:
+        # 真正按 timezone 转换（容器内系统时区默认 UTC，不能依赖 datetime.now()）
+        now = datetime.datetime.now(ZoneInfo(timezone))
+    except Exception:
+        # 时区名无效或时区数据库缺失 → 回退服务器本地时间（UTC），标注实际时区
+        now = datetime.datetime.now()
+        timezone = now.astimezone().tzinfo.tzname(None) or timezone
     if format == "date":
         return json.dumps({"timezone": timezone, "value": now.strftime("%Y-%m-%d")})
     if format == "time":

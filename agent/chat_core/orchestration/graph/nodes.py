@@ -570,7 +570,8 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
     """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。"""
     msg = state["messages"][-1].content if state.get("messages") else ""
     if tool_name == "get_current_time":
-        return {"timezone": "Asia/Shanghai", "format": "datetime"}
+        # Asia/Singapore：项目部署地（与 system_facts 一致，2026-08-15 统一）
+        return {"timezone": "Asia/Singapore", "format": "datetime"}
     if tool_name == "calculator":
         match = re.search(r"[\d+\-*/().\s^]+", msg)
         return {"expression": match.group(0).strip() if match else "0"}
@@ -759,7 +760,7 @@ def _format_utility_result(tool_name: str, result: Any) -> str:
     if "result" in result and isinstance(result["result"], (int, float)):
         return f"计算结果：{result.get('expression', '')} = {result['result']}"
     if "timezone" in result and result.get("value"):
-        return f"现在是 {result['value']}（{result.get('timezone', 'Asia/Shanghai')}）"
+        return f"现在是 {result['value']}（{result.get('timezone', 'Asia/Singapore')}）"
     if result.get("error") or result.get("status") == "failed":
         # 失败项只显示友好文案，不暴露英文技术详情（详情在日志 / error 字段）
         return f"（{tool_name} 暂时不可用，请稍后重试）"

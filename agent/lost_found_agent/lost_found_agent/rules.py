@@ -201,7 +201,11 @@ class RuleEngine:
                 or "search_found_items"
             )
             context["intent"] = intent
-            context.update(extract_fields(payload.message, intent))
+            # 相对日期词（今天/昨天/明天/后天等）基于编排层注入的权威 today
+            # （system_facts.today, Asia/Singapore）解析，而非服务器本地时区
+            system_facts = context.get("system_facts") or {}
+            trusted_today = system_facts.get("today") if isinstance(system_facts, dict) else None
+            context.update(extract_fields(payload.message, intent, trusted_today))
             if interpreted_fields:
                 context.update(
                     {
@@ -794,7 +798,15 @@ def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
+def extract_fields(
+    message: str, intent: Intent, today: str | None = None
+) -> dict[str, Any]:
+    """从消息提取结构化字段。
+
+    today：相对日期词（今天/昨天/前天/明天/后天）的基准日期，优先传编排层注入的
+    权威日期 system_facts.today（Asia/Singapore），避免服务器本地时区与权威日期
+    差一天（2026-08-15 修复）；缺省回退 date.today() 保持兼容（如 nlu_eval）。
+    """
     fields: dict[str, Any] = {}
     labelled = {
         "item_name": [
@@ -839,12 +851,22 @@ def extract_fields(message: str, intent: Intent) -> dict[str, Any]:
         fields["event_date"] = iso_dates[0]
         if len(iso_dates) > 1:
             fields["date_from"], fields["date_to"] = iso_dates[:2]
-    elif "前天" in message or "day before yesterday" in message.lower():
-        fields["event_date"] = (date.today() - timedelta(days=2)).isoformat()
-    elif "昨天" in message or "yesterday" in message.lower():
-        fields["event_date"] = (date.today() - timedelta(days=1)).isoformat()
-    elif "今天" in message or "today" in message.lower():
-        fields["event_date"] = date.today().isoformat()
+    else:
+        # 相对日期词 → 基于权威 today 计算（注意 "day before yesterday" 含
+        # "yesterday"、"day after tomorrow" 含 "tomorrow"，长词必须先判）
+        base_date = date.fromisoformat(today) if today else date.today()
+        if "前天" in message or "day before yesterday" in message.lower():
+            fields["event_date"] = (base_date - timedelta(days=2)).isoformat()
+        elif "昨天" in message or "yesterday" in message.lower():
+            fields["event_date"] = (base_date - timedelta(days=1)).isoformat()
+        elif "今天" in message or "today" in message.lower():
+            fields["event_date"] = base_date.isoformat()
+        elif "明天" in message or "tomorrow" in message.lower():
+            # 未来日期：report 会被未来日期校验器拒绝（转追问），
+            # 搜索场景可作为查询条件使用
+            fields["event_date"] = (base_date + timedelta(days=1)).isoformat()
+        elif "后天" in message or "day after tomorrow" in message.lower():
+            fields["event_date"] = (base_date + timedelta(days=2)).isoformat()
 
     report_id = re.search(
         r"(?:#|ID\s*[:=]?\s*|记录\s*|(?:item|report)\s+#?)(\d+)",

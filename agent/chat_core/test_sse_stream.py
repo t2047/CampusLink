@@ -165,3 +165,19 @@ def test_agent_update_emits_structured_match_results():
     match_event = next(event for event in events if event.event == "match_results")
     assert match_event.data["items"] == [match]
     assert match_event.data["agent"] == "lost-found-agent"
+
+
+def test_initial_state_does_not_reset_pending_info() -> None:
+    """澄清循环状态必须来自 checkpoint 跨轮保留（2026-08-15 回归）。
+
+    此前 main.py 的 initial_state 每轮设 "pending_info": None，LangGraph
+    输入优先合并会覆盖上一轮 needs_more_info 后的澄清状态，导致补充消息
+    （如 "today"、"15-8-2026"）被 LLM 意图分类误判为闲聊：
+    "请提供日期 → 补充日期 → 答非所问"。
+    """
+    payload = main.ChatRequest(userId="42", role="STUDENT", message="today")
+    state = main._build_initial_state(payload, "trace-1", "session-1")
+
+    assert "pending_info" not in state
+    # 对照：确认重调标记仍须每轮清空（防跨轮误触发 HITL 重调）
+    assert state["pending_confirmation"] is None
