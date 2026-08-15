@@ -80,7 +80,7 @@ cp .env.prod.example .env
 nano .env
 ```
 
-**必改项**（生成强随机值）：`MYSQL_PASSWORD`、`JWT_SECRET`、`AGENT_SHARED_SECRET`、`AGENT_BACKEND_SHARED_SECRET`、`LOST_FOUND_CONFIRMATION_SECRET`、`SUPER_ADMIN_PASSWORD`、`MINIO_*`。
+**必改项**（生成强随机值）：`MYSQL_PASSWORD`、`JWT_SECRET`、`AGENT_SHARED_SECRET`、`AGENT_BACKEND_SHARED_SECRET`、`LOST_FOUND_CONFIRMATION_SECRET`、`LOST_FOUND_EMBEDDING_SHARED_SECRET`、`SUPER_ADMIN_PASSWORD`、`MINIO_*`。
 
 ```bash
 # 生成密钥示例
@@ -107,12 +107,17 @@ cd /opt/campuslink
 # .env 里配置镜像仓库（GHCR 包设 public 后免登录）
 # REGISTRY=ghcr.io/<github-owner>
 
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # 全部 running
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile agent --profile multimodal \
+  up -d --pull always --wait --wait-timeout 900
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile agent --profile multimodal ps   # 全部 running/healthy
 curl http://localhost/api/chat/stream 2>/dev/null || true   # 或直接访问 http://<vm-ip>
 ```
 
 > 本地开发仍用 `docker compose up -d --build`（compose 默认本地构建）。
+> `multimodal` profile 会启动预训练 Embedding 服务，首次启动需下载模型并可能耗时数分钟。
+> 完整全栈建议使用至少 8 GB RAM 的 VM，并为模型缓存保留足够磁盘空间。
 
 ## 6. 域名 + HTTPS（certbot webroot 容器）
 
@@ -143,7 +148,10 @@ docker compose restart web
 ```bash
 cd /opt/campuslink
 git pull
-REGISTRY=ghcr.io/<owner> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
+REGISTRY=ghcr.io/<owner> docker compose \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile agent --profile multimodal \
+  up -d --pull always --wait --wait-timeout 900
 ```
 
 ## 8. 备份
@@ -173,8 +181,9 @@ docker compose start chat-backend
 ## 9. CD（持续部署：CI 构建镜像 + VM 拉取）
 
 见 `.github/workflows/cd-deploy.yml`，流程：
-1. 推 `main` → GitHub Actions 构建 5 个镜像（backend/orchestration/mcp-servers/lost-found-agent/web）推 **GHCR**（`ghcr.io/<owner>/campuslink-*`）
-2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ `git pull` + `compose up -d --pull always`
+1. 推 `main` → GitHub Actions 构建 7 个镜像（backend/orchestration/mcp-servers/mail-agent/lost-found-agent/lost-found-embedding/web）推 **GHCR**（`ghcr.io/<owner>/campuslink-*`）
+2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ `git pull` + 启用 `agent`/`multimodal` profiles 拉取并重启完整服务
+3. CD 最多等待 15 分钟，直到服务达到 `running` 或 `healthy`；Embedding readiness 失败会让部署任务失败
 
 **首次启用需两步**：
 - GitHub 仓库 Settings → Packages → 把 `campuslink-*` 包设为 **public**（VM 免登录拉取）

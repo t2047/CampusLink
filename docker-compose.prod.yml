@@ -1,6 +1,7 @@
 # ─── 生产 override：镜像引用（替代 build）─────────────────────────
 # 用法（与基础 compose 合并，VM 只拉镜像不构建）：
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --profile agent --profile multimodal up -d --pull always
 #
 # 环境变量（.env 或部署时注入）：
 #   REGISTRY  镜像仓库前缀，如 ghcr.io/<github-owner>（默认 ghcr.io/your-org）
@@ -44,6 +45,10 @@ services:
   lost-found-mcp:
     build: !reset null
     image: ${REGISTRY:-ghcr.io/your-org}/campuslink-lost-found-agent:${TAG:-latest}
+
+  lost-found-embedding:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-lost-found-embedding:${TAG:-latest}
 
   web:
     build: !reset null

@@ -8,7 +8,8 @@
 #       VM_USER     SSH 用户（root 或 sudo 用户）
 #       VM_SSH_KEY  SSH 私钥
 # 触发：推送 main 或手动（workflow_dispatch）
-# 效果：VM 只需 docker pull（B2s/2vCPU 即可），不在服务器上构建
+# 效果：VM 只需 docker pull，不在服务器上构建。
+# 多模态模型运行时会额外占用约 2–3 GB 内存，生产 VM 建议至少 8 GB RAM。
 
 name: CD Deploy
 
@@ -23,7 +24,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}
-  IMAGES: campuslink-backend campuslink-orchestration campuslink-mcp-servers campuslink-mail-agent campuslink-lost-found-agent campuslink-web
+  IMAGES: campuslink-backend campuslink-orchestration campuslink-mcp-servers campuslink-mail-agent campuslink-lost-found-agent campuslink-lost-found-embedding campuslink-web
 
 jobs:
   build-and-push:
@@ -59,6 +60,7 @@ jobs:
               campuslink-mcp-servers)      dockerfile=agent/mcp_servers/Dockerfile; context=. ;;
               campuslink-mail-agent)       dockerfile=agent/mail_agent/Dockerfile; context=./agent/mail_agent ;;
               campuslink-lost-found-agent) dockerfile=agent/lost_found_agent/Dockerfile; context=./agent ;;
+              campuslink-lost-found-embedding) dockerfile=services/lost_found_embedding/Dockerfile; context=./services/lost_found_embedding ;;
               campuslink-web)              dockerfile=frontend_web/Dockerfile;     context=. ;;
             esac
             docker build -f "$dockerfile" \
@@ -83,6 +85,9 @@ jobs:
             set -e
             cd /opt/campuslink
             git pull --ff-only
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile agent --profile multimodal \
+              up -d --pull always --wait --wait-timeout 900
             docker image prune -f
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile agent --profile multimodal ps
