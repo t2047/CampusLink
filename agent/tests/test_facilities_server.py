@@ -236,7 +236,7 @@ async def test_missing_deepseek_configuration_fails_without_opening_tool_client(
     result, _ = await invoke_adapter("find a study room")
 
     assert result["status"] == "failed"
-    assert result["error"] == "FACILITIES_PLANNER_NOT_CONFIGURED"
+    assert result["error"].startswith("FACILITIES_PLANNER_NOT_CONFIGURED")
     assert factory.clients == []
 
 
@@ -559,7 +559,7 @@ async def test_expired_confirmation_is_rejected(monkeypatch):
             )
         ),
     )
-    pending, _ = await invoke_adapter("book")
+    pending, _ = await invoke_adapter("book room 4")
     clock.value += timedelta(seconds=2)
 
     result, _ = await invoke_adapter(
@@ -591,7 +591,7 @@ async def test_confirmation_user_mismatch_is_rejected(monkeypatch):
             )
         ),
     )
-    pending, _ = await invoke_adapter("book")
+    pending, _ = await invoke_adapter("book room 4")
 
     result, _ = await invoke_adapter(
         "confirm",
@@ -623,7 +623,7 @@ async def test_confirmation_session_mismatch_is_rejected(monkeypatch):
             )
         ),
     )
-    pending, _ = await invoke_adapter("book", session_id="session-a")
+    pending, _ = await invoke_adapter("book room 4", session_id="session-a")
 
     result, _ = await invoke_adapter(
         "confirm",

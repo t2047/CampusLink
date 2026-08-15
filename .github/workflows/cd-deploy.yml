@@ -8,7 +8,8 @@
 #       VM_USER     SSH 用户（root 或 sudo 用户）
 #       VM_SSH_KEY  SSH 私钥
 # 触发：推送 main 或手动（workflow_dispatch）
-# 效果：VM 只需 docker pull（B2s/2vCPU 即可），不在服务器上构建
+# 效果：VM 只需 docker pull，不在服务器上构建。
+# 多模态模型运行时会额外占用约 2–3 GB 内存，生产 VM 建议至少 8 GB RAM。
 
 name: CD Deploy
 
@@ -73,6 +74,9 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    env:
+      CERT_DOMAIN: ${{ secrets.CERT_DOMAIN }}
+      CERT_EMAIL: ${{ secrets.CERT_EMAIL }}
     steps:
       - name: Pull and restart on VM
         uses: appleboy/ssh-action@v1.2.0
@@ -80,17 +84,51 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          envs: CERT_DOMAIN,CERT_EMAIL
+          command_timeout: 20m
           script: |
             set -e
             cd /opt/campuslink
             git pull --ff-only
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --pull always
-            # 政策/规章制度 RAG：确保向量基础设施在线并构建/刷新索引
-            # （qdrant 随默认 profile 启动；lost-found-embedding 在 multimodal profile；
-            #  两条命令都必须带 -f 合并 prod override，否则 VM 上会本地构建而非拉镜像）
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal up -d --pull always lost-found-embedding \
-              || echo "WARN: embedding service failed to start - policy search will be degraded"
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal run --rm policy-index-builder \
+            # 兼容从 Windows 编辑器上传的 .env，避免 \r 被 shell 识别为命令。
+            test -f ./.env || {
+              echo "[campuslink] 拒绝部署：服务器缺少 /opt/campuslink/.env" >&2
+              exit 1
+            }
+            sed -i 's/\r$//' ./.env
+            if [ -z "${CERT_DOMAIN:-}" ] || [ -z "${CERT_EMAIL:-}" ]; then
+              echo "[campuslink] 拒绝部署：GitHub Secrets 缺少 CERT_DOMAIN 或 CERT_EMAIL" >&2
+              exit 1
+            fi
+            update_env() {
+              key="$1"
+              value="$2"
+              escaped_value="$(printf '%s' "$value" | sed 's/[&|\\]/\\&/g')"
+              if grep -q "^${key}=" ./.env; then
+                sed -i "s|^${key}=.*|${key}=${escaped_value}|" ./.env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> ./.env
+              fi
+            }
+            update_env CERT_DOMAIN "$CERT_DOMAIN"
+            update_env CERT_EMAIL "$CERT_EMAIL"
+            set -a
+            . ./.env
+            set +a
+            if [ -z "${CERT_DOMAIN:-}" ] || [ -z "${CERT_EMAIL:-}" ] \
+              || [ "$CERT_DOMAIN" = "campuslink.local" ]; then
+              echo "[campuslink] 拒绝部署：服务器 .env 必须先配置正式 CERT_DOMAIN 和 CERT_EMAIL" >&2
+              exit 1
+            fi
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile agent --profile multimodal \
+              up -d --pull always --wait --wait-timeout 900
+            ./deploy/bootstrap_https.sh
+            # 政策/规章制度 RAG：构建/刷新索引
+            # （lost-found-embedding 已随 multimodal profile 启动；qdrant 随默认 profile 启动）
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile multimodal run --rm policy-index-builder \
               || echo "WARN: policy index build failed - retry manually: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal run --rm policy-index-builder"
             docker image prune -f
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile agent --profile multimodal ps

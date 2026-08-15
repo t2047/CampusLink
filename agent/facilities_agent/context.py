@@ -1,5 +1,6 @@
 """Bounded, replace-on-update Facilities conversation context."""
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -8,6 +9,7 @@ from pydantic import ValidationError
 from .models import (
     BookingCandidate,
     FacilitiesSharedContext,
+    PendingBookingDraft,
     PendingMaintenanceInfo,
     SearchResultsContext,
     SpaceCandidate,
@@ -57,6 +59,11 @@ class FacilitiesContextManager:
 
     def _now(self) -> datetime:
         return _aware_utc(self._now_provider())
+
+    @staticmethod
+    def _booking_binding(user_id: str, session_id: str) -> str:
+        value = "{0}\0{1}".format(user_id, session_id).encode("utf-8")
+        return hashlib.sha256(value).hexdigest()
 
     def touch(self, intent: Optional[str] = None) -> None:
         if intent is not None:
@@ -191,6 +198,48 @@ class FacilitiesContextManager:
                 if candidate.booking_id == booking_id:
                     candidate.status = status
         self.touch()
+
+    def get_pending_booking(
+        self, user_id: str, session_id: str
+    ) -> Optional[PendingBookingDraft]:
+        draft = self.context.pending_booking_draft
+        if draft is None:
+            return None
+        if (
+            draft.binding_key != self._booking_binding(user_id, session_id)
+            or _aware_utc(draft.expires_at) <= self._now()
+        ):
+            self.clear_pending_booking()
+            return None
+        return draft.model_copy(deep=True)
+
+    def set_pending_booking(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        space_id: Optional[int],
+        booking_date: Optional[str],
+        start_date_time: Optional[str],
+        end_date_time: Optional[str],
+        missing_fields: Iterable[str],
+        ttl_seconds: int = 900,
+    ) -> None:
+        self.context.pending_booking_draft = PendingBookingDraft(
+            bindingKey=self._booking_binding(user_id, session_id),
+            spaceId=space_id,
+            bookingDate=booking_date,
+            startDateTime=start_date_time,
+            endDateTime=end_date_time,
+            missingFields=list(missing_fields),
+            expiresAt=self._now() + timedelta(seconds=ttl_seconds),
+        )
+        self.touch("create_booking")
+
+    def clear_pending_booking(self) -> None:
+        if self.context.pending_booking_draft is not None:
+            self.context.pending_booking_draft = None
+            self.touch()
 
     def set_pending_maintenance(self, info: PendingMaintenanceInfo) -> None:
         self.context.pending_maintenance_info = info.model_copy(deep=True)

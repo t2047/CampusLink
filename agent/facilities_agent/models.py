@@ -63,6 +63,18 @@ class PendingMaintenanceInfo(AdapterModel):
     missing_fields: List[str] = Field(default_factory=list, alias="missingFields")
 
 
+class PendingBookingDraft(AdapterModel):
+    """Short-lived, identity-bound arguments for one incomplete booking intent."""
+
+    binding_key: str = Field(alias="bindingKey", min_length=64, max_length=64)
+    space_id: Optional[int] = Field(default=None, alias="spaceId", gt=0)
+    booking_date: Optional[str] = Field(default=None, alias="bookingDate")
+    start_date_time: Optional[str] = Field(default=None, alias="startDateTime")
+    end_date_time: Optional[str] = Field(default=None, alias="endDateTime")
+    missing_fields: List[str] = Field(default_factory=list, alias="missingFields")
+    expires_at: datetime = Field(alias="expiresAt")
+
+
 class FacilitiesSharedContext(AdapterModel):
     version: Literal[1] = 1
     last_intent: Optional[str] = None
@@ -73,6 +85,9 @@ class FacilitiesSharedContext(AdapterModel):
     )
     last_booking_id: Optional[int] = None
     last_maintenance_ticket_id: Optional[int] = None
+    pending_booking_draft: Optional[PendingBookingDraft] = Field(
+        default=None, alias="pendingBookingDraft"
+    )
     pending_maintenance_info: Optional[PendingMaintenanceInfo] = None
     updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
 

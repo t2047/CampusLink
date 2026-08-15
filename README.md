@@ -21,6 +21,7 @@ Pretrained model boundaries and evaluation are documented in the [Chinese multim
 | Orchestration (core) | Python 3.12, FastAPI, LangGraph, MCP SDK |
 | Backend | Java 21, Spring Boot 4.1, Spring Security, JWT |
 | Web | React 19, TypeScript, Vite, MUI, Axios |
+| Android | Kotlin, Jetpack Compose, Room/SQLCipher, OkHttp SSE |
 | Data | MySQL 8 |
 | Images | Private MinIO bucket with 15-minute presigned URLs |
 | Testing | JUnit 5, Mockito, H2, Vitest, Testing Library, pytest |
@@ -99,6 +100,15 @@ npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173). MinIO Console is available at [http://localhost:9001](http://localhost:9001). The legacy administrator test page is preserved at [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html).
+
+Build the native Android Core Chat demo with:
+
+```bash
+cd frontend_mobile
+./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
+```
+
+`demoDebug` connects only to `https://campuslink.tokeninf.xyz/`. See the [Android README](frontend_mobile/README.md).
 
 Stop the infrastructure without deleting its data with `docker compose stop`. Use `docker compose down` to remove the containers while retaining the named volumes.
 
@@ -206,7 +216,7 @@ uv run mypy lost_found_embedding tests
 uv run pytest
 ```
 
-PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking high-severity SpotBugs checks, npm vulnerability auditing, and dependency-change review. The nightly workflow adds deeper SpotBugs analysis, OWASP dependency checking, and ZAP scanning. A CD workflow (`cd-deploy.yml`) deploys to a single DigitalOcean Droplet via SSH on `main` push — see `DEPLOYMENT.md` for setup.
+PR CI runs backend, frontend, and Android tests, lint, builds, CodeQL, and dependency review. Android CI publishes an installable demo APK and the nightly workflow runs emulator tests. The CD workflow deploys the server stack to AWS EC2 via SSH on `main` pushes — see `DEPLOYMENT.md`.
 
 ## Project Structure
 
@@ -225,7 +235,7 @@ project/
 ├── frontend_web/            React Web app (chat + L&F pages) and public/admin-test.html
 ├── services/
 │   └── lost_found_embedding/ Standalone pretrained E5/CLIP service
-├── frontend_mobile/         Future mobile client
+├── frontend_mobile/         Kotlin + Compose Core Chat Android client
 ├── docker-compose.yml       MySQL, MinIO, Qdrant, and optional model profile
 └── docs/
 ```

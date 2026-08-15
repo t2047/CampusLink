@@ -161,7 +161,90 @@ def get_current_time(timezone: str = "Asia/Singapore", format: str = "datetime")
         return json.dumps({"timezone": timezone, "value": now.strftime("%H:%M:%S")})
     if format == "iso8601":
         return json.dumps({"timezone": timezone, "value": now.isoformat()})
-    return json.dumps({"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")})
+    return json.dumps(
+        {"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")}
+    )
+
+
+# 货币代码映射（用户常用中文货币名 → ISO 4217）
+_CURRENCY_ALIASES = {
+    "人民币": "CNY",
+    "美元": "USD",
+    "欧元": "EUR",
+    "英镑": "GBP",
+    "日元": "JPY",
+    "港币": "HKD",
+    "新币": "SGD",
+    "新加坡元": "SGD",
+    "澳元": "AUD",
+    "加元": "CAD",
+    "韩元": "KRW",
+    "卢布": "RUB",
+    "泰铢": "THB",
+    "马来西亚令吉": "MYR",
+    "林吉特": "MYR",
+}
+
+# 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
+_EXCHANGE_RATE_API = os.environ.get(
+    "EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest"
+)
+
+# 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）
+_FALLBACK_RATES: dict[tuple[str, str], float] = {
+    ("人民币", "美元"): 1 / 7.2,
+    ("美元", "人民币"): 7.2,
+    ("人民币", "欧元"): 1 / 7.8,
+    ("欧元", "人民币"): 7.8,
+}
+
+# 货币换算结果缓存（TTL 1 小时，避免每次调用打汇率 API）
+_rate_cache: dict[str, tuple[float, dict[str, float] | None]] = {}
+_RATE_CACHE_TTL = 3600.0
+# 失败负缓存 TTL（API 故障时短缓存，避免每请求阻塞 5s 重试）
+_RATE_FAIL_TTL = 60.0
+
+logger = logging.getLogger(__name__)
+
+
+def _to_iso_code(name: str) -> str | None:
+    """货币名 → ISO 4217 代码。支持中文别名与直接输入 ISO 代码（USD/CNY 等）。"""
+    upper = name.strip().upper()
+    if re.fullmatch(r"[A-Z]{3}", upper):
+        return upper
+    return _CURRENCY_ALIASES.get(name)
+
+
+def _get_rates(base: str) -> dict[str, float] | None:
+    """获取 base 货币对全货币汇率（带 1h 缓存）。失败返回 None（调用方回退固定汇率）。"""
+    import time
+
+    cached = _rate_cache.get(base)
+    if cached and time.monotonic() - cached[0] < (
+        _RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL
+    ):
+        return cached[1]
+    try:
+        import httpx
+
+        response = httpx.get(
+            f"{_EXCHANGE_RATE_API}/{base}",
+            timeout=5.0,
+            headers={"User-Agent": "CampusLink/1.0"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rates = payload.get("rates") if isinstance(payload, dict) else None
+        if not isinstance(rates, dict) or not rates:
+            raise ValueError(f"empty rates payload: {str(payload)[:200]}")
+        parsed = {k: float(v) for k, v in rates.items() if isinstance(v, (int, float))}
+        _rate_cache[base] = (time.monotonic(), parsed)
+        return parsed
+    except Exception as exc:
+        # 失败负缓存 + 日志：避免每请求阻塞 5s 重试且无迹可查
+        logger.warning("exchange rate fetch failed: base=%s err=%s", base, exc)
+        _rate_cache[base] = (time.monotonic(), None)
+        return None
 
 
 # 货币代码映射（用户常用中文货币名 → ISO 4217）

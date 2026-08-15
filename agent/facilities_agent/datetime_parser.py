@@ -66,6 +66,9 @@ class FacilitiesDateTimeParser:
     )
     _AMBIGUOUS_SINGLE = re.compile(r"\bat\s+(?P<hour>\d{1,2})(?![:\d])", re.IGNORECASE)
     _ISO_DATE = re.compile(r"(?<!\d)(?P<date>\d{4}-\d{2}-\d{2})(?!\d)")
+    _MONTH_DAY = re.compile(
+        r"(?<![\d.])(?P<month>\d{1,2})[./](?P<day>\d{1,2})(?![\d.])"
+    )
     _CHINESE_RANGE = re.compile(
         r"(?P<period>上午|早上|早晨|清晨|下午|傍晚|晚上|中午|夜里)?\s*(?P<start>\d{1,2})(?:点|時|时)"
         r"(?:(?P<start_minute>\d{1,2})分?)?\s*(?:到|至|[-–—])\s*"
@@ -93,6 +96,26 @@ class FacilitiesDateTimeParser:
         if explicit:
             try:
                 return date.fromisoformat(explicit.group("date"))
+            except ValueError:
+                return current
+        month_day = self._MONTH_DAY.search(lowered)
+        if month_day:
+            try:
+                candidate = date(
+                    current.year,
+                    int(month_day.group("month")),
+                    int(month_day.group("day")),
+                )
+                # A yearless campus booking date refers to its next occurrence.
+                return (
+                    candidate
+                    if candidate >= current
+                    else date(
+                        current.year + 1,
+                        candidate.month,
+                        candidate.day,
+                    )
+                )
             except ValueError:
                 return current
         if re.search(r"\btomorrow\b", lowered) or "明天" in text:
@@ -253,6 +276,7 @@ class FacilitiesDateTimeParser:
     def parse(self, text: str) -> ParsedDateTimeRange:
         target_date = self.parse_date(text)
         time_text = self._ISO_DATE.sub(" ", text)
+        time_text = self._MONTH_DAY.sub(" ", time_text)
         time_text = self._cn_hour_to_arabic(time_text)
         chinese = self._parse_chinese_time(time_text, target_date)
         if chinese is not None:
