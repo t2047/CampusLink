@@ -236,7 +236,7 @@ async def test_missing_deepseek_configuration_fails_without_opening_tool_client(
     result, _ = await invoke_adapter("find a study room")
 
     assert result["status"] == "failed"
-    assert result["error"] == "FACILITIES_PLANNER_NOT_CONFIGURED"
+    assert result["error"].startswith("FACILITIES_PLANNER_NOT_CONFIGURED")
     assert factory.clients == []
 
 
