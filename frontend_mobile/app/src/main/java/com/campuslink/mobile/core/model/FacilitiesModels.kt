@@ -26,6 +26,32 @@ data class AvailabilityResponse(
     val endDateTime: String,
 )
 
+@Serializable
+data class CreateBookingRequest(
+    val spaceId: Long,
+    val startDateTime: String,
+    val endDateTime: String,
+)
+
+@Serializable
+enum class BookingStatus {
+    CONFIRMED,
+    CANCELLED,
+    COMPLETED,
+}
+
+@Serializable
+data class BookingResponse(
+    val success: Boolean,
+    val bookingId: Long,
+    val space: Space,
+    val startDateTime: String,
+    val endDateTime: String,
+    val status: BookingStatus,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
 data class SpaceSearchFilters(
     val query: String = "",
     val building: String = "",

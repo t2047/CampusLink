@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,10 +41,16 @@ import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SpaceDetailsScreen(viewModel: SpaceDetailsViewModel, onBack: () -> Unit) {
+fun SpaceDetailsScreen(
+    viewModel: SpaceDetailsViewModel,
+    onBack: () -> Unit,
+    onViewBooking: (Long) -> Unit,
+    onMyBookings: () -> Unit,
+) {
     val details by viewModel.detailsState.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val availability by viewModel.availabilityState.collectAsStateWithLifecycle()
+    val booking by viewModel.bookingState.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -75,9 +83,35 @@ fun SpaceDetailsScreen(viewModel: SpaceDetailsViewModel, onBack: () -> Unit) {
             ) {
                 SpaceDetails(current.space)
                 HorizontalDivider()
-                AvailabilitySection(selection, availability, viewModel)
+                AvailabilitySection(
+                    selection = selection,
+                    state = availability,
+                    bookingState = booking,
+                    viewModel = viewModel,
+                    bookingActions = BookingActions(
+                        onViewBooking = onViewBooking,
+                        onMyBookings = onMyBookings,
+                    ),
+                )
             }
         }
+    }
+    when (val current = booking) {
+        is BookingCreationUiState.Confirming -> BookingConfirmationDialog(
+            space = (details as? SpaceDetailsUiState.Success)?.space,
+            request = current.request,
+            submitting = false,
+            onDismiss = viewModel::dismissBookingConfirmation,
+            onConfirm = viewModel::confirmBooking,
+        )
+        is BookingCreationUiState.Submitting -> BookingConfirmationDialog(
+            space = (details as? SpaceDetailsUiState.Success)?.space,
+            request = current.request,
+            submitting = true,
+            onDismiss = {},
+            onConfirm = {},
+        )
+        else -> Unit
     }
 }
 
@@ -108,7 +142,9 @@ private fun DetailLine(label: String, value: String) {
 private fun AvailabilitySection(
     selection: AvailabilitySelection,
     state: AvailabilityUiState,
+    bookingState: BookingCreationUiState,
     viewModel: SpaceDetailsViewModel,
+    bookingActions: BookingActions,
 ) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -139,7 +175,79 @@ private fun AvailabilitySection(
             else Text("Check Availability")
         }
         AvailabilityResult(state)
+        if (state is AvailabilityUiState.Available && bookingState !is BookingCreationUiState.Success) {
+            Button(
+                onClick = viewModel::requestBooking,
+                enabled = bookingState !is BookingCreationUiState.Submitting,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Book This Space") }
+        }
+        BookingCreationResult(bookingState, viewModel, bookingActions)
     }
+}
+
+@Composable
+private fun BookingCreationResult(
+    state: BookingCreationUiState,
+    viewModel: SpaceDetailsViewModel,
+    actions: BookingActions,
+) {
+    when (state) {
+        BookingCreationUiState.Idle,
+        is BookingCreationUiState.Confirming,
+        is BookingCreationUiState.Submitting,
+        -> Unit
+        is BookingCreationUiState.Success -> Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Booking confirmed", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text("Booking ID: ${state.booking.bookingId}")
+                Text(state.booking.space.name)
+                Text("${formatBookingDate(state.booking.startDateTime)} · ${formatBookingRange(state.booking)}")
+                Text("Status: ${state.booking.status.name}")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { actions.onViewBooking(state.booking.bookingId) }) { Text("View Booking") }
+                    OutlinedButton(onClick = actions.onMyBookings) { Text("My Bookings") }
+                }
+            }
+        }
+        is BookingCreationUiState.Error -> Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Booking not completed", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Text(state.message)
+                TextButton(onClick = viewModel::clearBookingFeedback) { Text("Dismiss") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookingConfirmationDialog(
+    space: Space?,
+    request: com.campuslink.mobile.core.model.CreateBookingRequest,
+    submitting: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    if (space == null) return
+    AlertDialog(
+        onDismissRequest = { if (!submitting) onDismiss() },
+        title = { Text("Book ${space.name}?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("${space.building} / ${space.roomNumber}")
+                Text(formatBookingDate(request.startDateTime))
+                Text(formatBookingRange(request.startDateTime, request.endDateTime))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !submitting) {
+                Text(if (submitting) "Booking…" else "Confirm")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !submitting) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -194,3 +302,8 @@ private fun ResultCard(title: String, message: String, isError: Boolean) {
 
 private val DATE_DISPLAY = DateTimeFormatter.ofPattern("dd MMM yyyy")
 private val TIME_DISPLAY = DateTimeFormatter.ofPattern("HH:mm")
+
+private data class BookingActions(
+    val onViewBooking: (Long) -> Unit,
+    val onMyBookings: () -> Unit,
+)

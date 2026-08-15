@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -20,7 +21,7 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FacilitiesHomeScreen(onBack: () -> Unit, onSearchSpaces: () -> Unit) {
+fun FacilitiesHomeScreen(onBack: () -> Unit, onSearchSpaces: () -> Unit, onMyBookings: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -43,6 +44,12 @@ fun FacilitiesHomeScreen(onBack: () -> Unit, onSearchSpaces: () -> Unit) {
                 supportingContent = { Text("Browse rooms and check their availability") },
                 leadingContent = { Icon(Icons.Default.Search, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onSearchSpaces),
+            )
+            ListItem(
+                headlineContent = { Text("My Bookings") },
+                supportingContent = { Text("View and manage your space bookings") },
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onMyBookings),
             )
         }
     }

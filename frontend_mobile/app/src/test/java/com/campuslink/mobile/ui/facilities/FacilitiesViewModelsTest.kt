@@ -1,6 +1,8 @@
 package com.campuslink.mobile.ui.facilities
 
 import com.campuslink.mobile.core.model.AvailabilityResponse
+import com.campuslink.mobile.core.model.BookingResponse
+import com.campuslink.mobile.core.model.CreateBookingRequest
 import com.campuslink.mobile.core.model.Space
 import com.campuslink.mobile.core.model.SpaceSearchFilters
 import com.campuslink.mobile.core.network.ApiException
@@ -151,6 +153,14 @@ class FacilitiesViewModelsTest {
             lastEndDateTime = endDateTime
             return availabilityHandler(spaceId, startDateTime, endDateTime)
         }
+
+        override suspend fun createBooking(request: CreateBookingRequest): BookingResponse = error("Not used")
+
+        override suspend fun listBookings(): List<BookingResponse> = error("Not used")
+
+        override suspend fun getBookingDetails(bookingId: Long): BookingResponse = error("Not used")
+
+        override suspend fun cancelBooking(bookingId: Long): BookingResponse = error("Not used")
     }
 
     companion object {

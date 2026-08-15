@@ -29,7 +29,7 @@ class AuthenticatedHttpClient(
 
     suspend fun post(path: String, jsonBody: String): String = execute("POST", path, emptyList(), jsonBody)
 
-    suspend fun patch(path: String, jsonBody: String): String = execute("PATCH", path, emptyList(), jsonBody)
+    suspend fun patch(path: String, jsonBody: String? = null): String = execute("PATCH", path, emptyList(), jsonBody)
 
     private suspend fun execute(
         method: String,
@@ -48,7 +48,7 @@ class AuthenticatedHttpClient(
         when (method) {
             "GET" -> requestBuilder.get()
             "POST" -> requestBuilder.post(requireNotNull(jsonBody).toRequestBody(JSON_MEDIA_TYPE))
-            "PATCH" -> requestBuilder.patch(requireNotNull(jsonBody).toRequestBody(JSON_MEDIA_TYPE))
+            "PATCH" -> requestBuilder.patch((jsonBody ?: "").toRequestBody(JSON_MEDIA_TYPE))
             else -> error("Unsupported HTTP method: $method")
         }
         return await(requestBuilder.build())
@@ -68,8 +68,9 @@ class AuthenticatedHttpClient(
                     if (!response.isSuccessful) {
                         if (response.code == 401) onUnauthorized()
                         if (continuation.isActive) {
+                            val backendError = parseError(body, response.code)
                             continuation.resumeWithException(
-                                ApiException(response.code, errorMessage(body, response.code)),
+                                ApiException(response.code, backendError.message, backendError.code),
                             )
                         }
                         return
@@ -80,12 +81,21 @@ class AuthenticatedHttpClient(
         })
     }
 
-    private fun errorMessage(body: String, statusCode: Int): String = runCatching {
+    private fun parseError(body: String, statusCode: Int): BackendError = runCatching {
         val value = json.parseToJsonElement(body).jsonObject
-        value["error"]?.jsonPrimitive?.contentOrNull
+        val code = value["code"]?.jsonPrimitive?.contentOrNull
+        val validationMessage = value["errors"]?.jsonObject?.values
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+            ?.joinToString(" ")
+        val message = value["error"]?.jsonPrimitive?.contentOrNull
             ?: value["message"]?.jsonPrimitive?.contentOrNull
-            ?: value["code"]?.jsonPrimitive?.contentOrNull
-    }.getOrNull() ?: "HTTP $statusCode"
+            ?: validationMessage
+            ?: code
+            ?: "HTTP $statusCode"
+        BackendError(message, code)
+    }.getOrNull() ?: BackendError("HTTP $statusCode", null)
+
+    private data class BackendError(val message: String, val code: String?)
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

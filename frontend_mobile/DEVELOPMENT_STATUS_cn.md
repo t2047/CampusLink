@@ -236,6 +236,22 @@ message
 
 本阶段没有实现预约创建、我的预约、取消预约和维修请求，也没有在移动端复制后端冲突检测或权限规则。
 
+### 3.10 Facilities Mobile Phase 2
+
+状态：**已完成**
+
+- 空间可用时显示 `Book This Space`，用户必须先通过原生 Compose 确认对话框，确认后才调用 `POST /api/facilities/bookings`；
+- 创建过程提供提交锁定、成功摘要、Booking Details 和 My Bookings 入口；
+- Backend 返回 `BOOKING_CONFLICT` 时清除旧 availability，要求用户重新检查；
+- My Bookings 调用真实用户 ownership API，提供加载、空结果、错误、重试和业务排序；
+- Booking Details 展示空间、时间、状态和审计时间，404 不区分不存在或非 owner；
+- Cancel Booking 必须经过确认对话框，成功后详情和列表立即刷新为 `CANCELLED`，且取消按钮消失；
+- Android 不复制冲突检测、ownership、取消资格或持久化规则，Spring Backend 仍是最终 authority；
+- 已在 `localDebug` 模拟器通过真实 Spring Backend 和 phpStudy MySQL 验证 Create → List → Details → Cancel；
+- 重叠时段在真实运行中由 Availability preflight 返回 `BOOKING_CONFLICT` 并阻止 Book 按钮；测试创建的预约最终均已取消。
+
+Maintenance 原生页面尚未实现。Facilities 原生确认属于 REST 页面误操作防护，不替代 Central Agent 的 HITL `/api/chat/resume`。
+
 ## 4. 本地数据与安全
 
 ### 4.1 已完成的安全措施
@@ -333,15 +349,15 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 20 个通过 |
-| 模拟器测试 | 2 个通过 |
+| JVM 单元测试 | 34 个通过 |
+| 模拟器测试 | 5 个通过 |
 | `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
 | Nginx `nginx -t` | 通过 |
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API 序列化及 Facilities ViewModel 状态。设备测试覆盖登录页启动及 Room v1 架构创建。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API 序列化，以及空间、可用性、预约创建、列表排序、详情和取消状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、创建确认和取消确认。
 
 ### 6.3 CI/CD
 
@@ -448,9 +464,9 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.10 Facilities 原生页面
 
-- 状态：**Phase 1 已完成**
-- 已完成：Services 入口、设施搜索、空间详情和可用性查询，并已连接真实 Spring Backend。
-- 需要开发：预约创建、我的预约、取消预约、维修请求和状态跟踪。
+- 状态：**Phase 1 和 Phase 2 已完成**
+- 已完成：Services 入口、设施搜索、空间详情、可用性查询、预约创建、我的预约、预约详情和取消预约，并已连接真实 Spring Backend。
+- 需要开发：维修请求、我的维修请求和状态跟踪。
 
 #### 7.11 Mail 原生页面
 

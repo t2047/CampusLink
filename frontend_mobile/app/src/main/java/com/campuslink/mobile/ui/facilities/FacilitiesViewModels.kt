@@ -3,6 +3,8 @@ package com.campuslink.mobile.ui.facilities
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.campuslink.mobile.core.model.AvailabilityResponse
+import com.campuslink.mobile.core.model.BookingResponse
+import com.campuslink.mobile.core.model.CreateBookingRequest
 import com.campuslink.mobile.core.model.Space
 import com.campuslink.mobile.core.model.SpaceSearchFilters
 import com.campuslink.mobile.core.network.ApiException
@@ -120,6 +122,14 @@ sealed interface AvailabilityUiState {
     data class Error(val message: String) : AvailabilityUiState
 }
 
+sealed interface BookingCreationUiState {
+    data object Idle : BookingCreationUiState
+    data class Confirming(val request: CreateBookingRequest) : BookingCreationUiState
+    data class Submitting(val request: CreateBookingRequest) : BookingCreationUiState
+    data class Success(val booking: BookingResponse) : BookingCreationUiState
+    data class Error(val message: String, val conflict: Boolean = false) : BookingCreationUiState
+}
+
 class SpaceDetailsViewModel(
     private val spaceId: Long,
     private val repository: FacilitiesDataSource,
@@ -130,6 +140,8 @@ class SpaceDetailsViewModel(
     val selection: StateFlow<AvailabilitySelection> = mutableSelection.asStateFlow()
     private val mutableAvailabilityState = MutableStateFlow<AvailabilityUiState>(AvailabilityUiState.Idle)
     val availabilityState: StateFlow<AvailabilityUiState> = mutableAvailabilityState.asStateFlow()
+    private val mutableBookingState = MutableStateFlow<BookingCreationUiState>(BookingCreationUiState.Idle)
+    val bookingState: StateFlow<BookingCreationUiState> = mutableBookingState.asStateFlow()
     private var availabilityJob: Job? = null
     private var availabilityGeneration = 0L
 
@@ -187,6 +199,57 @@ class SpaceDetailsViewModel(
         }
     }
 
+    fun requestBooking() {
+        val available = mutableAvailabilityState.value as? AvailabilityUiState.Available ?: return
+        if (mutableBookingState.value is BookingCreationUiState.Submitting) return
+        mutableBookingState.value = BookingCreationUiState.Confirming(
+            CreateBookingRequest(
+                spaceId = spaceId,
+                startDateTime = available.response.startDateTime,
+                endDateTime = available.response.endDateTime,
+            ),
+        )
+    }
+
+    fun dismissBookingConfirmation() {
+        if (mutableBookingState.value is BookingCreationUiState.Confirming) {
+            mutableBookingState.value = BookingCreationUiState.Idle
+        }
+    }
+
+    fun confirmBooking() {
+        val confirming = mutableBookingState.value as? BookingCreationUiState.Confirming ?: return
+        mutableBookingState.value = BookingCreationUiState.Submitting(confirming.request)
+        viewModelScope.launch {
+            try {
+                mutableBookingState.value = BookingCreationUiState.Success(
+                    repository.createBooking(confirming.request),
+                )
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: ApiException) {
+                val conflict = exception.statusCode == 409
+                if (conflict) mutableAvailabilityState.value = AvailabilityUiState.Idle
+                mutableBookingState.value = BookingCreationUiState.Error(
+                    message = exception.toBookingCreationMessage(),
+                    conflict = conflict,
+                )
+            } catch (exception: SocketTimeoutException) {
+                mutableBookingState.value = BookingCreationUiState.Error(exception.toUserMessage())
+            } catch (exception: IOException) {
+                mutableBookingState.value = BookingCreationUiState.Error(exception.toUserMessage())
+            } catch (exception: SerializationException) {
+                mutableBookingState.value = BookingCreationUiState.Error(exception.toUserMessage())
+            }
+        }
+    }
+
+    fun clearBookingFeedback() {
+        if (mutableBookingState.value !is BookingCreationUiState.Submitting) {
+            mutableBookingState.value = BookingCreationUiState.Idle
+        }
+    }
+
     private fun setAvailabilityError(
         exception: Exception,
         generation: Long,
@@ -224,11 +287,22 @@ class SpaceDetailsViewModel(
         availabilityJob?.cancel()
         mutableSelection.value = mutableSelection.value.transform()
         mutableAvailabilityState.value = AvailabilityUiState.Idle
+        mutableBookingState.value = BookingCreationUiState.Idle
     }
 
     companion object {
         private val BACKEND_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
     }
+}
+
+private fun ApiException.toBookingCreationMessage(): String = when {
+    statusCode == 409 && errorCode == "BOOKING_CONFLICT" ->
+        "This time slot is no longer available. Please check availability again."
+    statusCode == 409 -> "This space can no longer be booked for the selected time. Please check availability again."
+    statusCode == 400 -> message.ifBlank { "Check the booking date and time, then try again." }
+    statusCode == 401 -> "Your session has expired. Please sign in again."
+    statusCode == 404 -> "This space is no longer available."
+    else -> "Facilities service is temporarily unavailable."
 }
 
 private fun Exception.toUserMessage(): String = when (this) {
