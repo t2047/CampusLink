@@ -68,3 +68,16 @@ def test_after_agent_invoke_incomplete_continues():
         "failed_agents": [],
     }
     assert after_agent_invoke(state) == "invoke_next"
+
+
+def test_after_utility_requires_approval_routes_to_human_approval():
+    """联网搜索确认门：requires_approval → after_utility 返回 human_approval，
+    且 graph 的 utility 路由映射必须包含该键（2026-08-15 回归：映射缺
+    human_approval 键 → LangGraph KeyError → 图异常 → 兜底闲聊"知识库截止"）。"""
+    from orchestration.graph.edges import after_utility
+    from orchestration.graph.graph import _UTILITY_AFTER_ROUTES
+
+    state = {"requires_approval": True, "utility_plan": ["web_search"], "utility_results": {}}
+    assert after_utility(state) == "human_approval"
+    # 映射表必须覆盖 after_utility 的全部返回值（防 KeyError）
+    assert _UTILITY_AFTER_ROUTES["human_approval"] == "human_approval"

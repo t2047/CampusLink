@@ -305,6 +305,44 @@ async def chat_resume(request: Request):
     )
 
 
+def _join_surrogate(content: str, pending: str) -> tuple[str, str]:
+    """修复被流式切分的 UTF-16 surrogate，返回 (可发送内容, 待缓存 high surrogate)。
+
+    DeepSeek 等流式 API 可能在多字节字符（emoji）中间切分 chunk，Python 侧得到
+    孤立 surrogate code point（0xD800-0xDFFF 是合法 str 字符但无法编码为 UTF-8）。
+    若直接 json.dumps 发送，会产生替换符 �（2026-08-15 修复）。
+
+    处理规则：
+    - high+low 相邻成对 → 合并为单个 code point（真正的 emoji 字符）
+    - 孤立 high 在末尾 → 缓存等下一 chunk 配对
+    - 孤立 low（缺配对）→ 丢弃
+    """
+    merged = pending + content
+    if not merged:
+        return "", ""
+    out: list[str] = []
+    index = 0
+    while index < len(merged):
+        ch = merged[index]
+        if "\ud800" <= ch <= "\udbff":  # high surrogate
+            if index + 1 < len(merged) and "\udc00" <= merged[index + 1] <= "\udfff":
+                # 成对 → 合并为单个 code point
+                code_point = 0x10000 + ((ord(ch) - 0xD800) << 10) + (ord(merged[index + 1]) - 0xDC00)
+                out.append(chr(code_point))
+                index += 2
+            elif index == len(merged) - 1:
+                # 末尾孤立 high → 缓存等配对
+                return "".join(out), ch
+            else:
+                index += 1  # 中部的孤立 high → 丢弃
+        elif "\udc00" <= ch <= "\udfff":  # 孤立 low → 丢弃
+            index += 1
+        else:
+            out.append(ch)
+            index += 1
+    return "".join(out), ""
+
+
 async def _sse_stream(
     graph,
     initial_state: dict[str, Any],
@@ -335,6 +373,7 @@ async def _sse_stream(
     chat_buf = ""  # 已发出的 chat_responder token 拼接（末尾完整重放检测用）
     pending_chat_reply: str | None = None  # updates 模式完整回复的缓冲（流末按需补发）
     stream_failed = False  # 图执行异常（异常路径已由 _direct_llm_reply 兜底，跳过补发）
+    pending_surrogate = ""  # 跨 chunk 缓存被切开的 UTF-16 high surrogate（emoji 等多字节字符）
 
     try:
         if resume is not None:
@@ -364,6 +403,10 @@ async def _sse_stream(
 
                 content = getattr(message_chunk, "content", None)
                 if content and getattr(message_chunk, "type", "") not in ("tool", "function"):
+                    # 合并跨 chunk 被切开的 surrogate pair（emoji 等），避免前端显示 �
+                    content, pending_surrogate = _join_surrogate(content, pending_surrogate)
+                    if not content:
+                        continue
                     # 末尾完整重放检测：LangGraph 在 LLM 结束（on_llm_end）时会把聚合后的
                     # 完整回复再作为一条 chunk 发到 messages 模式（content == 已拼全文），
                     # 前端把分块拼接与完整文本再拼一遍 → 回复出现两遍。丢弃该 chunk。
@@ -471,6 +514,7 @@ async def _direct_llm_reply(initial_state: dict[str, Any]) -> AsyncGenerator[SSE
     流式逐 token 产出（astream）；LLM 也失败则无产出
     （由调用方决定是否发 error 事件）。
     """
+    pending_surrogate_direct = ""  # _direct_llm_reply 的跨 chunk surrogate 缓存
     try:
         llm = chat_llm()
         messages = initial_state.get("messages") or [HumanMessage(content="你好")]
@@ -478,6 +522,9 @@ async def _direct_llm_reply(initial_state: dict[str, Any]) -> AsyncGenerator[SSE
         async for chunk in llm.astream(messages):
             content = getattr(chunk, "content", "") or ""
             if content.strip():
+                content, pending_surrogate_direct = _join_surrogate(content, pending_surrogate_direct)
+                if not content:
+                    continue
                 if not warned:
                     logger.warning("graph produced no output; fallback to direct LLM reply")
                     warned = True

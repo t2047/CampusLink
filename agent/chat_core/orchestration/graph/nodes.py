@@ -71,7 +71,11 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
    典型语义（含问句形式）：查询/登记/查找失物下落、报失、捡到东西、认领、
    预约或查询教室/场馆/研讨室、查邮件、技能搜索与交易等——即使表述为
    "我的东西在哪""帮我看看"等口语问句，只要涉及上述业务域，即为 domain_agent
-2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索
+2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索。
+   联网搜索包括查询任何实时/最新信息（新闻、天气、汇率、股价、赛事、百科事实等），
+   典型语义："搜索/搜一下/查一下/查询/有什么新闻/今天天气/最新消息/帮我找找资料"——
+   即使表述为问句（"最近有什么新闻？"）也归 utility，targets=["web_search"]；
+   不得把含"搜索/查询"意图的消息归为 chat（chat 只用于纯闲聊/知识问答且用户未要求联网）
 3. intent_type="chat"：闲聊、问候、一般知识问答（与校园业务无关）
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
 5. 无法确定时：若消息明显涉及校园业务域（失物/设施/邮件/技能），返回
@@ -98,7 +102,8 @@ Utility Tool 能力：
 - "明天下午有没有空的研讨室" → {{"intent_type":"domain_agent","targets":["facility-agent"]}}
 - "帮我查一下昨天收到的邮件" → {{"intent_type":"domain_agent","targets":["mail-agent"]}}
 - "把 15 美元换算成人民币" → {{"intent_type":"utility","targets":["unit_converter"]}}
-- "你好，今天天气怎么样" → {{"intent_type":"chat","targets":[]}}
+- "今天天气怎么样" → {{"intent_type":"utility","targets":["web_search"]}}（实时信息查询归联网搜索）
+- "搜索一下最近有什么新闻" → {{"intent_type":"utility","targets":["web_search"]}}
 - "不要用工具，直接告诉我 2+2" → {{"intent_type":"chat","targets":[]}}
 """
 
@@ -121,6 +126,26 @@ _SYSTEM_ERROR_PATTERNS: list[str] = [
     r"(java|org|com)\.\w+.*Exception",
     r"Caused by:",
 ]
+
+
+# chat_responder 闲聊/知识问答的系统提示词：定义校园助手身份与功能，
+# 避免 LLM 自报底层模型（如 DeepSeek）或编造业务信息（2026-08-15）。
+_CHAT_SYSTEM_PROMPT = """你是 CampusLink 校园助手，服务于 CampusLink 校园平台。
+
+你可以帮助用户：
+- 邮件：搜索、阅读、管理邮件
+- 校园设施：查找/预约研讨室、自习室、教室、实验室、体育场馆，查询设施报修
+- 失物招领：报失、登记拾获、查找失物、认领
+- 实用工具：数学计算、当前时间、单位换算、联网搜索实时信息
+- 校园常识与一般知识问答
+
+回答规则：
+1. 使用与用户消息相同的语言回复（用户用英文则回复英文，用户用中文则回复中文）。
+2. 用户询问"你是谁/你能做什么/有哪些功能"时，用上面的功能列表介绍自己，
+   不要透露底层模型名称（如 DeepSeek）或任何内部技术细节。
+3. 涉及具体业务操作（预约/报失/查邮件/找东西/查信息等）时，引导用户直接提出需求；
+   不要编造业务事实（如失物存放地点、预约状态、邮件内容、设施信息）。
+4. 不要提及"工具""agent""LLM""模型"等内部实现细节。"""
 
 
 # ---------------------------------------------------------------------------
@@ -681,13 +706,22 @@ async def chat_responder(state: AgentState) -> AgentState:
         )
         return {"messages": [AIMessage(content=text)]}
 
+    last_msg = state["messages"][-1].content if state.get("messages") else ""
+    user_msg = last_msg if isinstance(last_msg, str) else ""
+    fallback_text = (
+        "抱歉，我现在暂时无法回复，请稍后重试。"
+        if _looks_chinese(user_msg)
+        else "Sorry, I can't reply right now. Please try again later."
+    )
     llm = chat_llm()
     try:
-        response = await llm.ainvoke(state.get("messages", [HumanMessage(content="你好")]))
+        history = state.get("messages", []) or [HumanMessage(content="你好")]
+        # 注入身份/功能系统提示词：避免自报 DeepSeek，回答介绍 CampusLink 功能
+        response = await llm.ainvoke([SystemMessage(content=_CHAT_SYSTEM_PROMPT), *history])
         content = getattr(response, "content", "") or ""
-        return {"messages": [AIMessage(content=content.strip() or "抱歉，我现在暂时无法回复，请稍后重试。")]}
+        return {"messages": [AIMessage(content=content.strip() or fallback_text)]}
     except Exception:
-        return {"messages": [AIMessage(content="抱歉，我现在暂时无法回复，请稍后重试。")]}
+        return {"messages": [AIMessage(content=fallback_text)]}
 
 
 # ---------------------------------------------------------------------------
@@ -760,16 +794,36 @@ async def response_aggregator(state: AgentState) -> AgentState:
             parts.append(_format_utility_result(tool_name, result))
 
     if not parts:
-        final = "抱歉，暂时无法处理你的请求。"
+        # 语言跟随：无任何可聚合内容时的兜底文案（英文用户默认英文）
+        user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+        final = (
+            "抱歉，暂时无法处理你的请求。"
+            if _looks_chinese("".join(user_msgs))
+            else "Sorry, I couldn't process your request right now."
+        )
     elif len(parts) == 1:
         final = parts[0]
     else:
+        # 语言跟随：把用户原始消息一并传给 LLM，确保聚合输出语言与用户一致
+        summary_user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+        summary_user_msg = summary_user_msgs[-1] if summary_user_msgs else ""
         llm = summary_llm()
         try:
             summary = llm.invoke(
                 [
-                    SystemMessage(content="将以下多个结果整合成一段连贯、自然的回复："),
-                    HumanMessage(content="\n".join(parts)),
+                    SystemMessage(
+                        content=(
+                            "Combine the following results into one coherent, natural reply. "
+                            "Use the same language as the user's request."
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            f"User request: {summary_user_msg}\n\nResults:\n" + "\n".join(parts)
+                            if summary_user_msg
+                            else "\n".join(parts)
+                        )
+                    ),
                 ]
             )
             final = summary.content
