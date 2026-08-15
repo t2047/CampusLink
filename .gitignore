@@ -58,4 +58,8 @@ tmp/
 agent/mail_agent/token.json
 agent/mail_agent/credentials.json
 agent/mail_agent/tokens/
+# Calendar SQLite database (mail service)
+agent/mail_agent/calendar.db
+# Local docker-compose overrides (never commit)
+docker-compose.override.yml
 .claude/

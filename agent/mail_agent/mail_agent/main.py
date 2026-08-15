@@ -22,7 +22,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from . import agent, config, gmail_service
+from . import agent, calendar_service, config, gmail_service
+from .calendar_service import (
+    CalendarEvent,
+    CalendarEventRequest,
+    CalendarEventUpdate,
+    ExtractedSchedule,
+    ImportRequest,
+    ImportResponse,
+)
 from .models import (
     MailFolder,
     MailMessage,
@@ -254,6 +262,112 @@ def delete_message(
         return gmail_service.trash_message(message_id)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# Calendar (per-user events + schedule extraction from mail)
+# ---------------------------------------------------------------------------
+
+
+class ExtractResponse(BaseModel):
+    days: int
+    scanned: int
+    mode: str = "rules"
+    events: list[ExtractedSchedule]
+
+
+@app.get("/api/mail/calendar/events", response_model=list[CalendarEvent])
+def list_calendar_events(
+    authorization: str | None = Header(default=None),
+    start: str | None = Query(default=None, description="ISO datetime, inclusive lower bound"),
+    end: str | None = Query(default=None, description="ISO datetime, exclusive upper bound"),
+) -> list[CalendarEvent]:
+    user_id = _user_from_auth(authorization)
+    return calendar_service.list_events(user_id, start, end)
+
+
+@app.post(
+    "/api/mail/calendar/events",
+    response_model=CalendarEvent,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_calendar_event(
+    request: CalendarEventRequest,
+    authorization: str | None = Header(default=None),
+) -> CalendarEvent:
+    user_id = _user_from_auth(authorization)
+    try:
+        return calendar_service.create_event(user_id, request)
+    except ValueError as exc:
+        raise MailApiError(status.HTTP_422_UNPROCESSABLE_ENTITY, "CALENDAR_VALIDATION", str(exc)) from exc
+
+
+@app.get("/api/mail/calendar/events/{event_id}", response_model=CalendarEvent)
+def get_calendar_event(
+    event_id: str,
+    authorization: str | None = Header(default=None),
+) -> CalendarEvent:
+    user_id = _user_from_auth(authorization)
+    event = calendar_service.get_event(user_id, event_id)
+    if event is None:
+        raise MailApiError(status.HTTP_404_NOT_FOUND, "CALENDAR_EVENT_NOT_FOUND", "Calendar event not found")
+    return event
+
+
+@app.patch("/api/mail/calendar/events/{event_id}", response_model=CalendarEvent)
+def update_calendar_event(
+    event_id: str,
+    request: CalendarEventUpdate,
+    authorization: str | None = Header(default=None),
+) -> CalendarEvent:
+    user_id = _user_from_auth(authorization)
+    try:
+        event = calendar_service.update_event(user_id, event_id, request)
+    except ValueError as exc:
+        raise MailApiError(status.HTTP_422_UNPROCESSABLE_ENTITY, "CALENDAR_VALIDATION", str(exc)) from exc
+    if event is None:
+        raise MailApiError(status.HTTP_404_NOT_FOUND, "CALENDAR_EVENT_NOT_FOUND", "Calendar event not found")
+    return event
+
+
+@app.delete("/api/mail/calendar/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_calendar_event(
+    event_id: str,
+    authorization: str | None = Header(default=None),
+) -> None:
+    user_id = _user_from_auth(authorization)
+    if not calendar_service.delete_event(user_id, event_id):
+        raise MailApiError(status.HTTP_404_NOT_FOUND, "CALENDAR_EVENT_NOT_FOUND", "Calendar event not found")
+
+
+@app.post("/api/mail/calendar/extract", response_model=ExtractResponse)
+def extract_calendar_schedules(
+    authorization: str | None = Header(default=None),
+    days: int = Query(default=0, ge=0, le=30, description="Scan emails from the last `days` days (0 = today only)"),
+    max_results: int = Query(default=20, ge=1, le=50),
+) -> ExtractResponse:
+    """Scan recent emails for date/time mentions and return proposed schedules.
+
+    Nothing is written yet: the frontend shows these to the user, who confirms
+    the selection, then calls ``POST /api/mail/calendar/import``.
+    """
+    _user_from_auth(authorization)
+    try:
+        messages = gmail_service.list_recent_messages(days, max_results)
+    except Exception as exc:  # noqa: BLE001
+        raise _map_gmail_error(exc) from exc
+    events, mode = calendar_service.extract_schedules_with_mode(messages)
+    return ExtractResponse(days=days, scanned=len(messages), mode=mode, events=events)
+
+
+@app.post("/api/mail/calendar/import", response_model=ImportResponse)
+def import_calendar_schedules(
+    request: ImportRequest,
+    authorization: str | None = Header(default=None),
+) -> ImportResponse:
+    """Import user-confirmed schedules extracted from mail into the calendar."""
+    user_id = _user_from_auth(authorization)
+    return calendar_service.import_schedules(user_id, request.events)
 
 
 # ---------------------------------------------------------------------------

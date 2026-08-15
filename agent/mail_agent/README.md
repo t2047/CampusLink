@@ -156,11 +156,42 @@ Response:
 | POST   | `/api/mail/messages/{id}/archive` | Remove from inbox                              |
 | POST   | `/api/mail/messages/{id}/delete`  | Move to trash                                  |
 | POST   | `/api/mail/agent/chat`            | LangChain agent chat (search/read/delete/star/archive/send) |
+| GET    | `/api/mail/calendar/events`       | List events (`start`, `end` ISO bounds)        |
+| POST   | `/api/mail/calendar/events`       | Create a manual event                          |
+| GET    | `/api/mail/calendar/events/{id}`  | Get one event                                  |
+| PATCH  | `/api/mail/calendar/events/{id}`  | Update an event                                |
+| DELETE | `/api/mail/calendar/events/{id}`  | Delete an event                                |
+| POST   | `/api/mail/calendar/extract`      | Scan recent mail and propose schedules (`days`, `max_results`) |
+| POST   | `/api/mail/calendar/import`       | Import confirmed schedules (dedupes)           |
 
 All `/api/mail/**` endpoints require `Authorization: Bearer <jwt>`. Listing is
 paginated: `page` (0-based) and `size` (default 20, max 50); the response is a
 `PageResponse` with `content`, `total_elements`, `total_pages`, `first` and
 `last`.
+
+### Calendar
+
+Events are stored per user (keyed by the bearer token) in a small SQLite
+database at `agent/mail_agent/calendar.db` (override with `MAIL_CALENDAR_DB`).
+Fields: `title`, `description`, `location`, `start_time` / `end_time` (ISO
+datetimes), `all_day`, `source` (`manual` or `mail`) and `source_email_id`.
+
+Schedule extraction from mail is a two-step flow so nothing is written without
+user confirmation:
+
+1. `POST /api/mail/calendar/extract?days=0` scans recent emails (0 = today only;
+   `days=2` scans the last three calendar days) and returns proposed schedules
+   parsed from subject/body date-time-location mentions — nothing is written.
+   Extraction is **LLM-powered by default**: the DeepSeek model (configured via
+   `MAIL_LLM_API_KEY` / `MAIL_LLM_BASE_URL` / `MAIL_LLM_MODEL`, falling back to
+   `DEEPSEEK_*`) reads each email and returns structured schedules. The response
+   includes a `mode` field (`llm` or `rules`) so the UI can show which strategy
+   produced the proposals. Set `MAIL_CALENDAR_EXTRACT_MODE` to `llm` (LLM only),
+   `rules` (built-in pattern parser only) or `auto` (default: LLM, falling back
+   to rules on any failure).
+2. The frontend shows the proposals; after the user confirms, `POST
+   /api/mail/calendar/import` saves them, skipping any that are already in the
+   calendar (same `source_email_id` + start time, or same title + start time).
 
 ### Search (`q` parameter)
 
