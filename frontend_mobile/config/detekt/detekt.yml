@@ -1,0 +1,25 @@
+complexity:
+  ComplexCondition:
+    threshold: 5
+  CyclomaticComplexMethod:
+    threshold: 35
+  LongMethod:
+    threshold: 100
+  TooManyFunctions:
+    thresholdInFiles: 30
+    thresholdInClasses: 20
+    thresholdInInterfaces: 15
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    maxLineLength: 140
+  WildcardImport:
+    active: false
+  ReturnCount:
+    max: 4
+naming:
+  FunctionNaming:
+    functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  MatchingDeclarationName:
+    active: false

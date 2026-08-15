@@ -85,9 +85,18 @@ jobs:
             set -e
             cd /opt/campuslink
             git pull --ff-only
+            set -a
+            . ./.env
+            set +a
+            if [ -z "${CERT_DOMAIN:-}" ] || [ -z "${CERT_EMAIL:-}" ] \
+              || [ "$CERT_DOMAIN" = "campuslink.local" ]; then
+              echo "[campuslink] 拒绝部署：服务器 .env 必须先配置正式 CERT_DOMAIN 和 CERT_EMAIL" >&2
+              exit 1
+            fi
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               --profile agent --profile multimodal \
               up -d --pull always --wait --wait-timeout 900
+            ./deploy/bootstrap_https.sh
             docker image prune -f
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               --profile agent --profile multimodal ps
