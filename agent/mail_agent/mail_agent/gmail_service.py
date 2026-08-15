@@ -106,7 +106,9 @@ class GmailNotConnectedError(RuntimeError):
 
 
 # Pending OAuth states (CSRF protection) - in-memory is fine for a one-time flow.
-_pending_states: set[str] = set()
+# Maps state -> redirect_uri so the token exchange reuses the exact URI the
+# consent URL was built with (required when the URI is derived per request).
+_pending_states: dict[str, str] = {}
 
 
 _service_instance: Any | None = None
@@ -140,19 +142,30 @@ def _service():
 # OAuth2 web flow
 # ---------------------------------------------------------------------------
 
-def _build_flow(state: str | None = None) -> Flow:
+def _effective_redirect_uri(redirect_uri: str | None = None) -> str:
+    """Resolve the redirect URI to use, falling back to the dev default."""
+    return (
+        redirect_uri
+        or config.GMAIL_REDIRECT_URI
+        or config.DEFAULT_GMAIL_REDIRECT_URI
+    )
+
+
+def _build_flow(
+    state: str | None = None, redirect_uri: str | None = None
+) -> Flow:
     return Flow.from_client_config(
         config.client_config(),
         scopes=config.GMAIL_SCOPES,
-        redirect_uri=config.GMAIL_REDIRECT_URI,
+        redirect_uri=_effective_redirect_uri(redirect_uri),
         state=state,
     )
 
 
 @_serialized
-def authorization_url() -> tuple[str, str]:
+def authorization_url(redirect_uri: str | None = None) -> tuple[str, str]:
     """Return ``(url, state)`` for the Google consent screen."""
-    flow = _build_flow()
+    flow = _build_flow(redirect_uri=redirect_uri)
     url, state = flow.authorization_url(
         access_type="offline",
         # Force consent so a refresh token is always granted on re-auth.
@@ -164,17 +177,17 @@ def authorization_url() -> tuple[str, str]:
         code_challenge=None,
         code_challenge_method=None,
     )
-    _pending_states.add(state)
+    _pending_states[state] = _effective_redirect_uri(redirect_uri)
     return url, state
 
 
 @_serialized
 def exchange_code(code: str, state: str) -> Credentials:
     """Exchange an authorization code for credentials and persist them."""
-    if state not in _pending_states:
+    redirect_uri = _pending_states.pop(state, None)
+    if redirect_uri is None:
         raise ValueError("Invalid or expired OAuth state")
-    _pending_states.discard(state)
-    flow = _build_flow(state=state)
+    flow = _build_flow(state=state, redirect_uri=redirect_uri)
     flow.fetch_token(code=code)
     creds = flow.credentials
     save_credentials(creds)
@@ -1025,8 +1038,8 @@ def reset_connection() -> None:
         pass
 
 
-def new_state() -> str:
+def new_state(redirect_uri: str | None = None) -> str:
     """Generate and remember a fresh CSRF state token."""
     state = secrets.token_urlsafe(16)
-    _pending_states.add(state)
+    _pending_states[state] = _effective_redirect_uri(redirect_uri)
     return state
