@@ -78,6 +78,24 @@ $COMPOSE run --rm --entrypoint certbot certbot certonly \
 $COMPOSE restart web
 
 echo "[campuslink] 验证 HTTPS"
-curl --fail --silent --show-error --max-time 20 "https://$CERT_DOMAIN/" >/dev/null
-curl --fail --silent --show-error --head --max-time 20 "http://$CERT_DOMAIN/" | grep -Eq "^HTTP/[0-9.]+ 301"
+attempt=1
+while ! curl --fail --silent --show-error --max-time 10 "https://$CERT_DOMAIN/" >/dev/null 2>&1; do
+    if [ "$attempt" -ge 30 ]; then
+        echo "Nginx 重启后未能在 60 秒内提供 HTTPS 服务" >&2
+        exit 6
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+done
+
+attempt=1
+while [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+    "http://$CERT_DOMAIN/" 2>/dev/null || true)" != "301" ]; do
+    if [ "$attempt" -ge 30 ]; then
+        echo "HTTP 未能在 60 秒内启用 HTTPS 跳转" >&2
+        exit 7
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+done
 echo "[campuslink] HTTPS 已启用：https://$CERT_DOMAIN/"
