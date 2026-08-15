@@ -1,4 +1,4 @@
-"""测试 — utility_server 单位换算(实时汇率/回退/别名/错误语义)。"""
+"""测试 — utility_server 单位换算(实时汇率/回退/别名/错误语义) 与 search_policy 政策检索。"""
 
 import json
 import sys
@@ -11,6 +11,7 @@ if str(_ROOT) not in sys.path:
 
 from mcp_servers.utility_server import (
     _to_iso_code,
+    search_policy,
     unit_converter,
 )
 
@@ -69,3 +70,70 @@ def test_unsupported_pair_returns_error(monkeypatch) -> None:
     monkeypatch.setattr("mcp_servers.utility_server._get_rates", lambda _base: None)
     r = json.loads(unit_converter(100, "美元", "日元"))
     assert "error" in r
+
+
+# ─── search_policy（政策/规章制度 RAG）───────────────────────────────
+
+
+class _FakeRetriever:
+    """最小 fake：模拟 policy_rag.PolicyRetriever.search 的返回结构。"""
+
+    def __init__(self, results=None, error: Exception | None = None) -> None:
+        self._results = results or []
+        self._error = error
+        self.calls: list[dict] = []
+
+    def search(self, query: str, top_k: int = 5):
+        self.calls.append({"query": query, "top_k": top_k})
+        if self._error:
+            raise self._error
+        return self._results
+
+
+def test_search_policy_ok(monkeypatch) -> None:
+    """命中 → status=ok，结果带来源标注。"""
+    fake = _FakeRetriever(
+        results=[
+            {
+                "text": "Calculators are not permitted in closed-book exams.",
+                "score": 0.91,
+                "source": "Instructions to Candidates for Assessments and Examinations.pdf#p2",
+                "file": "Instructions to Candidates for Assessments and Examinations.pdf",
+                "page": "2",
+            }
+        ]
+    )
+    monkeypatch.setattr("mcp_servers.utility_server._get_policy_retriever", lambda: fake)
+    r = json.loads(search_policy("考试可以带计算器吗"))
+    assert r["status"] == "ok"
+    assert len(r["results"]) == 1
+    assert r["results"][0]["source"].endswith("#p2")
+    assert fake.calls[0]["top_k"] == 5
+
+
+def test_search_policy_no_results(monkeypatch) -> None:
+    """无命中 → status=no_results（不视为失败）。"""
+    fake = _FakeRetriever(results=[])
+    monkeypatch.setattr("mcp_servers.utility_server._get_policy_retriever", lambda: fake)
+    r = json.loads(search_policy("完全无关的内容"))
+    assert r["status"] == "no_results"
+    assert r["results"] == []
+
+
+def test_search_policy_fail_open(monkeypatch) -> None:
+    """Qdrant/embedding 服务不可用 → status=failed + error，绝不抛异常。"""
+    fake = _FakeRetriever(error=RuntimeError("qdrant connection refused"))
+    monkeypatch.setattr("mcp_servers.utility_server._get_policy_retriever", lambda: fake)
+    r = json.loads(search_policy("校规"))
+    assert r["status"] == "failed"
+    assert "error" in r and r["results"] == []
+
+
+def test_search_policy_top_k_clamped(monkeypatch) -> None:
+    """top_k 钳制到 1-10。"""
+    fake = _FakeRetriever()
+    monkeypatch.setattr("mcp_servers.utility_server._get_policy_retriever", lambda: fake)
+    search_policy("q", top_k=99)
+    assert fake.calls[0]["top_k"] == 10
+    search_policy("q", top_k=0)
+    assert fake.calls[1]["top_k"] == 1

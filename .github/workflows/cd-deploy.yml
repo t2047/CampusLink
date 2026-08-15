@@ -124,6 +124,11 @@ jobs:
               --profile agent --profile multimodal \
               up -d --pull always --wait --wait-timeout 900
             ./deploy/bootstrap_https.sh
+            # 政策/规章制度 RAG：构建/刷新索引
+            # （lost-found-embedding 已随 multimodal profile 启动；qdrant 随默认 profile 启动）
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile multimodal run --rm policy-index-builder \
+              || echo "WARN: policy index build failed - retry manually: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal run --rm policy-index-builder"
             docker image prune -f
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               --profile agent --profile multimodal ps

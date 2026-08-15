@@ -117,6 +117,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml \
 curl http://localhost/api/chat/stream 2>/dev/null || true   # 或直接访问 http://<vm-ip>
 ```
 
+> 政策/规章制度 RAG（`search_policy`）的 Qdrant 向量库随默认栈启动；索引由 CD 部署
+> 自动构建（见第 9 节）。手动重建：
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal up -d --pull always lost-found-embedding
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal run --rm policy-index-builder
+> ```
+
 > 本地开发仍用 `docker compose up -d --build`（compose 默认本地构建）。
 > `multimodal` profile 会启动预训练 Embedding 服务，首次启动需下载模型并可能耗时数分钟。
 > 完整全栈建议使用至少 8 GB RAM 的 VM，并为模型缓存保留足够磁盘空间。
@@ -169,7 +177,7 @@ REGISTRY=ghcr.io/<owner> docker compose \
 
 ## 8. 备份
 
-- 数据全在命名卷（`mysql_data` / `minio_data` / `delegation_keys`）
+- 数据全在命名卷（`mysql_data` / `minio_data` / `delegation_keys` / `lost_found_model_cache` / `qdrant_data`）
 - 推荐 **EBS 快照**（AWS 控制台手动/定时）或定时导出：
   ```bash
   docker compose exec -T mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_PASSWORD" campusLink_db' > backup.sql
@@ -195,8 +203,8 @@ docker compose start chat-backend
 
 见 `.github/workflows/cd-deploy.yml`，流程：
 1. 推 `main` → GitHub Actions 构建 7 个镜像（backend/orchestration/mcp-servers/mail-agent/lost-found-agent/lost-found-embedding/web）推 **GHCR**（`ghcr.io/<owner>/campuslink-*`）
-2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ `git pull` + 启用 `agent`/`multimodal` profiles 拉取并重启完整服务
-3. CD 最多等待 15 分钟，直到服务达到 `running` 或 `healthy`；Embedding readiness 失败会让部署任务失败
+2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ 校验 `.env` 与 `CERT_DOMAIN`/`CERT_EMAIL` 配置 → `git pull` + 以 `agent`/`multimodal` profiles 拉取重启（`--wait` 最长 15 分钟）→ `deploy/bootstrap_https.sh`
+3. 构建/刷新政策 RAG 索引（`policy-index-builder`，失败仅 WARN 不阻塞部署）
 
 **首次启用需两步**：
 - GitHub 仓库 Settings → Packages → 把 `campuslink-*` 包设为 **public**（VM 免登录拉取）

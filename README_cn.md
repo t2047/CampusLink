@@ -56,6 +56,15 @@ docker compose --profile agent --profile multimodal up -d --build
 
 模型缓存保存在 Docker 命名卷中。普通启动不会加载模型，模型服务异常时报告仍会保存，匹配自动降级为原有哈希文本、颜色直方图和规则算法。
 
+**政策/规章制度 RAG**（`search_policy` 工具）复用同一套多模态向量服务，向量存储在 Qdrant（默认栈随 compose 启动）。从 `docs/nus_docs/` 构建/重建索引：
+
+```bash
+docker compose --profile multimodal up -d lost-found-embedding
+docker compose --profile multimodal run --rm policy-index-builder
+```
+
+详见 [docs/policy_rag.md](docs/policy_rag.md)。
+
 `LOST_FOUND_LLM_API_KEY` 可以保持为空，`auto` 模式会使用规则引擎。普通 `docker compose up -d` 会启动平台基础栈，但不会在 8083 端口暴露这个可选 REST Agent。
 
 如需脱离 Docker 开发，可在第二个终端启动后端：
@@ -101,7 +110,8 @@ cd frontend_mobile
 平台核心是**校园 AI 助手**（自然语言聊天 + 多领域 Agent 调度）：
 
 - **编排层**：`agent/chat_core`（FastAPI + LangGraph；意图路由、Agent 调用、HITL 人工确认、LLM 兜底）
-- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / utility-tools），
+- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / utility-tools——
+  计算器、当前时间、单位换算、联网搜索、**政策/规章制度检索 `search_policy`**），
   以 streamable HTTP 暴露，按 `agent/schemas/*.json` 能力声明注册
 - **前端**：React 应用首页的聊天入口（SSE 流式打字机、意图展示、HITL 确认——确认后
   经 `/api/chat/resume` 恢复挂起图并真正重调子 Agent 执行写操作，报失/认领等确认流程已可用）
@@ -123,6 +133,18 @@ cd frontend_mobile
 - 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失与登记拾获确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
 
 当前 Lost & Found 已接入 Agent，并支持 Multilingual-E5 文本语义、CLIP 图片对图片、可选多语言文字对图片、结构化字段融合及基础算法自动降级。通知和移动端仍未实现。Agent 平台说明见上文“Agent 平台（核心）”。
+
+## 政策/规章制度 RAG
+
+`search_policy` 从 `docs/nus_docs/` 下 29 份 NUS 政策/规章 PDF（学生行为守则、考试条例、评估规则等）检索答案：
+
+- **流水线**：LlamaIndex 0.14（PDF → 分块 → 嵌入）→ Qdrant 向量库（`nus_policy`，384 维 COSINE）→ 查询时 Top-K 检索
+- **复用 embedding**：通过 HTTP 调用共享的 `lost-found-embedding` 服务（`intfloat/multilingual-e5-small`），utility 容器不加载模型
+- **离线可用**：`llama-index-core` wheel 内置 tiktoken/nltk 缓存，分块用正则切句避免联网下载
+- **索引生命周期**：`policy-index-builder` 一次性服务全量重建索引（幂等），CD 每次部署自动执行
+- **降级**：服务不可用时返回 `status=failed`，不中断聊天
+
+详见 [docs/policy_rag.md](docs/policy_rag.md)。
 
 ## API
 
@@ -197,6 +219,7 @@ project/
 ├── agent/                   Agent 体系（平台核心）
 │   ├── chat_core/           编排层（FastAPI + LangGraph；意图路由/HITL/LLM 兜底）
 │   ├── mcp_servers/         MCP Server 适配层（mail/facility/lost-found/utility）
+│   │   └── policy_rag/      政策 RAG：config/embedding/retriever/indexer（LlamaIndex + Qdrant）
 │   ├── lost_found_agent/    L&F 业务引擎（规则 + LLM 意图解析）
 │   └── schemas/             Agent 能力声明（JSON Schema）
 ├── backend/
@@ -207,6 +230,6 @@ project/
 ├── services/
 │   └── lost_found_embedding/ 独立 E5/CLIP 预训练多模态服务
 ├── frontend_mobile/         Kotlin + Compose Core Chat Android 客户端
-├── docker-compose.yml       MySQL、MinIO 与可选模型 profile
+├── docker-compose.yml       MySQL、MinIO、Qdrant 与可选模型 profile
 └── docs/
 ```
