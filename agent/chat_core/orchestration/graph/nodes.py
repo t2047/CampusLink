@@ -34,7 +34,12 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..llm import chat_llm, intent_llm, summary_llm
-from .state import AgentInvocation, AgentState
+from .state import (
+    AgentInvocation,
+    AgentState,
+    current_turn_invocations,
+    invocation_can_update_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +350,7 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     )
 
     invocation: AgentInvocation = {
+        "turn_id": state.get("turn_id") or "",
         "agent_name": agent_name,
         "input_message": user_msg,
         "output_response": result.get("response", ""),
@@ -445,6 +451,8 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
     if isinstance(supplied_shared, dict):
         shared.update(supplied_shared)
     for inv in state.get("agent_invocations", []):
+        if not invocation_can_update_context(inv):
+            continue
         invocation_shared = inv.get("shared_context") or {}
         if isinstance(invocation_shared, dict):
             shared.update(invocation_shared)
@@ -765,7 +773,7 @@ async def response_aggregator(state: AgentState) -> AgentState:
     if state.get("messages") and isinstance(state["messages"][-1], AIMessage):
         return {}  # 已有最终回复（如 chat_responder 生成），不重复
 
-    agent_invocations = state.get("agent_invocations", [])
+    agent_invocations = current_turn_invocations(state)
     utility_results = state.get("utility_results", {})
     parts: list[str] = []
 

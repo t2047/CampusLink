@@ -8,6 +8,7 @@ from agent.facilities_agent.planner import (
     FACILITIES_INTENTS,
     FakePlanner,
     PlannerDecision,
+    PlannerUnavailableError,
 )
 from agent.facilities_agent.service import FacilitiesAdapterService
 from agent.facilities_agent.tool_client import (
@@ -22,6 +23,11 @@ class MutableClock:
 
     def __call__(self):
         return self.value
+
+
+class UnavailablePlanner:
+    async def plan(self, _request, _context):
+        raise PlannerUnavailableError("planner unavailable")
 
 
 def request(
@@ -493,6 +499,208 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
         response = await service.invoke(request("ambiguous"), "42")
         self.assertEqual("needs_more_info", response.status)
         self.assertEqual([], client.calls)
+
+    async def test_planner_failure_is_fail_closed_without_tool_or_confirmation(self):
+        client = FakeFacilitiesToolClient(
+            {
+                "create_booking": {
+                    "success": True,
+                    "data": {"bookingId": 999, "status": "CONFIRMED"},
+                }
+            }
+        )
+        store = ConfirmationStore(now_provider=self.clock)
+        service = FacilitiesAdapterService(
+            UnavailablePlanner(),
+            client,
+            store,
+            now_provider=self.clock,
+        )
+        stale_context = {
+            "facilities": {
+                "last_booking_id": 8,
+                "search_results": {
+                    "startDateTime": "2026-08-10T14:00:00",
+                    "endDateTime": "2026-08-10T16:00:00",
+                    "expiresAt": "2026-08-10T18:00:00Z",
+                    "candidates": [
+                        {"rank": 1, "spaceId": 4, "name": "Room A"}
+                    ],
+                },
+            }
+        }
+
+        response = await service.invoke(
+            request(
+                "I want to book for 8.17 from 10am to 12pm",
+                stale_context,
+            ),
+            "42",
+        )
+
+        self.assertEqual("failed", response.status)
+        self.assertEqual([], client.calls, "planner failure must not call any MCP tool")
+        self.assertEqual({}, store._actions, "planner failure must not create confirmation state")
+
+    async def test_booking_without_explicit_room_does_not_use_stale_first_result(self):
+        decisions = {
+            "search": PlannerDecision(
+                intent="search_spaces",
+                arguments={
+                    "startDateTime": "2026-08-10T14:00:00",
+                    "endDateTime": "2026-08-10T16:00:00",
+                },
+            ),
+            "I want to book for 8.17 from 10am to 12pm": PlannerDecision(
+                intent="create_booking",
+                arguments={
+                    "startDateTime": "2026-08-17T10:00:00",
+                    "endDateTime": "2026-08-17T12:00:00",
+                },
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [
+                    {"spaceId": 4, "name": "Room A"},
+                    {"spaceId": 5, "name": "Room B"},
+                ],
+            }
+        }
+        service, _planner, client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+
+        response = await service.invoke(
+            request(
+                "I want to book for 8.17 from 10am to 12pm",
+                search.shared_context,
+            ),
+            "42",
+        )
+
+        self.assertEqual("needs_more_info", response.status)
+        self.assertIn("space ID", response.response)
+        self.assertEqual(["search_spaces"], [call["tool_name"] for call in client.calls])
+        self.assertEqual({}, store._actions)
+
+    async def test_planner_derived_space_id_without_current_message_reference_is_rejected(self):
+        decisions = {
+            "search": PlannerDecision(intent="search_spaces", arguments={}),
+            "I want to book for 8.17 from 10am to 12pm": PlannerDecision(
+                intent="create_booking",
+                arguments={
+                    "spaceId": 4,
+                    "startDateTime": "2026-08-17T10:00:00",
+                    "endDateTime": "2026-08-17T12:00:00",
+                },
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [{"spaceId": 4, "name": "Room A"}],
+            }
+        }
+        service, _planner, client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+
+        response = await service.invoke(
+            request(
+                "I want to book for 8.17 from 10am to 12pm",
+                search.shared_context,
+            ),
+            "42",
+        )
+
+        self.assertEqual("needs_more_info", response.status)
+        self.assertIn("Which room", response.response)
+        self.assertEqual(["search_spaces"], [call["tool_name"] for call in client.calls])
+        self.assertEqual({}, store._actions)
+
+    async def test_explicit_first_room_uses_current_turn_time_in_frozen_arguments(self):
+        decisions = {
+            "search": PlannerDecision(
+                intent="search_spaces",
+                arguments={
+                    "startDateTime": "2026-08-10T14:00:00",
+                    "endDateTime": "2026-08-10T16:00:00",
+                },
+            ),
+            "book first with new time": PlannerDecision(
+                intent="create_booking",
+                arguments={
+                    "candidateRank": 1,
+                    "startDateTime": "2026-08-17T10:00:00",
+                    "endDateTime": "2026-08-17T12:00:00",
+                },
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [{"spaceId": 4, "name": "Room A"}],
+            },
+            "check_availability": {
+                "success": True,
+                "data": {"available": True},
+            },
+        }
+        service, _planner, _client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+
+        response = await service.invoke(
+            request("book first with new time", search.shared_context),
+            "42",
+        )
+
+        self.assertEqual("needs_confirmation", response.status)
+        pending = store.get(
+            response.confirmation_required.confirmation_id,
+            "42",
+            "session-1",
+        )
+        self.assertEqual(
+            {
+                "spaceId": 4,
+                "startDateTime": "2026-08-17T10:00:00",
+                "endDateTime": "2026-08-17T12:00:00",
+            },
+            pending.arguments_copy(),
+        )
+
+    async def test_explicit_space_without_current_time_does_not_inherit_old_search_window(self):
+        decisions = {
+            "search": PlannerDecision(
+                intent="search_spaces",
+                arguments={
+                    "startDateTime": "2026-08-10T14:00:00",
+                    "endDateTime": "2026-08-10T16:00:00",
+                },
+            ),
+            "book space 4 without time": PlannerDecision(
+                intent="create_booking",
+                arguments={"spaceId": 4},
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [{"spaceId": 4, "name": "Room A"}],
+            }
+        }
+        service, _planner, client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+
+        response = await service.invoke(
+            request("book space 4 without time", search.shared_context),
+            "42",
+        )
+
+        self.assertEqual("needs_more_info", response.status)
+        self.assertIn("date", response.response)
+        self.assertEqual(["search_spaces"], [call["tool_name"] for call in client.calls])
+        self.assertEqual({}, store._actions)
 
     async def test_direct_booking_status_handler(self):
         decisions = {

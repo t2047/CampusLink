@@ -1,6 +1,7 @@
 """Deterministic orchestration core for the Facilities Domain Agent Adapter."""
 
 import logging
+import re
 import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
@@ -84,6 +85,7 @@ class FacilitiesAdapterService:
             )
             return await self._dispatch(
                 decision,
+                request.message,
                 str(authenticated_user_id),
                 session_id,
                 context,
@@ -111,6 +113,7 @@ class FacilitiesAdapterService:
     async def _dispatch(
         self,
         decision: PlannerDecision,
+        user_message: str,
         user_id: str,
         session_id: str,
         context: FacilitiesContextManager,
@@ -122,6 +125,14 @@ class FacilitiesAdapterService:
                 or "Please provide: {0}.".format(
                     ", ".join(decision.missing_fields)
                 ),
+                context,
+                request_id,
+            )
+        if decision.intent == "create_booking" and not self._has_explicit_space_reference(
+            user_message
+        ):
+            return self._needs_more_info(
+                "Which room would you like to book? Please choose a recent search result or provide a space ID.",
                 context,
                 request_id,
             )
@@ -151,6 +162,32 @@ class FacilitiesAdapterService:
         return await handler(
             arguments, user_id, session_id, context, request_id
         )
+
+    @staticmethod
+    def _has_explicit_space_reference(message: str) -> bool:
+        """Require current-turn evidence before accepting a planner-selected space.
+
+        The planner sees conversation context and may otherwise copy a stale selected
+        space into ``spaceId`` even when the current user message only supplies a new
+        date/time. This guard validates reference provenance without trusting the
+        planner's derived ID.
+        """
+
+        text = (message or "").strip()
+        if not text:
+            return False
+        patterns = (
+            r"\boption\s*(?:number\s*)?(?:\d+|one|two|three|four|five)\b",
+            r"\b(?:book|reserve)\s+(?:the\s+)?(?:first|second|third|fourth|fifth)\b",
+            r"\b(?:first|second|third|fourth|fifth)\s+(?:one|room|space|option|result)\b",
+            r"\b(?:this|that|selected|same)\s+(?:room|space|pod|lab|venue)\b",
+            r"\b(?:room|space|pod|lab|hall|court|studio)\s*(?:id\s*)?[#:]?\s*(?:\d+[a-z0-9-]*|[a-z]+\d+[a-z0-9-]*|[a-z])\b",
+            r"\b[a-z]{2,}\d*(?:-\d+){1,}\b",
+            r"第\s*[一二三四五六七八九十\d]+\s*个",
+            r"(?:这个|那个|刚才那个)(?:房间|空间|场地|实验室)",
+            r"(?:房间|空间|场地|实验室)\s*(?:编号|id)?\s*[a-z]?\d+",
+        )
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
     @staticmethod
     def _value(
@@ -424,20 +461,17 @@ class FacilitiesAdapterService:
         candidate = None
         explicit_space_id = self._value(arguments, "spaceId", "space_id")
         if explicit_space_id is None:
-            rank = self._value(arguments, "candidateRank", "candidate_rank")
-            if rank is None and context.context.search_results is not None:
-                rank = 1
-            if rank is None:
+            resolved_space_id, clarification = self._resolve_space_id(arguments, context)
+            if clarification:
                 return self._needs_more_info(
-                    "Please provide a space ID or choose a recent search result.",
+                    clarification,
                     context,
                     request_id,
                 )
-            try:
-                candidate = context.resolve_space_rank(int(rank))
-            except (ContextResolutionError, TypeError, ValueError) as error:
-                return self._needs_more_info(str(error), context, request_id)
-            space_id = candidate.space_id
+            space_id = resolved_space_id
+            selected = context.context.selected_space
+            if selected is not None and selected.space_id == space_id:
+                candidate = selected.model_copy(deep=True)
         else:
             space_id, clarification = self._resolve_space_id(arguments, context)
             if clarification:
@@ -449,7 +483,10 @@ class FacilitiesAdapterService:
         )
         if clarification:
             return self._needs_more_info(clarification, context, request_id)
-        if not time_arguments and search_results is not None:
+        # Reuse a search window only when this turn explicitly references one of
+        # those search candidates. A bare booking request must never inherit stale
+        # time arguments from an earlier turn.
+        if not time_arguments and search_results is not None and candidate is not None:
             inherited = {
                 "startDateTime": search_results.start_date_time,
                 "endDateTime": search_results.end_date_time,

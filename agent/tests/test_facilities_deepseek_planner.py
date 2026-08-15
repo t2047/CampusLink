@@ -277,6 +277,70 @@ async def test_untrusted_or_unknown_model_fields_are_rejected(invalid_output):
 
 
 @pytest.mark.asyncio
+async def test_known_optional_null_argument_is_normalized_as_absent():
+    planner, client, _captured = planner_with_response(
+        {
+            "intent": "search_spaces",
+            "arguments": {"query": None, "minimumCapacity": 4},
+            "datetime_text": None,
+            "missing_fields": [],
+            "clarification": None,
+        }
+    )
+    try:
+        decision = await planner.plan(
+            InvokeRequest(message="Find a room for four people"),
+            FacilitiesSharedContext(),
+        )
+    finally:
+        await client.aclose()
+
+    assert decision.arguments == {"minimumCapacity": 4}
+
+
+@pytest.mark.asyncio
+async def test_required_top_level_null_is_still_rejected():
+    planner, client, _captured = planner_with_response(
+        {
+            "intent": None,
+            "arguments": {"query": None},
+            "datetime_text": None,
+            "missing_fields": [],
+            "clarification": None,
+        }
+    )
+    try:
+        with pytest.raises(PlannerOutputError):
+            await planner.plan(
+                InvokeRequest(message="Find a room"),
+                FacilitiesSharedContext(),
+            )
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_unknown_null_argument_is_still_rejected():
+    planner, client, _captured = planner_with_response(
+        {
+            "intent": "search_spaces",
+            "arguments": {"unknownField": None},
+            "datetime_text": None,
+            "missing_fields": [],
+            "clarification": None,
+        }
+    )
+    try:
+        with pytest.raises(PlannerOutputError):
+            await planner.plan(
+                InvokeRequest(message="Find a room"),
+                FacilitiesSharedContext(),
+            )
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_markdown_or_malformed_json_is_rejected_without_extraction():
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
