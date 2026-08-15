@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import json
+import logging
 import os
 import re
 import sys
@@ -146,8 +147,20 @@ _FALLBACK_RATES: dict[tuple[str, str], float] = {
 }
 
 # 货币换算结果缓存（TTL 1 小时，避免每次调用打汇率 API）
-_rate_cache: dict[str, tuple[float, dict[str, float]]] = {}
+_rate_cache: dict[str, tuple[float, dict[str, float] | None]] = {}
 _RATE_CACHE_TTL = 3600.0
+# 失败负缓存 TTL（API 故障时短缓存，避免每请求阻塞 5s 重试）
+_RATE_FAIL_TTL = 60.0
+
+logger = logging.getLogger(__name__)
+
+
+def _to_iso_code(name: str) -> str | None:
+    """货币名 → ISO 4217 代码。支持中文别名与直接输入 ISO 代码（USD/CNY 等）。"""
+    upper = name.strip().upper()
+    if re.fullmatch(r"[A-Z]{3}", upper):
+        return upper
+    return _CURRENCY_ALIASES.get(name)
 
 
 def _get_rates(base: str) -> dict[str, float] | None:
@@ -155,7 +168,9 @@ def _get_rates(base: str) -> dict[str, float] | None:
     import time
 
     cached = _rate_cache.get(base)
-    if cached and time.monotonic() - cached[0] < _RATE_CACHE_TTL:
+    if cached and time.monotonic() - cached[0] < (
+        _RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL
+    ):
         return cached[1]
     try:
         import httpx
@@ -169,13 +184,14 @@ def _get_rates(base: str) -> dict[str, float] | None:
         payload = response.json()
         rates = payload.get("rates") if isinstance(payload, dict) else None
         if not isinstance(rates, dict) or not rates:
-            return None
-        _rate_cache[base] = (
-            time.monotonic(),
-            {k: float(v) for k, v in rates.items() if isinstance(v, (int, float))},
-        )
-        return _rate_cache[base][1]
-    except Exception:
+            raise ValueError(f"empty rates payload: {str(payload)[:200]}")
+        parsed = {k: float(v) for k, v in rates.items() if isinstance(v, (int, float))}
+        _rate_cache[base] = (time.monotonic(), parsed)
+        return parsed
+    except Exception as exc:
+        # 失败负缓存 + 日志：避免每请求阻塞 5s 重试且无迹可查
+        logger.warning("exchange rate fetch failed: base=%s err=%s", base, exc)
+        _rate_cache[base] = (time.monotonic(), None)
         return None
 
 
@@ -186,44 +202,58 @@ def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
     货币换算使用实时汇率（open.er-api.com，免费无 key，1 小时缓存）；
     API 不可用时回退固定汇率。非货币换算为固定比率。
     """
-    # 货币换算：中文货币名 → ISO 代码 → 实时汇率
-    from_code = _CURRENCY_ALIASES.get(from_unit)
-    to_code = _CURRENCY_ALIASES.get(to_unit)
-    if from_code and to_code:
-        rates = _get_rates(from_code)
-        if rates and to_code in rates:
-            result = value * rates[to_code]
-            return json.dumps(
-                {
-                    "value": value,
-                    "from_unit": from_unit,
-                    "to_unit": to_unit,
-                    "result": result,
-                    "rate": rates[to_code],
-                    "source": "live",
-                },
-                ensure_ascii=False,
-            )
-        # API 失败 → 回退固定汇率
-        fallback = _FALLBACK_RATES.get((from_unit, to_unit))
-        if fallback is not None:
-            return json.dumps(
-                {
-                    "value": value,
-                    "from_unit": from_unit,
-                    "to_unit": to_unit,
-                    "result": value * fallback,
-                    "rate": fallback,
-                    "source": "fallback",
-                },
-                ensure_ascii=False,
-            )
+    # 货币换算：中文别名/ISO 代码 → 实时汇率
+    from_code = _to_iso_code(from_unit)
+    to_code = _to_iso_code(to_unit)
+    # 涉及货币：任一侧是货币 → 走货币逻辑（含同币种恒 1 与错误语义）
+    if from_code or to_code:
+        if from_code and to_code:
+            if from_code == to_code:  # 同币种恒为 1，无需查 API
+                return json.dumps(
+                    {
+                        "value": value,
+                        "from_unit": from_unit,
+                        "to_unit": to_unit,
+                        "result": value,
+                        "rate": 1.0,
+                        "source": "identity",
+                    },
+                    ensure_ascii=False,
+                )
+            rates = _get_rates(from_code)
+            if rates and to_code in rates:
+                result = value * rates[to_code]
+                return json.dumps(
+                    {
+                        "value": value,
+                        "from_unit": from_unit,
+                        "to_unit": to_unit,
+                        "result": result,
+                        "rate": rates[to_code],
+                        "source": "live",
+                    },
+                    ensure_ascii=False,
+                )
+            # API 失败 → 回退固定汇率
+            fallback = _FALLBACK_RATES.get((from_unit, to_unit))
+            if fallback is not None:
+                return json.dumps(
+                    {
+                        "value": value,
+                        "from_unit": from_unit,
+                        "to_unit": to_unit,
+                        "result": value * fallback,
+                        "rate": fallback,
+                        "source": "fallback",
+                    },
+                    ensure_ascii=False,
+                )
         return json.dumps(
             {
                 "value": value,
                 "from_unit": from_unit,
                 "to_unit": to_unit,
-                "error": f"unsupported currency pair: {from_unit} → {to_unit}",
+                "error": f"unsupported currency: {from_unit} → {to_unit}",
             },
             ensure_ascii=False,
         )
