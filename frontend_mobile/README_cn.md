@@ -1,5 +1,7 @@
 # CampusLink Android Core Chat
 
+> 组员接手开发前，请先阅读[移动端开发状态与后续路线](DEVELOPMENT_STATUS_cn.md)。
+
 原生 Kotlin / Jetpack Compose 客户端，首版聚焦统一 Core Chat。它直接连接 Spring Boot 的
 `/api/chat/stream` 和 `/api/chat/resume`，展示 SSE 流式文本、Agent/Utility 执行步骤、
 Lost & Found 匹配卡片及 HITL 确认。
