@@ -232,7 +232,7 @@ export interface ApiErrorBody {
   fieldErrors?: Record<string, string>
 }
 
-export type MailFolder = 'inbox' | 'sent' | 'archived' | 'trash'
+export type MailFolder = 'inbox' | 'sent' | 'archived' | 'trash' | 'spam'
 
 export type MailCategory = 'campus' | 'career' | 'finance' | 'other'
 
@@ -266,4 +266,65 @@ export interface SendMailInput {
   recipients: string[]
   subject: string
   body: string
+}
+
+export type CalendarEventSource = 'manual' | 'mail'
+
+export interface CalendarEvent {
+  id: string
+  user_id: string
+  title: string
+  description: string
+  location: string
+  start_time: string
+  end_time: string
+  all_day: boolean
+  source: CalendarEventSource
+  source_email_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CalendarEventInput {
+  title: string
+  description?: string
+  location?: string
+  start_time: string
+  end_time: string
+  all_day?: boolean
+}
+
+export interface CalendarEventUpdate {
+  title?: string
+  description?: string
+  location?: string
+  start_time?: string
+  end_time?: string
+  all_day?: boolean
+}
+
+export interface ExtractedSchedule {
+  key: string
+  title: string
+  description: string
+  location: string
+  start_time: string
+  end_time: string
+  all_day: boolean
+  source_email_id: string | null
+  email_subject: string
+}
+
+export interface ExtractResponse {
+  days: number
+  scanned: number
+  /** Extraction strategy used: 'llm' (DeepSeek) or 'rules' (fallback parser). */
+  mode: 'llm' | 'rules'
+  events: ExtractedSchedule[]
+}
+
+export interface CalendarImportResponse {
+  imported: number
+  skipped: number
+  events: CalendarEvent[]
 }

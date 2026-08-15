@@ -280,7 +280,7 @@ def _needs_confirmation(
 
 
 def _fmt_message(brief: dict[str, Any]) -> str:
-    """把一条邮件摘要格式化为可读文本。"""
+    """把一条邮件摘要格式化为可读文本（时间按本地时区显示，与 Web 一致）。"""
     flag = ""
     if not brief.get("read", True):
         flag = "[未读]"
@@ -292,8 +292,22 @@ def _fmt_message(brief: dict[str, Any]) -> str:
         flag=flag + " " if flag else "",
         subject=brief.get("subject", "(无主题)"),
         sender=brief.get("sender", "?"),
-        date=(brief.get("created_at", "") or "")[:10],
+        date=_local_mail_date(brief.get("created_at", "")),
     )
+
+
+def _local_mail_date(created_at: str) -> str:
+    """把 UTC ISO 时间转为服务器本地时区（与 Web 页面显示一致）。"""
+    if not created_at:
+        return "?"
+    try:
+        return (
+            datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            .astimezone()
+            .strftime("%Y-%m-%d %H:%M")
+        )
+    except ValueError:
+        return created_at[:10]
 
 
 # ──────────────────────────────────────────────────────────────────────

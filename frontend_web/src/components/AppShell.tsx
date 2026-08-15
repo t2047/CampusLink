@@ -1,4 +1,5 @@
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import InboxIcon from '@mui/icons-material/Inbox'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MailOutlineIcon from '@mui/icons-material/MailOutline'
@@ -25,6 +26,7 @@ export function AppShell() {
           <Button color="inherit" component={RouterLink} to="/lost-found/new/lost" startIcon={<AddCircleOutlineIcon />}>Report</Button>
           <Button color="inherit" component={RouterLink} to="/claims/mine" startIcon={<InboxIcon />}>Claims</Button>
           <Button color="inherit" component={RouterLink} to="/mail" startIcon={<MailOutlineIcon />}>Mail</Button>
+          <Button color="inherit" component={RouterLink} to="/mail/calendar" startIcon={<CalendarMonthIcon />}>Calendar</Button>
           <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' }, mx: 1 }}>{user?.email}</Typography>
           <Button
             color="inherit"

@@ -2,6 +2,7 @@ import ArchiveIcon from '@mui/icons-material/Archive'
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EventAvailableIcon from '@mui/icons-material/EventAvailable'
 import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead'
 import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
@@ -36,6 +37,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { apiErrorMessage } from '../api/client'
 import { archiveMail, deleteMail, disconnectMail, getMailMessage, getMailOAuthStatus, getMailOAuthUrl, listMail, sendMail, updateMail } from '../api/mail'
 import { MailAgentPanel } from '../components/MailAgentPanel'
+import { ScheduleImportDialog } from '../components/ScheduleImportDialog'
 import type { MailCategory, MailFolder, MailMessage } from '../types'
 
 const folders: Array<{ value: MailFolder; label: string }> = [
@@ -43,6 +45,7 @@ const folders: Array<{ value: MailFolder; label: string }> = [
   { value: 'sent', label: 'Sent' },
   { value: 'archived', label: 'Archived' },
   { value: 'trash', label: 'Trash' },
+  { value: 'spam', label: 'Spam' },
 ]
 
 const categoryMeta: Record<MailCategory, { label: string; color: 'success' | 'info' | 'warning' | 'default' }> = {
@@ -50,6 +53,40 @@ const categoryMeta: Record<MailCategory, { label: string; color: 'success' | 'in
   career: { label: 'Career', color: 'info' },
   finance: { label: 'Finance', color: 'warning' },
   other: { label: 'Other', color: 'default' },
+}
+
+function formatMailDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  const now = new Date()
+  const sameDay = date.toDateString() === now.toDateString()
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const isYesterday = date.toDateString() === yesterday.toDateString()
+  if (sameDay) {
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+  if (isYesterday) {
+    return `Yesterday ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatMailDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export function MailPage() {
@@ -69,6 +106,7 @@ export function MailPage() {
   const [connectUrl, setConnectUrl] = useState('')
   const [notice, setNotice] = useState('')
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   async function loadMessages(nextFolder = folder, nextQuery = query, nextPage = page) {
     setLoading(true)
@@ -263,6 +301,15 @@ export function MailPage() {
               Assistant
             </Button>
           )}
+          {connected === true && (
+            <Button
+              variant="outlined"
+              startIcon={<EventAvailableIcon />}
+              onClick={() => setImportOpen(true)}
+            >
+              Import to Calendar
+            </Button>
+          )}
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadMessages()}>Refresh</Button>
           <Button variant="contained" startIcon={<SendIcon />} onClick={() => setComposeOpen(true)}>Compose</Button>
         </Stack>
@@ -319,7 +366,12 @@ export function MailPage() {
                         />
                       </Stack>
                       <Typography noWrap variant="body2" color="text.secondary">{message.sender}</Typography>
-                      <Typography noWrap variant="body2">{message.preview}</Typography>
+                      <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                        <Typography noWrap variant="body2">{message.preview}</Typography>
+                        <Typography noWrap variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                          {formatMailDate(message.created_at)}
+                        </Typography>
+                      </Stack>
                     </Box>
                   </ListItemButton>
                 ))}
@@ -361,6 +413,9 @@ export function MailPage() {
                     <Typography variant="h5" fontWeight={700}>{selected.subject}</Typography>
                     <Typography color="text.secondary">From {selected.sender}</Typography>
                     <Typography color="text.secondary">To {selected.recipients.join(', ')}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {formatMailDateTime(selected.created_at)}
+                    </Typography>
                   </Box>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Chip label={selected.folder} />
@@ -474,6 +529,14 @@ export function MailPage() {
           <MailAgentPanel />
         </Box>
       </Drawer>
+
+      <ScheduleImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(count) => {
+          setNotice(`Imported ${count} schedule${count === 1 ? '' : 's'} into your calendar.`)
+        }}
+      />
     </Stack>
   )
 }
