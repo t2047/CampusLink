@@ -1,13 +1,20 @@
-"""Mail Agent - MCP 适配层：把 8091 真实邮件 REST 服务包装成 MCP invoke 工具。
+"""Mail Agent - MCP 适配层：把 mail REST 服务包装成 MCP invoke 工具。
 
-组员自研的 mail REST 服务（agent/mail_agent，端口 8091，暴露 /api/mail/**）
-之上提供 MCP streamable HTTP 端点（/mcp/），编排层可经标准 MCP 调用真实
-邮件能力（搜索 / 阅读 / 发送 / 归档 / 删除 / 标记），无需改动既有 REST 实现。
+组员自研的 mail REST 服务（agent/mail_agent，暴露 /api/mail/**）之上提供 MCP
+streamable HTTP 端点（/mcp/），编排层可经标准 MCP 调用邮件能力（搜索 / 阅读 /
+发送 / 归档 / 删除 / 标记）。
+
+回复策略（chat 与 mail 通信）：
+  * 主路径：把编排层的用户消息转发给 mail 模块**自带的 LangChain agent**
+    （POST /api/mail/agent/chat，LLM 推理 + 7 工具 + 多轮会话记忆），由
+    mail 的 agent 直接回复 chat 的 agent，适配层不再自行解析意图。
+  * 回退：mail agent 未配置（503）或 REST 报错时，回退到本文件的关键词规则
+    分派（_dispatch → 各 REST 端点），保证无 LLM 凭据的环境仍可用。
 
 安全：与其它 MCP Agent 一致 -- 挂 ``McpSecurityMiddleware``（RS256
 Delegation Token 验签 + aud=mail-agent + X-Timestamp 窗口）；工具内用
 ``identity_from_context``（mcp_servers.security 公共 helper）从 Authorization
-解析身份，作为 Bearer 透传给 8091（8091 当前只校验 Bearer 前缀，不验真伪）。
+解析身份，作为 Bearer 透传给 mail REST（其当前只校验 Bearer 前缀，不验真伪）。
 
 运行（独立进程，端口 8081；替换原 domain_server 的 mail-agent mock 实例）：
     uvicorn mcp_servers.mail_server:app --host 0.0.0.0 --port 8081 --reload
@@ -141,6 +148,24 @@ class MailRestClient:
         return await self._request(
             "POST", f"/api/mail/messages/{message_id}/delete", user_id,
         )
+
+    async def agent_chat(
+        self, user_id: str, message: str, session_id: str, timeout: float = 60.0,
+    ) -> dict[str, Any]:
+        """调 mail 模块自带的 LangChain agent（POST /api/mail/agent/chat）。
+
+        让 mail 的 agent（LLM 推理 + 7 工具 + 多轮会话记忆）直接回复聊天请求，
+        而不是适配层用关键词规则分派到各 REST 端点。LLM 多轮可能较慢，
+        单独放宽该请求的超时（默认 60s，可用 MAIL_AGENT_CHAT_TIMEOUT_SECONDS 覆盖）。
+        """
+        resp = await self._client.request(
+            "POST", "/api/mail/agent/chat",
+            headers={"Authorization": f"Bearer {user_id}"},
+            json={"message": message, "session_id": session_id},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 
 _rest = MailRestClient(MAIL_REST_URL)
@@ -311,6 +336,66 @@ def _local_mail_date(created_at: str) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# mail 模块自带 LangChain agent 回复（chat 与 mail 通信主路径）
+# ──────────────────────────────────────────────────────────────────────
+
+
+_AGENT_CHAT_TIMEOUT_SECONDS = float(os.environ.get("MAIL_AGENT_CHAT_TIMEOUT_SECONDS", "60"))
+
+
+def _agent_session_id(user_id: str, conversation_context: dict | None) -> str:
+    """从编排层会话推导 mail agent 的 LangGraph thread id（多轮记忆键）。
+
+    编排层 ``conversation_context.session_id`` 是聊天会话级 UUID；叠加 user_id
+    前缀，避免不同用户在同一会话号下共享 agent 记忆（InMemorySaver 按 thread
+    隔离）。mail agent 侧 run_chat 会再做一次安全清洗（去特殊字符、截断 128）。
+    """
+    session = (conversation_context or {}).get("session_id") or ""
+    safe_user = re.sub(r"[^A-Za-z0-9_-]", "", str(user_id))[:32]
+    safe_session = re.sub(r"[^A-Za-z0-9_-]", "", str(session))[:64]
+    return f"mcp-{safe_user}-{safe_session or 'anon'}"
+
+
+async def _handle_agent_reply(
+    message: str,
+    conversation_context: dict | None,
+    user_id: str,
+    request_id: str,
+) -> str | None:
+    """让 mail 模块自带的 LangChain agent 回复（主路径）。
+
+    返回 MCP 契约 JSON 字符串；agent 未配置（503）或 REST 报错时返回 None，
+    由调用方回退到规则式分派（``_dispatch``）。
+    """
+    session_id = _agent_session_id(user_id, conversation_context)
+    try:
+        result = await _rest.agent_chat(
+            user_id, message, session_id, timeout=_AGENT_CHAT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "mail agent chat unavailable (HTTP %s), falling back to rule dispatch: %s",
+            exc.response.status_code, exc,
+        )
+        return None
+    logger.info(
+        "mail agent chat reply: request_id=%s session_id=%s status=%s model=%s",
+        request_id, result.get("session_id", session_id), result.get("status"),
+        result.get("model", ""),
+    )
+    return json.dumps(
+        {
+            "response": result.get("response", ""),
+            "status": "completed" if result.get("status") != "failed" else "failed",
+            "request_id": request_id,
+            "actions_taken": result.get("actions_taken", []),
+            "shared_context": {"session_id": result.get("session_id", session_id)},
+        },
+        ensure_ascii=False,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
 # MCP invoke 工具
 # ──────────────────────────────────────────────────────────────────────
 
@@ -364,6 +449,11 @@ async def invoke(
     )
 
     try:
+        # 主路径：由 mail 模块自带的 LangChain agent 回复 chat（LLM 推理 +
+        # 多轮会话记忆）；agent 未配置/失败时回退规则式 REST 分派（_dispatch）
+        reply = await _handle_agent_reply(message, conversation_context, user_id, request_id)
+        if reply is not None:
+            return reply
         return await _dispatch(message, confirmed, confirmation_id, user_id, request_id)
     except httpx.HTTPStatusError as exc:
         logger.warning("mail invoke REST error: %s %s", exc.response.status_code, exc)

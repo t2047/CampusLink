@@ -82,6 +82,28 @@ uvicorn mcp_servers.lost_found_server:app --host 0.0.0.0 --port 8085 --reload
   `confirmation_required`，编排层 HITL 确认流可直接复用）
 - REST 通道（8083，HS256 直连后端）保持不变，互不影响
 
+### Mail 通信：mail 模块自带 agent 回复 chat
+
+编排层把邮件意图路由到 `mail-agent`（MCP `invoke`）后，`mail_server.py` **不再用
+关键词规则分派**，而是把消息转发给 mail 模块自带的 LangChain agent
+（`POST {MAIL_REST_URL}/api/mail/agent/chat`，LLM 推理 + 7 工具 + 多轮会话记忆），
+由 mail 的 agent 直接回复：
+
+```
+编排层 → mail-agent-mcp (MCP invoke) → mail-service /api/mail/agent/chat
+       → mail agent 回复 → 编排层 → SSE → 前端
+```
+
+* 多轮记忆：`mail_server` 按 `conversation_context.session_id`（叠加 user_id 前缀）
+  派生 LangGraph thread，同一聊天会话内的追问保持上下文。
+* 回退：mail agent 未配置（503）或 REST 报错时，`mail_server.py` 回退到内置关键词
+  规则分派（直调 `/api/mail/messages` 等端点），无 LLM 凭据的环境仍可用。
+* 超时：编排层 MCP 调用上限 60s（`orchestration/mcp/client.py` `_MCP_TIMEOUT`），
+  `services.yaml` 中 mail-agent `timeout_ms` 同步为 60000；mail agent 单次回复上限
+  由 `MAIL_AGENT_CHAT_TIMEOUT_SECONDS`（默认 60）控制。
+* 删除/发送确认变为**对话式**（agent 先确认再执行），不再返回结构化
+  `needs_confirmation`，编排层 HITL 按钮流对 mail 不再触发。
+
 ## 端到端调用编排层（含安全 Headers）
 
 ```bash

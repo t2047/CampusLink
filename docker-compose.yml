@@ -110,6 +110,33 @@ services:
       - lost-found-mcp
       - utility-mcp
 
+  # ─── Mail REST Service（Gmail + Calendar 后端）──────────────
+  # agent/mail_agent：FastAPI 服务，提供 /api/mail/** 与 /api/mail/calendar/**。
+  # 5000 端口必须映射到宿主机 5000（Google Cloud Console 注册的回调
+  # http://localhost:5000/callback 要求浏览器经宿主机访问）。
+  # token.json（Gmail OAuth）与 calendar.db（SQLite 日历）持久化在 mail_data 卷。
+  mail-service:
+    build:
+      context: ./agent/mail_agent
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - GMAIL_TOKEN_PATH=/data/token.json
+      - MAIL_CALENDAR_DB=/data/calendar.db
+      - GMAIL_REDIRECT_URI=${GMAIL_REDIRECT_URI:-http://localhost:5000/callback}
+      - MAIL_FRONTEND_URL=${MAIL_FRONTEND_URL:-http://localhost:5173}
+    ports:
+      - "5000:5000"
+    volumes:
+      - mail_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
   # ─── MCP Servers (Sprint 3) ─────────────────────────────────
   # Domain Agent 与 Utility 均暴露 MCP streamable HTTP 端点（/mcp/）。
   # 验签凭据：env_file(.env) 提供 TOKEN_SERVICE_JWKS_URL（RS256 验签必需）
@@ -125,12 +152,13 @@ services:
       - MCP_AGENT_NAME=mail-agent
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
       - FASTMCP_HOST=0.0.0.0
-      # Mail REST 服务跑在宿主机 5000（agent/mail_agent）；容器内 127.0.0.1 指向自身，需用 host.docker.internal
-      - MAIL_REST_URL=http://host.docker.internal:5000
+      # Mail REST 服务容器化后随 compose 一起起（mail-service），容器间用服务名互访
+      - MAIL_REST_URL=http://mail-service:5000
     ports:
       - "8081:8081"
     depends_on:
       - chat-backend
+      - mail-service
 
   facility-agent-mcp:
     build:
@@ -302,3 +330,4 @@ volumes:
   certbot_conf:
   certbot_www:
   lost_found_model_cache:
+  mail_data:

@@ -12,7 +12,8 @@ services:
     - name: mail-agent
       url: ${MAIL_AGENT_URL:http://127.0.0.1:8081}
       mcp_url: ${MAIL_AGENT_MCP_URL:http://127.0.0.1:8081/mcp/}
-      timeout_ms: 30000
+      # mail agent 走 mail 模块自带 LLM agent（多轮工具循环），放宽到 60s
+      timeout_ms: 60000
     - name: facility-agent
       url: ${FACILITY_AGENT_URL:http://127.0.0.1:8082}
       mcp_url: ${FACILITY_AGENT_MCP_URL:http://127.0.0.1:8082/mcp/}

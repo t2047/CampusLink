@@ -34,8 +34,9 @@ from .registry import DEFAULT_CONFIG_PATH, ServiceRegistry
 
 logger = logging.getLogger(__name__)
 
-# MCP 调用超时（秒）
-_MCP_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+# MCP 调用超时（秒）—— mail agent 走 mail 模块自带 LangChain agent（LLM 多轮
+# 工具循环），放宽到 60s；其余 agent/utility 通常远小于此值，仅作为上限。
+_MCP_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 
 
 def _root_cause(e: BaseException) -> str:

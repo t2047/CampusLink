@@ -30,18 +30,18 @@ SERVICE_DIR = _PACKAGE_DIR.parent
 # production. ``redirect_uris`` must exactly match an Authorized redirect URI in
 # the Google Cloud Console (here: http://localhost:5000/callback, i.e. the mail
 # service runs on port 5000).
-GMAIL_CLIENT_ID = os.environ.get(
-    "GMAIL_CLIENT_ID",
-    "263896994066-obkionr7ma7decc6ic2ovonlgokfhdqg.apps.googleusercontent.com",
+# 注意：.env 中留空（GMAIL_CLIENT_ID= / GMAIL_CLIENT_SECRET=）会被视为未设置，
+# 回退到项目默认客户端；否则空值会生成 client_id= 的授权 URL，Google 直接报
+# 「Access blocked: Authorization Error」。
+GMAIL_CLIENT_ID = os.environ.get("GMAIL_CLIENT_ID", "").strip() or (
+    "263896994066-obkionr7ma7decc6ic2ovonlgokfhdqg.apps.googleusercontent.com"
 )
-GMAIL_CLIENT_SECRET = os.environ.get(
-    "GMAIL_CLIENT_SECRET",
-    "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",
+GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "").strip() or (
+    "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"
 )
-GMAIL_PROJECT_ID = os.environ.get("GMAIL_PROJECT_ID", "river-lantern-436006-s4")
-GMAIL_REDIRECT_URI = os.environ.get(
-    "GMAIL_REDIRECT_URI",
-    "http://localhost:5000/callback",
+GMAIL_PROJECT_ID = os.environ.get("GMAIL_PROJECT_ID", "").strip() or "river-lantern-436006-s4"
+GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "").strip() or (
+    "http://localhost:5000/callback"
 )
 
 # gmail.modify = read, send, modify labels, trash (everything we need, without
