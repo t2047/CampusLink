@@ -22,6 +22,14 @@ const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ defau
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then((module) => ({ default: module.CalendarPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
+const FacilitiesLayout = lazy(() => import('./pages/facilities/FacilitiesLayout').then((module) => ({ default: module.FacilitiesLayout })))
+const SpacesPage = lazy(() => import('./pages/facilities/SpacesPage').then((module) => ({ default: module.SpacesPage })))
+const SpaceDetailsPage = lazy(() => import('./pages/facilities/SpaceDetailsPage').then((module) => ({ default: module.SpaceDetailsPage })))
+const MyBookingsPage = lazy(() => import('./pages/facilities/MyBookingsPage').then((module) => ({ default: module.MyBookingsPage })))
+const BookingDetailsPage = lazy(() => import('./pages/facilities/BookingDetailsPage').then((module) => ({ default: module.BookingDetailsPage })))
+const SubmitMaintenancePage = lazy(() => import('./pages/facilities/SubmitMaintenancePage').then((module) => ({ default: module.SubmitMaintenancePage })))
+const MyMaintenancePage = lazy(() => import('./pages/facilities/MyMaintenancePage').then((module) => ({ default: module.MyMaintenancePage })))
+const MaintenanceDetailsPage = lazy(() => import('./pages/facilities/MaintenanceDetailsPage').then((module) => ({ default: module.MaintenanceDetailsPage })))
 const MailPage = lazy(() => import('./pages/MailPage').then((module) => ({ default: module.MailPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
@@ -59,6 +67,15 @@ export default function App() {
       <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
+          <Route path="/facilities" element={<FacilitiesLayout />}>
+            <Route index element={<SpacesPage />} />
+            <Route path="spaces/:spaceId" element={<SpaceDetailsPage />} />
+            <Route path="bookings" element={<MyBookingsPage />} />
+            <Route path="bookings/:bookingId" element={<BookingDetailsPage />} />
+            <Route path="maintenance" element={<MyMaintenancePage />} />
+            <Route path="maintenance/new" element={<SubmitMaintenancePage />} />
+            <Route path="maintenance/:requestId" element={<MaintenanceDetailsPage />} />
+          </Route>
           <Route path="/lost-found" element={<ReportsPage />} />
           <Route path="/lost-found/new/lost" element={<CreateReportPage reportType="LOST" />} />
           <Route path="/lost-found/new/found" element={<CreateReportPage reportType="FOUND" />} />

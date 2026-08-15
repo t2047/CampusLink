@@ -42,6 +42,9 @@ export function apiErrorMessage(error: unknown): string {
     if (body?.fieldErrors) {
       return Object.values(body.fieldErrors).join(' ')
     }
+    if (body?.errors) {
+      return Object.values(body.errors).join(' ')
+    }
     return body?.error ?? body?.message ?? error.message
   }
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
