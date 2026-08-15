@@ -69,6 +69,31 @@ jobs:
       - name: Run Chat Core tests
         run: pytest -q
 
+  mcp-servers-quality:
+    name: MCP Servers Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/chat_core/pyproject.toml
+      - name: Install dependencies (与 utility-mcp 镜像一致：chat_core pyproject 含 mcp + llama-index)
+        working-directory: agent/chat_core
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff lint (mcp_servers)
+        working-directory: agent/mcp_servers
+        run: python -m ruff check utility_server.py policy_rag tests
+      - name: Ruff format check
+        working-directory: agent/mcp_servers
+        run: python -m ruff format --check utility_server.py policy_rag tests
+      - name: Pytest (mcp_servers)
+        working-directory: agent/mcp_servers
+        run: python -m pytest tests
+
   agent-quality:
     name: Agent Lint, Test & Dependency Audit
     runs-on: ubuntu-latest

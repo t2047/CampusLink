@@ -72,6 +72,58 @@ _streamable_app = mcp.streamable_http_app()
 # ──────────────────────────────────────────────────────────────────────
 
 
+# 政策/规章制度 RAG（LlamaIndex + Qdrant，复用 lost-found-embedding）。
+# 延迟 import + 懒加载：llama-index 为可选依赖，缺失时仅 search_policy 不可用，
+# 不影响 calculator / unit_converter / web_search 等既有工具。
+_policy_retriever: object | None = None
+
+
+def _get_policy_retriever():
+    global _policy_retriever
+    if _policy_retriever is None:
+        from mcp_servers.policy_rag.config import PolicyRagSettings
+        from mcp_servers.policy_rag.retriever import PolicyRetriever
+
+        _policy_retriever = PolicyRetriever(PolicyRagSettings())
+    return _policy_retriever
+
+
+@mcp.tool()
+def search_policy(query: str, top_k: int = 5) -> str:
+    """检索学校政策/规章制度文档（NUS 学生守则、考试条例、评估规则等 PDF）。
+
+    返回最相关的条款段落及来源（文件名+页码）。
+
+    Args:
+        query: 政策/规则相关的问题，如"考试可以带计算器吗""学生行为守则对抄袭的规定"
+        top_k: 返回段落数（1-10，默认 5）
+
+    低风险读操作，fail-open：Qdrant/embedding 服务不可用时返回 status=failed，
+    绝不抛异常中断调用链。
+    """
+    top_k = max(1, min(10, int(top_k)))
+    try:
+        results = _get_policy_retriever().search(query, top_k=top_k)
+    except Exception as exc:
+        return json.dumps(
+            {
+                "query": query,
+                "results": [],
+                "error": f"policy search failed: {exc}",
+                "status": "failed",
+            },
+            ensure_ascii=False,
+        )
+    return json.dumps(
+        {
+            "query": query,
+            "results": results,
+            "status": "ok" if results else "no_results",
+        },
+        ensure_ascii=False,
+    )
+
+
 @mcp.tool()
 def calculator(expression: str) -> str:
     """执行数学表达式计算（支持 + - * / 幂 开方）。"""
@@ -109,9 +161,7 @@ def get_current_time(timezone: str = "Asia/Singapore", format: str = "datetime")
         return json.dumps({"timezone": timezone, "value": now.strftime("%H:%M:%S")})
     if format == "iso8601":
         return json.dumps({"timezone": timezone, "value": now.isoformat()})
-    return json.dumps(
-        {"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")}
-    )
+    return json.dumps({"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")})
 
 
 # 货币代码映射（用户常用中文货币名 → ISO 4217）
@@ -134,9 +184,7 @@ _CURRENCY_ALIASES = {
 }
 
 # 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
-_EXCHANGE_RATE_API = os.environ.get(
-    "EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest"
-)
+_EXCHANGE_RATE_API = os.environ.get("EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest")
 
 # 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）
 _FALLBACK_RATES: dict[tuple[str, str], float] = {
@@ -168,9 +216,7 @@ def _get_rates(base: str) -> dict[str, float] | None:
     import time
 
     cached = _rate_cache.get(base)
-    if cached and time.monotonic() - cached[0] < (
-        _RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL
-    ):
+    if cached and time.monotonic() - cached[0] < (_RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL):
         return cached[1]
     try:
         import httpx
@@ -385,9 +431,7 @@ async def web_search(query: str, max_results: int = 5) -> str:
                 )
             },
         ) as client:
-            response = await client.get(
-                "https://html.duckduckgo.com/html/", params={"q": query}
-            )
+            response = await client.get("https://html.duckduckgo.com/html/", params={"q": query})
             response.raise_for_status()
     except Exception as exc:
         return json.dumps(

@@ -210,10 +210,17 @@ services:
     environment:
       - TOKEN_SERVICE_JWKS_URL=http://chat-backend:8080/.well-known/jwks.json
       - FASTMCP_HOST=0.0.0.0
+      # 政策/规章制度 RAG（search_policy 工具）：
+      # - Qdrant 向量库（本服务）
+      # - 复用 lost-found-embedding 的文本向量接口（multimodal profile 启动）
+      - POLICY_RAG_QDRANT_URL=http://qdrant:6333
+      - POLICY_RAG_EMBEDDING_URL=http://lost-found-embedding:8091
+      - POLICY_RAG_EMBEDDING_SHARED_SECRET=${LOST_FOUND_EMBEDDING_SHARED_SECRET:-local-embedding-secret-change-me}
     ports:
       - "8090:8090"
     depends_on:
       - chat-backend
+      - qdrant
 
   # ─── 自研 Lost & Found Agent（组员实现，profile: agent）────────
   # 双入口：REST（/agent/invoke + SSE，组员联调用）与 MCP 适配层（编排层用）
@@ -275,12 +282,25 @@ services:
     depends_on:
       - chat-backend
 
+  # Qdrant 向量库：政策/规章制度 RAG 的向量存储（轻量单容器，官方镜像）。
+  # 端口 6333 REST / 6334 gRPC；数据持久化在 qdrant_data 卷。
+  qdrant:
+    image: qdrant/qdrant:v1.19.0
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
   # 独立预训练向量服务：仅在 multimodal profile 中启动，避免日常占用 2–3 GB 内存。
   lost-found-embedding:
     profiles: ["multimodal"]
     build:
       context: ./services/lost_found_embedding
       dockerfile: Dockerfile
+    # 本地开发/索引构建需从宿主访问（容器间互访用服务名 lost-found-embedding:8091）
+    ports:
+      - "8091:8091"
     environment:
       LOST_FOUND_EMBEDDING_SHARED_SECRET: ${LOST_FOUND_EMBEDDING_SHARED_SECRET:-local-embedding-secret-change-me}
       LOST_FOUND_EMBEDDING_DEVICE: ${LOST_FOUND_EMBEDDING_DEVICE:-cpu}
@@ -295,6 +315,26 @@ services:
       OMP_NUM_THREADS: 2
     volumes:
       - lost_found_model_cache:/models
+
+  # 政策/规章制度 RAG 索引构建（一次性任务）：
+  #   docker compose --profile multimodal run --rm policy-index-builder
+  # 复用 utility-mcp 镜像（含 policy_rag + llama-index 依赖），挂载 PDF 目录为只读。
+  policy-index-builder:
+    profiles: ["multimodal"]
+    build:
+      context: .
+      dockerfile: agent/mcp_servers/Dockerfile
+    command: ["python", "-m", "mcp_servers.policy_rag.indexer", "--docs-dir", "/docs"]
+    environment:
+      POLICY_RAG_QDRANT_URL: http://qdrant:6333
+      POLICY_RAG_EMBEDDING_URL: http://lost-found-embedding:8091
+      POLICY_RAG_EMBEDDING_SHARED_SECRET: ${LOST_FOUND_EMBEDDING_SHARED_SECRET:-local-embedding-secret-change-me}
+    volumes:
+      - ./docs/nus_docs:/docs:ro
+    depends_on:
+      - qdrant
+      - lost-found-embedding
+    restart: "no"
 
   # ─── 前端（nginx 静态托管 + /api 反向代理）────────────
   web:
@@ -330,4 +370,5 @@ volumes:
   certbot_conf:
   certbot_www:
   lost_found_model_cache:
+  qdrant_data:
   mail_data:

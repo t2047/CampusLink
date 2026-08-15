@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# sys.path bootstrap 后 import 是 mcp_servers 既有模式（lost_found_server.py 同款）
+"*" = ["E402"]
+# utility_server.py 既有有意模式：fail-open 盲捕获（BLE001）、本地时间回退（DTZ005）、受限 eval（S307）
+"utility_server.py" = ["BLE001", "DTZ005", "S307"]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

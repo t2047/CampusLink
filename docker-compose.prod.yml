@@ -45,6 +45,22 @@ services:
     build: !reset null
     image: ${REGISTRY:-ghcr.io/your-org}/campuslink-lost-found-agent:${TAG:-latest}
 
+  # 政策 RAG 基础设施（multimodal profile）：
+  # lost-found-embedding 需独立镜像（CD 构建 campuslink-lost-found-embedding）；
+  # policy-index-builder 复用 mcp-servers 镜像（同 Dockerfile，含 policy_rag + llama-index）。
+  # 生产环境移除宿主端口暴露：qdrant/embedding 仅容器内网互访（VM 上无需从宿主访问）。
+  qdrant:
+    ports: !reset null
+
+  lost-found-embedding:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-lost-found-embedding:${TAG:-latest}
+    ports: !reset null
+
+  policy-index-builder:
+    build: !reset null
+    image: ${REGISTRY:-ghcr.io/your-org}/campuslink-mcp-servers:${TAG:-latest}
+
   web:
     build: !reset null
     image: ${REGISTRY:-ghcr.io/your-org}/campuslink-web:${TAG:-latest}
