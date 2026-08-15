@@ -20,6 +20,7 @@ Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技
 | 编排层（核心） | Python 3.12、FastAPI、LangGraph、MCP SDK |
 | 后端 | Java 21、Spring Boot 4.1、Spring Security、JWT |
 | Web 前端 | React 19、TypeScript、Vite、MUI、Axios |
+| Android | Kotlin、Jetpack Compose、Room/SQLCipher、OkHttp SSE |
 | 数据库 | MySQL 8 |
 | 图片存储 | 私有 MinIO Bucket、15 分钟预签名 URL |
 | 测试 | JUnit 5、Mockito、H2、Vitest、Testing Library、pytest |
@@ -83,6 +84,15 @@ npm run dev
 访问 [http://localhost:5173](http://localhost:5173)。MinIO 控制台为 [http://localhost:9001](http://localhost:9001)，原管理员测试页保留在 [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html)。
 
 统一聊天入口位于 [http://localhost:5173/chat](http://localhost:5173/chat)，Lost & Found 页面另保留模块级自然语言联调面板。
+
+原生 Android Core Chat 位于 `frontend_mobile/`。构建云端演示 APK：
+
+```bash
+cd frontend_mobile
+./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
+```
+
+`demoDebug` 只连接 `https://campuslink.tonywu.top/`；完整说明见 [Android 中文文档](frontend_mobile/README_cn.md)。
 
 `docker compose stop` 可停止基础设施但保留容器；`docker compose down` 会移除容器，但仍保留命名数据卷。
 
@@ -178,7 +188,7 @@ uv run mypy lost_found_embedding tests
 uv run pytest
 ```
 
-PR 流水线会执行前后端测试、Lint、生产构建、CodeQL、高危 SpotBugs 阻断、npm 漏洞审计和依赖变更审查。夜间流水线继续执行更深入的 SpotBugs、OWASP 依赖检查和 ZAP 扫描。CD 流水线（`cd-deploy.yml`）在推送到 `main` 时通过 SSH 部署到单台 DigitalOcean Droplet——配置见 `DEPLOYMENT.md`。
+PR 流水线会执行前后端与 Android 测试、Lint、构建、CodeQL 和依赖审查。Android CI 会上传可安装的 Demo APK；夜间流水线运行模拟器测试。CD 流水线在推送到 `main` 时通过 SSH 部署到 AWS EC2——配置见 `DEPLOYMENT.md`。
 
 ## 项目结构
 
@@ -196,7 +206,7 @@ project/
 ├── frontend_web/            React Web（聊天 + L&F 页面）和 public/admin-test.html
 ├── services/
 │   └── lost_found_embedding/ 独立 E5/CLIP 预训练多模态服务
-├── frontend_mobile/         后续移动端
+├── frontend_mobile/         Kotlin + Compose Core Chat Android 客户端
 ├── docker-compose.yml       MySQL、MinIO 与可选模型 profile
 └── docs/
 ```

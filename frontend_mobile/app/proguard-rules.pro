@@ -1,0 +1,3 @@
+-keepattributes Signature,*Annotation*
+-keep class net.zetetic.database.sqlcipher.** { *; }
+-dontwarn org.commonmark.**

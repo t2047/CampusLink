@@ -14,3 +14,4 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
     -keyout "$CERT_DIR/privkey.pem" \
     -out "$CERT_DIR/fullchain.pem" \
     -subj "/CN=${CERT_DOMAIN}" >/dev/null 2>&1
+touch "$CERT_DIR/.campuslink-self-signed"
