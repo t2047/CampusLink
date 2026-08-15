@@ -161,9 +161,7 @@ def get_current_time(timezone: str = "Asia/Singapore", format: str = "datetime")
         return json.dumps({"timezone": timezone, "value": now.strftime("%H:%M:%S")})
     if format == "iso8601":
         return json.dumps({"timezone": timezone, "value": now.isoformat()})
-    return json.dumps(
-        {"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")}
-    )
+    return json.dumps({"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")})
 
 
 # 货币代码映射（用户常用中文货币名 → ISO 4217）
@@ -186,9 +184,7 @@ _CURRENCY_ALIASES = {
 }
 
 # 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
-_EXCHANGE_RATE_API = os.environ.get(
-    "EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest"
-)
+_EXCHANGE_RATE_API = os.environ.get("EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest")
 
 # 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）
 _FALLBACK_RATES: dict[tuple[str, str], float] = {
@@ -220,9 +216,7 @@ def _get_rates(base: str) -> dict[str, float] | None:
     import time
 
     cached = _rate_cache.get(base)
-    if cached and time.monotonic() - cached[0] < (
-        _RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL
-    ):
+    if cached and time.monotonic() - cached[0] < (_RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL):
         return cached[1]
     try:
         import httpx
