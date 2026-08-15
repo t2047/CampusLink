@@ -21,18 +21,71 @@ export interface Space {
   status: 'AVAILABLE' | 'OUT_OF_SERVICE' | 'INACTIVE' | string
 }
 
-export interface Booking {
+export interface SpaceSearchFilters {
+  query?: string
+  building?: string
+  spaceType?: string
+  minimumCapacity?: number
+  equipment?: string[]
+  startDateTime?: string
+  endDateTime?: string
+}
+
+export interface AvailabilityResponse {
+  available: boolean
+  reasonCode: string | null
+  space: Space
+  startDateTime: string
+  endDateTime: string
+}
+
+export interface CreateBookingRequest {
+  spaceId: number
+  startDateTime: string
+  endDateTime: string
+}
+
+export interface BookingResponse {
   success: boolean
   bookingId: number
-  space: Pick<Space, 'spaceId' | 'name'>
+  space: Space
   startDateTime: string
   endDateTime: string
   status: 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | string
+  createdAt: string
+  updatedAt: string
 }
 
-export interface MaintenanceRequest {
-  success: boolean; ticketId: number; spaceId: number | null; spaceName: string | null; building: string; roomNumber: string; facilityType: string; description: string; priority: string; status: string; createdAt: string; updatedAt: string; adminNote?: string
+export type Booking = BookingResponse
+
+export type MaintenancePriority = 'LOW' | 'MEDIUM' | 'HIGH'
+export type MaintenanceStatus = 'SUBMITTED' | 'IN_PROGRESS' | 'RESOLVED' | 'CANCELLED'
+
+export interface SubmitMaintenanceRequest {
+  spaceId?: number
+  building?: string
+  roomNumber?: string
+  facilityType: string
+  description: string
+  priority?: MaintenancePriority
 }
+
+export interface MaintenanceResponse {
+  success: boolean
+  ticketId: number
+  spaceId: number | null
+  spaceName: string | null
+  building: string
+  roomNumber: string
+  facilityType: string
+  description: string
+  priority: MaintenancePriority
+  status: MaintenanceStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type MaintenanceRequest = MaintenanceResponse
 
 const localDate = (date: Date) => {
   const year = date.getFullYear()
@@ -44,6 +97,33 @@ const localDate = (date: Date) => {
 const activeBookings = (bookings: Booking[]) => bookings.filter((booking) => booking.status !== 'CANCELLED')
 
 export const facilitiesApi = {
+  searchSpaces: (filters: SpaceSearchFilters = {}) => {
+    const params = new URLSearchParams()
+    const append = (key: string, value: string | number | undefined) => {
+      if (value === undefined || String(value).trim() === '') return
+      params.append(key, String(value).trim())
+    }
+    append('query', filters.query)
+    append('building', filters.building)
+    append('spaceType', filters.spaceType)
+    append('minimumCapacity', filters.minimumCapacity)
+    filters.equipment?.forEach((item) => append('equipment', item))
+    append('startDateTime', filters.startDateTime)
+    append('endDateTime', filters.endDateTime)
+    return apiClient.get<Space[]>('/facilities/spaces', { params }).then((response) => response.data)
+  },
+  getSpace: (spaceId: number) => apiClient.get<Space>(`/facilities/spaces/${spaceId}`).then((response) => response.data),
+  checkSpaceAvailability: (spaceId: number, startDateTime: string, endDateTime: string) => {
+    const params = new URLSearchParams({ startDateTime, endDateTime })
+    return apiClient.get<AvailabilityResponse>(`/facilities/spaces/${spaceId}/availability`, { params }).then((response) => response.data)
+  },
+  createBooking: (request: CreateBookingRequest) => apiClient.post<BookingResponse>('/facilities/bookings', request).then((response) => response.data),
+  listBookings: () => apiClient.get<BookingResponse[]>('/facilities/bookings').then((response) => response.data),
+  getBooking: (bookingId: number) => apiClient.get<BookingResponse>(`/facilities/bookings/${bookingId}`).then((response) => response.data),
+  cancelBooking: (bookingId: number) => apiClient.patch<BookingResponse>(`/facilities/bookings/${bookingId}/cancel`).then((response) => response.data),
+  submitMaintenanceRequest: (request: SubmitMaintenanceRequest) => apiClient.post<MaintenanceResponse>('/facilities/maintenance', request).then((response) => response.data),
+  listMaintenanceRequests: () => apiClient.get<MaintenanceResponse[]>('/facilities/maintenance').then((response) => response.data),
+  getMaintenanceRequest: (ticketId: number) => apiClient.get<MaintenanceResponse>(`/facilities/maintenance/${ticketId}`).then((response) => response.data),
   getDashboard: async () => {
     const [spacesResponse, bookingsResponse, maintenanceResponse] = await Promise.all([
       apiClient.get<Space[]>('/facilities/spaces'),

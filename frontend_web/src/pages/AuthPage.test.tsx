@@ -30,4 +30,22 @@ describe('AuthPage', () => {
     expect(screen.getByRole('heading', { name: 'Admin dashboard' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Lost and Found' })).not.toBeInTheDocument()
   })
+
+  it('keeps Central Agent Chat as the default destination for an authenticated user', () => {
+    sessionStorage.setItem(TOKEN_KEY, 'token')
+    sessionStorage.setItem(USER_KEY, JSON.stringify({ email: 'student@example.test', role: 'USER' }))
+
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/chat" element={<h1>Central Agent Chat</h1>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Central Agent Chat' })).toBeInTheDocument()
+  })
 })
