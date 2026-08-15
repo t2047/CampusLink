@@ -102,7 +102,8 @@ Utility Tool 能力：
 - "明天下午有没有空的研讨室" → {{"intent_type":"domain_agent","targets":["facility-agent"]}}
 - "帮我查一下昨天收到的邮件" → {{"intent_type":"domain_agent","targets":["mail-agent"]}}
 - "把 15 美元换算成人民币" → {{"intent_type":"utility","targets":["unit_converter"]}}
-- "你好，今天天气怎么样" → {{"intent_type":"chat","targets":[]}}
+- "今天天气怎么样" → {{"intent_type":"utility","targets":["web_search"]}}（实时信息查询归联网搜索）
+- "搜索一下最近有什么新闻" → {{"intent_type":"utility","targets":["web_search"]}}
 - "不要用工具，直接告诉我 2+2" → {{"intent_type":"chat","targets":[]}}
 """
 
@@ -685,7 +686,8 @@ async def chat_responder(state: AgentState) -> AgentState:
         )
         return {"messages": [AIMessage(content=text)]}
 
-    user_msg = state["messages"][-1].content if state.get("messages") else ""
+    last_msg = state["messages"][-1].content if state.get("messages") else ""
+    user_msg = last_msg if isinstance(last_msg, str) else ""
     fallback_text = (
         "抱歉，我现在暂时无法回复，请稍后重试。"
         if _looks_chinese(user_msg)
@@ -780,6 +782,9 @@ async def response_aggregator(state: AgentState) -> AgentState:
     elif len(parts) == 1:
         final = parts[0]
     else:
+        # 语言跟随：把用户原始消息一并传给 LLM，确保聚合输出语言与用户一致
+        summary_user_msgs = [m.content for m in state.get("messages", []) if isinstance(m, HumanMessage)]
+        summary_user_msg = summary_user_msgs[-1] if summary_user_msgs else ""
         llm = summary_llm()
         try:
             summary = llm.invoke(
@@ -790,7 +795,13 @@ async def response_aggregator(state: AgentState) -> AgentState:
                             "Use the same language as the user's request."
                         )
                     ),
-                    HumanMessage(content="\n".join(parts)),
+                    HumanMessage(
+                        content=(
+                            f"User request: {summary_user_msg}\n\nResults:\n" + "\n".join(parts)
+                            if summary_user_msg
+                            else "\n".join(parts)
+                        )
+                    ),
                 ]
             )
             final = summary.content

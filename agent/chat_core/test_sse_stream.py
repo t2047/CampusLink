@@ -181,3 +181,43 @@ def test_initial_state_does_not_reset_pending_info() -> None:
     assert "pending_info" not in state
     # 对照：确认重调标记仍须每轮清空（防跨轮误触发 HITL 重调）
     assert state["pending_confirmation"] is None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# _join_surrogate：流式 emoji 截断修复（2026-08-15）
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_join_surrogate_reassembles_split_emoji() -> None:
+    """流式 emoji 在 chunk 边界被切开 → 跨 chunk 合并为单个 code point。"""
+    out, pending = main._join_surrogate("先吃\ud83e", "")
+    assert out == "先吃"
+    assert pending == "\ud83e"
+    out2, pending2 = main._join_surrogate("\udd5d了", pending)
+    assert out2 == chr(0x1F95D) + "了"
+    assert pending2 == ""
+
+
+def test_join_surrogate_orphan_low_dropped() -> None:
+    """孤立 low surrogate（前 chunk 的 high 丢失）→ 丢弃，不留替换符。"""
+    out, _ = main._join_surrogate("\udd5d坏了", "")
+    assert out == "坏了"
+
+
+def test_join_surrogate_complete_emoji_passthrough() -> None:
+    """完整 emoji 直通，不误处理。"""
+    text = "正常" + chr(0x1F95D)
+    out, _ = main._join_surrogate(text, "")
+    assert out == text
+
+
+def test_join_surrogate_plain_text_unaffected() -> None:
+    """普通文本与中文不受影响。"""
+    out, _ = main._join_surrogate("hello 中文 123", "")
+    assert out == "hello 中文 123"
+
+
+def test_join_surrogate_empty_inputs() -> None:
+    """空输入安全。"""
+    assert main._join_surrogate("", "") == ("", "")
+    assert main._join_surrogate("", "\ud83e") == ("", "\ud83e")
