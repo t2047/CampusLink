@@ -85,6 +85,12 @@ jobs:
             set -e
             cd /opt/campuslink
             git pull --ff-only
+            # 兼容从 Windows 编辑器上传的 .env，避免 \r 被 shell 识别为命令。
+            test -f ./.env || {
+              echo "[campuslink] 拒绝部署：服务器缺少 /opt/campuslink/.env" >&2
+              exit 1
+            }
+            sed -i 's/\r$//' ./.env
             set -a
             . ./.env
             set +a
