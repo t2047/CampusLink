@@ -178,12 +178,23 @@ class PlannerDecision(BaseModel):
             raise ValueError("planner output must not contain identity fields")
 
         normalized: dict[str, Any] = {}
+        seen_keys: set[str] = set()
         for raw_key, raw_value in value.items():
             if not isinstance(raw_key, str):
                 raise TypeError("planner argument names must be strings")
             key = _ALIASES.get(raw_key, raw_key)
-            if key in normalized:
+            if key in seen_keys:
                 raise ValueError("planner output contains duplicate argument aliases")
+            seen_keys.add(key)
+            # DeepSeek may emit explicit nulls for optional structured fields.
+            # Validate the field name first so unknown null fields remain rejected,
+            # then treat a known null as absent. Semantic requirements are enforced
+            # by the intent handler, which safely asks for clarification.
+            known = set().union(*_ARGUMENT_FIELDS_BY_INTENT.values())
+            if key not in known:
+                raise ValueError(f"unknown planner argument: {key}")
+            if raw_value is None:
+                continue
             normalized[key] = cls._sanitize_argument(key, raw_value)
         return normalized
 

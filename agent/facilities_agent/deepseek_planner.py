@@ -168,6 +168,15 @@ def safe_planner_context(context: FacilitiesSharedContext) -> dict[str, Any]:
         safe["last_booking_id"] = context.last_booking_id
     if context.last_maintenance_ticket_id is not None:
         safe["last_maintenance_ticket_id"] = context.last_maintenance_ticket_id
+    if context.pending_booking_draft is not None:
+        pending_booking = context.pending_booking_draft
+        safe["pending_booking"] = {
+            "spaceId": pending_booking.space_id,
+            "bookingDate": pending_booking.booking_date,
+            "startDateTime": pending_booking.start_date_time,
+            "endDateTime": pending_booking.end_date_time,
+            "missingFields": list(pending_booking.missing_fields),
+        }
     if context.pending_maintenance_info is not None:
         pending = context.pending_maintenance_info
         safe["pending_maintenance"] = {

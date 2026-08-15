@@ -24,6 +24,7 @@ from langgraph.graph.message import add_messages
 class AgentInvocation(TypedDict, total=False):
     """一次 Agent 调用的完整记录。"""
 
+    turn_id: str
     agent_name: str
     input_message: str
     output_response: str
@@ -76,6 +77,7 @@ class AgentState(TypedDict, total=False):
     delegation_tokens: dict[str, str]  # agent_name → delegation token
     nonce: str | None
     trace_id: str | None
+    turn_id: str | None  # 每个用户请求唯一；HITL resume 沿用原 turn
     session_id: str | None  # 会话 ID（传给 Agent 做 per_session 限流/上下文）
 
     # ── 跨 Agent 上下文 ──
@@ -85,3 +87,24 @@ class AgentState(TypedDict, total=False):
     error: str | None
     failed_agents: list[str]
     service_failures: list[str]  # 工具/子 Agent 失败描述（转主 Agent 兜底）
+
+
+def current_turn_invocations(state: AgentState) -> list[AgentInvocation]:
+    """Return only invocations produced by the active user turn.
+
+    Checkpoints intentionally retain historical invocations for audit and context.
+    States created before turn IDs were introduced remain readable by treating all
+    invocations as current only when the state itself has no turn boundary.
+    """
+
+    invocations = list(state.get("agent_invocations") or [])
+    turn_id = state.get("turn_id")
+    if not turn_id:
+        return invocations
+    return [invocation for invocation in invocations if invocation.get("turn_id") == turn_id]
+
+
+def invocation_can_update_context(invocation: AgentInvocation) -> bool:
+    """Failed invocations must not re-publish stale domain snapshots."""
+
+    return invocation.get("output_status") != "failed" and not invocation.get("error")
