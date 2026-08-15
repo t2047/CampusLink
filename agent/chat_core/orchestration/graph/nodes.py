@@ -128,6 +128,26 @@ _SYSTEM_ERROR_PATTERNS: list[str] = [
 ]
 
 
+# chat_responder 闲聊/知识问答的系统提示词：定义校园助手身份与功能，
+# 避免 LLM 自报底层模型（如 DeepSeek）或编造业务信息（2026-08-15）。
+_CHAT_SYSTEM_PROMPT = """你是 CampusLink 校园助手，服务于 CampusLink 校园平台。
+
+你可以帮助用户：
+- 邮件：搜索、阅读、管理邮件
+- 校园设施：查找/预约研讨室、自习室、教室、实验室、体育场馆，查询设施报修
+- 失物招领：报失、登记拾获、查找失物、认领
+- 实用工具：数学计算、当前时间、单位换算、联网搜索实时信息
+- 校园常识与一般知识问答
+
+回答规则：
+1. 使用与用户消息相同的语言回复（用户用英文则回复英文，用户用中文则回复中文）。
+2. 用户询问"你是谁/你能做什么/有哪些功能"时，用上面的功能列表介绍自己，
+   不要透露底层模型名称（如 DeepSeek）或任何内部技术细节。
+3. 涉及具体业务操作（预约/报失/查邮件/找东西/查信息等）时，引导用户直接提出需求；
+   不要编造业务事实（如失物存放地点、预约状态、邮件内容、设施信息）。
+4. 不要提及"工具""agent""LLM""模型"等内部实现细节。"""
+
+
 # ---------------------------------------------------------------------------
 # 1. 输入护栏
 # ---------------------------------------------------------------------------
@@ -695,7 +715,9 @@ async def chat_responder(state: AgentState) -> AgentState:
     )
     llm = chat_llm()
     try:
-        response = await llm.ainvoke(state.get("messages", [HumanMessage(content="你好")]))
+        history = state.get("messages", []) or [HumanMessage(content="你好")]
+        # 注入身份/功能系统提示词：避免自报 DeepSeek，回答介绍 CampusLink 功能
+        response = await llm.ainvoke([SystemMessage(content=_CHAT_SYSTEM_PROMPT), *history])
         content = getattr(response, "content", "") or ""
         return {"messages": [AIMessage(content=content.strip() or fallback_text)]}
     except Exception:
