@@ -15,7 +15,7 @@ cd frontend_mobile
 ```
 
 `localDebug` connects an emulator to `http://10.0.2.2:8080/`. `demoDebug` and
-`prodRelease` connect only to `https://campuslink.tonywu.top/` with normal platform TLS validation.
+`prodRelease` connect only to `https://campuslink.tokeninf.xyz/` with normal platform TLS validation.
 The demo APK is produced at `app/build/outputs/apk/demo/debug/app-demo-debug.apk`.
 
 `prodRelease` requires `CAMPUSLINK_RELEASE_STORE_FILE`,

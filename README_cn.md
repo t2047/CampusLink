@@ -92,7 +92,7 @@ cd frontend_mobile
 ./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
 ```
 
-`demoDebug` 只连接 `https://campuslink.tonywu.top/`；完整说明见 [Android 中文文档](frontend_mobile/README_cn.md)。
+`demoDebug` 只连接 `https://campuslink.tokeninf.xyz/`；完整说明见 [Android 中文文档](frontend_mobile/README_cn.md)。
 
 `docker compose stop` 可停止基础设施但保留容器；`docker compose down` 会移除容器，但仍保留命名数据卷。
 

@@ -18,7 +18,7 @@
 
 ```text
 Android Core Chat
-→ https://campuslink.tonywu.top/api/chat/*
+→ https://campuslink.tokeninf.xyz/api/chat/*
 → Nginx
 → Spring Boot Chat Backend
 → Chat Core 编排层
@@ -70,8 +70,8 @@ frontend_mobile/
 | 构建变体 | API 地址 | 当前状态 | 用途 |
 |---|---|---|---|
 | `localDebug` | `http://10.0.2.2:8080/` | 已完成 | 模拟器连接开发者电脑的本地后端 |
-| `demoDebug` | `https://campuslink.tonywu.top/` | 已完成 | Debug 签名，供组员安装测试 |
-| `prodRelease` | `https://campuslink.tonywu.top/` | 已完成配置 | 正式签名发布版本 |
+| `demoDebug` | `https://campuslink.tokeninf.xyz/` | 已完成 | Debug 签名，供组员安装测试 |
+| `prodRelease` | `https://campuslink.tokeninf.xyz/` | 已完成配置 | 正式签名发布版本 |
 
 只有 `localDebug` 可以通过 Network Security Config 访问 `10.0.2.2` 的明文 HTTP。Demo 和生产版本禁止明文流量，不信任自签名证书，也没有关闭主机名或证书链校验。
 
@@ -244,7 +244,7 @@ message
 
 ### 5.1 仓库内已完成
 
-- Nginx 使用正式域名 `campuslink.tonywu.top`；
+- Nginx 使用正式域名 `campuslink.tokeninf.xyz`；
 - 保留 `/.well-known/acme-challenge/`；
 - 正式启用后 HTTP 301 跳转 HTTPS；
 - TLS 仅允许 1.2/1.3；
@@ -265,7 +265,7 @@ message
 服务器 `.env` 需要补充：
 
 ```dotenv
-CERT_DOMAIN=campuslink.tonywu.top
+CERT_DOMAIN=campuslink.tokeninf.xyz
 CERT_EMAIL=<项目证书维护邮箱>
 SERVER_PUBLIC_IP=13.212.202.232
 ```
@@ -282,10 +282,10 @@ set -a && . ./.env && set +a
 验收必须包含：
 
 ```bash
-curl -I http://campuslink.tonywu.top/
-curl -I https://campuslink.tonywu.top/
-openssl s_client -connect campuslink.tonywu.top:443 \
-  -servername campuslink.tonywu.top </dev/null
+curl -I http://campuslink.tokeninf.xyz/
+curl -I https://campuslink.tokeninf.xyz/
+openssl s_client -connect campuslink.tokeninf.xyz:443 \
+  -servername campuslink.tokeninf.xyz </dev/null
 ```
 
 预期 HTTP 返回 301，HTTPS 证书域名正确、浏览器无警告、证书发行者不是域名自身。

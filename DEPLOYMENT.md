@@ -5,7 +5,7 @@
 
 ## 当前部署状态（2026-08）
 
-- **当前可访问地址**：http://campuslink.tonywu.top/（DNS 指向 `13.212.202.232`）
+- **当前可访问地址**：https://campuslink.tokeninf.xyz/（DNS 指向 `13.212.202.232`）
 - **HTTPS 状态**：仓库已具备自动签发与续期能力；云端仍为自签占位证书，需先配置
   `CERT_EMAIL`，再执行本节脚本或触发 CD，才能供 Android Demo/Prod 使用。
 - **实例**：AWS EC2 `m7i-flex.large`（2 vCPU / 8 GiB，Free tier，12 个月 $0）
@@ -123,10 +123,10 @@ curl http://localhost/api/chat/stream 2>/dev/null || true   # 或直接访问 ht
 
 ## 6. 域名 + HTTPS（Certbot Webroot）
 
-DNS 已将 `campuslink.tonywu.top` 指向当前 EC2。首次签发时只需在服务器 `.env` 配置：
+DNS 已将 `campuslink.tokeninf.xyz` 指向当前 EC2。首次签发时只需在服务器 `.env` 配置：
 
 ```dotenv
-CERT_DOMAIN=campuslink.tonywu.top
+CERT_DOMAIN=campuslink.tokeninf.xyz
 CERT_EMAIL=<项目证书维护邮箱>
 # 可选；EC2 Metadata 不可用时填写
 SERVER_PUBLIC_IP=13.212.202.232
@@ -149,9 +149,9 @@ CD 会在重启容器前检查 `CERT_DOMAIN` 与 `CERT_EMAIL`。配置缺失时�
 严禁在客户端关闭证书校验或信任自签名证书。验证命令：
 
 ```bash
-curl -I http://campuslink.tonywu.top/
-curl -I https://campuslink.tonywu.top/
-openssl s_client -connect campuslink.tonywu.top:443 -servername campuslink.tonywu.top </dev/null
+curl -I http://campuslink.tokeninf.xyz/
+curl -I https://campuslink.tokeninf.xyz/
+openssl s_client -connect campuslink.tokeninf.xyz:443 -servername campuslink.tokeninf.xyz </dev/null
 ```
 
 ## 7. 更新部署

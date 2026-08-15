@@ -99,7 +99,7 @@ cd frontend_mobile
 ./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
 ```
 
-`demoDebug` connects only to `https://campuslink.tonywu.top/`. See the [Android README](frontend_mobile/README.md).
+`demoDebug` connects only to `https://campuslink.tokeninf.xyz/`. See the [Android README](frontend_mobile/README.md).
 
 Stop the infrastructure without deleting its data with `docker compose stop`. Use `docker compose down` to remove the containers while retaining the named volumes.
 

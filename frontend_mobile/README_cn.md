@@ -11,8 +11,8 @@ Lost & Found 匹配卡片及 HITL 确认。
 | 变体 | API 地址 | 用途 |
 |---|---|---|
 | `localDebug` | `http://10.0.2.2:8080/` | Android 模拟器连接本机后端 |
-| `demoDebug` | `https://campuslink.tonywu.top/` | 组员安装和云端演示 |
-| `prodRelease` | `https://campuslink.tonywu.top/` | 后续正式签名构建 |
+| `demoDebug` | `https://campuslink.tokeninf.xyz/` | 组员安装和云端演示 |
+| `prodRelease` | `https://campuslink.tokeninf.xyz/` | 后续正式签名构建 |
 
 只有 `localDebug` 允许访问指定的明文地址；Demo 与生产版本不会信任自签名证书，也不会关闭 TLS 校验。
 

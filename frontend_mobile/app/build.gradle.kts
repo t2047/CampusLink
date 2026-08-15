@@ -38,11 +38,11 @@ android {
             dimension = "environment"
             applicationIdSuffix = ".demo"
             versionNameSuffix = "-demo"
-            buildConfigField("String", "API_BASE_URL", "\"https://campuslink.tonywu.top/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://campuslink.tokeninf.xyz/\"")
         }
         create("prod") {
             dimension = "environment"
-            buildConfigField("String", "API_BASE_URL", "\"https://campuslink.tonywu.top/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://campuslink.tokeninf.xyz/\"")
         }
     }
 
