@@ -27,7 +27,7 @@ public class FacilitiesService {
     private static final long MAX_BOOKING_DAYS_IN_ADVANCE = 14;
     private static final Set<BookingStatus> BLOCKING_STATUSES = Set.of(BookingStatus.CONFIRMED);
     private static final Map<MaintenanceStatus, Set<MaintenanceStatus>> MAINTENANCE_TRANSITIONS = Map.of(
-            MaintenanceStatus.SUBMITTED, Set.of(MaintenanceStatus.IN_PROGRESS, MaintenanceStatus.CANCELLED),
+            MaintenanceStatus.SUBMITTED, Set.of(MaintenanceStatus.IN_PROGRESS, MaintenanceStatus.RESOLVED, MaintenanceStatus.CANCELLED),
             MaintenanceStatus.IN_PROGRESS, Set.of(MaintenanceStatus.RESOLVED, MaintenanceStatus.CANCELLED),
             MaintenanceStatus.RESOLVED, Set.of(),
             MaintenanceStatus.CANCELLED, Set.of());
