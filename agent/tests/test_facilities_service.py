@@ -669,6 +669,265 @@ class FacilitiesAdapterServiceTest(unittest.IsolatedAsyncioTestCase):
             pending.arguments_copy(),
         )
 
+    async def test_unique_search_result_book_it_resolves_without_clarification(self):
+        decisions = {
+            "search": PlannerDecision(intent="search_spaces", arguments={}),
+            "book it on 8.17 from 9am to 11am": PlannerDecision(
+                intent="create_booking",
+                # The service must derive "it" from the current message rather than
+                # trust a planner-selected ID.
+                arguments={"spaceId": 999},
+                datetime_text="8.17 from 9am to 11am",
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [{"spaceId": 4, "name": "COM3-01-20 Project Room"}],
+            },
+            "check_availability": {"success": True, "data": {"available": True}},
+            "create_booking": {
+                "success": True,
+                "data": {"bookingId": 77, "status": "CONFIRMED"},
+            },
+        }
+        service, planner, client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+
+        response = await service.invoke(
+            request("book it on 8.17 from 9am to 11am", search.shared_context),
+            "42",
+        )
+
+        self.assertEqual("needs_confirmation", response.status)
+        self.assertEqual(2, len(planner.calls))
+        pending = store.get(
+            response.confirmation_required.confirmation_id, "42", "session-1"
+        )
+        self.assertEqual(
+            {
+                "spaceId": 4,
+                "startDateTime": "2026-08-17T09:00:00",
+                "endDateTime": "2026-08-17T11:00:00",
+            },
+            pending.arguments_copy(),
+        )
+        self.assertNotIn(
+            "pendingBookingDraft", response.shared_context["facilities"]
+        )
+        self.assertEqual(
+            ["search_spaces", "check_availability"],
+            [call["tool_name"] for call in client.calls],
+        )
+        completed = await service.invoke(
+            request(
+                "confirm",
+                response.shared_context,
+                confirmed=True,
+                confirmation_id=response.confirmation_required.confirmation_id,
+            ),
+            "42",
+        )
+        self.assertEqual("completed", completed.status)
+        self.assertNotIn(
+            "pendingBookingDraft", completed.shared_context["facilities"]
+        )
+        self.assertEqual("create_booking", client.calls[-1]["tool_name"])
+
+    def test_supported_room_reference_phrases_are_normalized(self):
+        for phrase in ("it", "that one", "this one", "the room", "this room"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(
+                    {"reference": phrase},
+                    FacilitiesAdapterService._booking_reference_arguments(phrase),
+                )
+        for phrase in ("option 1", "room 1", "first room"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(
+                    {"candidateRank": 1},
+                    FacilitiesAdapterService._booking_reference_arguments(
+                        phrase, allow_room_rank=True
+                    ),
+                )
+
+    async def test_multiple_results_it_clarifies_then_rank_retains_exact_time(self):
+        decisions = {
+            "search": PlannerDecision(intent="search_spaces", arguments={}),
+            "book it on 8.17 from 9am to 11am": PlannerDecision(
+                intent="create_booking",
+                arguments={"reference": "it"},
+                datetime_text="8.17 from 9am to 11am",
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [
+                    {"spaceId": 4, "name": "Room A"},
+                    {"spaceId": 5, "name": "Room B"},
+                    {"spaceId": 6, "name": "Room C"},
+                    {"spaceId": 7, "name": "Room D"},
+                    {"spaceId": 8, "name": "Room E"},
+                ],
+            },
+            "check_availability": {"success": True, "data": {"available": True}},
+        }
+        service, planner, client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+        clarification = await service.invoke(
+            request("book it on 8.17 from 9am to 11am", search.shared_context),
+            "42",
+        )
+
+        self.assertEqual("needs_more_info", clarification.status)
+        draft = clarification.shared_context["facilities"]["pendingBookingDraft"]
+        self.assertEqual("2026-08-17T09:00:00", draft["startDateTime"])
+        self.assertEqual("2026-08-17T11:00:00", draft["endDateTime"])
+
+        response = await service.invoke(
+            request("4", clarification.shared_context), "42"
+        )
+        self.assertEqual("needs_confirmation", response.status)
+        self.assertEqual(2, len(planner.calls), "rank clarification must bypass planner")
+        pending = store.get(
+            response.confirmation_required.confirmation_id, "42", "session-1"
+        )
+        self.assertEqual(
+            {
+                "spaceId": 7,
+                "startDateTime": "2026-08-17T09:00:00",
+                "endDateTime": "2026-08-17T11:00:00",
+            },
+            pending.arguments_copy(),
+        )
+        self.assertEqual(
+            ["search_spaces", "check_availability"],
+            [call["tool_name"] for call in client.calls],
+            "create_booking must not run before HITL confirmation",
+        )
+
+    async def test_room_and_date_draft_accepts_time_only_fragment(self):
+        decisions = {
+            "search": PlannerDecision(intent="search_spaces", arguments={}),
+            "book option 1 on 8.17": PlannerDecision(
+                intent="create_booking",
+                arguments={"candidateRank": 1},
+                datetime_text="8.17",
+                missing_fields=["startDateTime", "endDateTime"],
+            ),
+        }
+        fixtures = {
+            "search_spaces": {
+                "success": True,
+                "data": [{"spaceId": 4, "name": "Room A"}],
+            },
+            "check_availability": {"success": True, "data": {"available": True}},
+        }
+        service, planner, _client, store = self.build_service(decisions, fixtures)
+        search = await service.invoke(request("search"), "42")
+        clarification = await service.invoke(
+            request("book option 1 on 8.17", search.shared_context), "42"
+        )
+        self.assertEqual("needs_more_info", clarification.status)
+        draft = clarification.shared_context["facilities"]["pendingBookingDraft"]
+        self.assertEqual(4, draft["spaceId"])
+        self.assertEqual("2026-08-17", draft["bookingDate"])
+
+        response = await service.invoke(
+            request("from 9am to 11am", clarification.shared_context), "42"
+        )
+        self.assertEqual("needs_confirmation", response.status)
+        self.assertEqual(2, len(planner.calls), "time fragment must bypass planner")
+        pending = store.get(
+            response.confirmation_required.confirmation_id, "42", "session-1"
+        )
+        self.assertEqual("2026-08-17T09:00:00", pending.arguments_copy()["startDateTime"])
+        self.assertEqual("2026-08-17T11:00:00", pending.arguments_copy()["endDateTime"])
+
+    async def test_abandoned_booking_draft_is_cleared(self):
+        decisions = {
+            "book on 8.17 from 9am to 11am": PlannerDecision(
+                intent="create_booking",
+                arguments={},
+                datetime_text="8.17 from 9am to 11am",
+            )
+        }
+        service, planner, client, _store = self.build_service(decisions, {})
+        clarification = await service.invoke(
+            request("book on 8.17 from 9am to 11am"), "42"
+        )
+        self.assertEqual("needs_more_info", clarification.status)
+        self.assertIn("pendingBookingDraft", clarification.shared_context["facilities"])
+
+        cancelled = await service.invoke(
+            request("never mind", clarification.shared_context), "42"
+        )
+        self.assertEqual("completed", cancelled.status)
+        self.assertNotIn("pendingBookingDraft", cancelled.shared_context["facilities"])
+        self.assertEqual(1, len(planner.calls))
+        self.assertEqual([], client.calls)
+
+    async def test_chat_core_abandonment_does_not_leak_draft_into_next_booking(self):
+        decisions = {
+            "book on 8.17 from 9am to 11am": PlannerDecision(
+                intent="create_booking",
+                arguments={},
+                datetime_text="8.17 from 9am to 11am",
+            ),
+            "book room 4": PlannerDecision(
+                intent="create_booking",
+                arguments={"spaceId": 4},
+            ),
+        }
+        service, _planner, client, store = self.build_service(decisions, {})
+        clarification = await service.invoke(
+            request("book on 8.17 from 9am to 11am"), "42"
+        )
+        context_after_chat_core_cancel = {
+            **clarification.shared_context,
+            "recent_messages": [
+                {"role": "user", "content": "book on 8.17 from 9am to 11am"},
+                {"role": "assistant", "content": "Which room?"},
+                {"role": "user", "content": "算了"},
+                {"role": "assistant", "content": "Okay."},
+                {"role": "user", "content": "book room 4"},
+            ],
+        }
+
+        next_booking = await service.invoke(
+            request("book room 4", context_after_chat_core_cancel), "42"
+        )
+
+        self.assertEqual("needs_more_info", next_booking.status)
+        next_draft = next_booking.shared_context["facilities"]["pendingBookingDraft"]
+        self.assertEqual(4, next_draft["spaceId"])
+        self.assertNotIn("startDateTime", next_draft)
+        self.assertNotIn("endDateTime", next_draft)
+        self.assertEqual([], client.calls)
+        self.assertEqual({}, store._actions)
+
+    async def test_planner_failure_clears_partial_draft_without_historical_reuse(self):
+        decisions = {
+            "book on 8.17 from 9am to 11am": PlannerDecision(
+                intent="create_booking",
+                arguments={},
+                datetime_text="8.17 from 9am to 11am",
+            )
+        }
+        service, _planner, client, store = self.build_service(decisions, {})
+        clarification = await service.invoke(
+            request("book on 8.17 from 9am to 11am"), "42"
+        )
+        service._planner = UnavailablePlanner()
+
+        failed = await service.invoke(
+            request("the blue corner", clarification.shared_context), "42"
+        )
+        self.assertEqual("failed", failed.status)
+        self.assertNotIn("pendingBookingDraft", failed.shared_context["facilities"])
+        self.assertEqual([], client.calls)
+        self.assertEqual({}, store._actions)
+
     async def test_explicit_space_without_current_time_does_not_inherit_old_search_window(self):
         decisions = {
             "search": PlannerDecision(

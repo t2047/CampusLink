@@ -65,12 +65,37 @@ class FacilitiesAdapterService:
             now_provider=self._utc_now,
         )
         session_id = request.conversation_context.session_id or ""
+        user_id = str(authenticated_user_id)
 
         try:
             if request.confirmed:
                 return await self._resume_confirmation(
                     request,
-                    str(authenticated_user_id),
+                    user_id,
+                    session_id,
+                    context,
+                    invocation_id,
+                )
+
+            if self._previous_turn_abandoned(request):
+                context.clear_pending_booking()
+            pending_booking = context.get_pending_booking(user_id, session_id)
+            if pending_booking is not None and self._is_abandonment(request.message):
+                context.clear_pending_booking()
+                return InvokeResponse(
+                    response="Okay, I cancelled that unfinished booking request.",
+                    status="completed",
+                    shared_context=context.snapshot(),
+                    actions_taken=[],
+                    request_id=invocation_id,
+                    error=None,
+                )
+            if pending_booking is not None and self._is_booking_continuation(
+                request.message
+            ):
+                return await self._book_space(
+                    self._deterministic_booking_arguments(request.message),
+                    user_id,
                     session_id,
                     context,
                     invocation_id,
@@ -86,18 +111,20 @@ class FacilitiesAdapterService:
             return await self._dispatch(
                 decision,
                 request.message,
-                str(authenticated_user_id),
+                user_id,
                 session_id,
                 context,
                 invocation_id,
             )
         except (ToolClientError, PlannerError) as error:
+            context.clear_pending_booking()
             logger.warning(
                 "Facilities service invoke failed: invocation_id=%s code=%s detail=%s",
                 invocation_id, getattr(error, "code", "?"), error,
             )
             return map_technical_error(error, context.snapshot(), invocation_id)
         except Exception as error:  # Adapter exceptions are true system failures.
+            context.clear_pending_booking()
             logger.exception(
                 "Facilities service invoke crashed: invocation_id=%s",
                 invocation_id,
@@ -119,6 +146,55 @@ class FacilitiesAdapterService:
         context: FacilitiesContextManager,
         request_id: str,
     ) -> InvokeResponse:
+        arguments = dict(decision.arguments)
+        if decision.datetime_text:
+            arguments["datetimeText"] = decision.datetime_text
+
+        if decision.intent == "create_booking":
+            reference_arguments = self._booking_reference_arguments(
+                user_message,
+                allow_room_rank=not context.search_is_expired(),
+            )
+            has_reference_context = bool(
+                context.context.selected_space is not None
+                or (
+                    context.context.search_results is not None
+                    and not context.search_is_expired()
+                    and context.context.search_results.candidates
+                )
+            )
+            should_override_planner_space = bool(
+                reference_arguments
+                and (
+                    "reference" not in reference_arguments
+                    or has_reference_context
+                )
+            )
+            if should_override_planner_space:
+                for key in (
+                    "spaceId",
+                    "space_id",
+                    "candidateRank",
+                    "candidate_rank",
+                    "reference",
+                ):
+                    arguments.pop(key, None)
+                arguments.update(reference_arguments)
+            elif not self._has_explicit_space_reference(user_message):
+                # Never accept a planner-selected room without current-turn evidence.
+                for key in (
+                    "spaceId",
+                    "space_id",
+                    "candidateRank",
+                    "candidate_rank",
+                    "reference",
+                ):
+                    arguments.pop(key, None)
+            return await self._book_space(
+                arguments, user_id, session_id, context, request_id
+            )
+
+        context.clear_pending_booking()
         if decision.missing_fields:
             return self._needs_more_info(
                 decision.clarification
@@ -128,23 +204,10 @@ class FacilitiesAdapterService:
                 context,
                 request_id,
             )
-        if decision.intent == "create_booking" and not self._has_explicit_space_reference(
-            user_message
-        ):
-            return self._needs_more_info(
-                "Which room would you like to book? Please choose a recent search result or provide a space ID.",
-                context,
-                request_id,
-            )
-        arguments = dict(decision.arguments)
-        if decision.datetime_text:
-            arguments["datetimeText"] = decision.datetime_text
-
         handlers = {
             "search_spaces": self._search_spaces,
             "get_space_details": self._get_space_details,
             "check_availability": self._check_availability,
-            "create_booking": self._book_space,
             "list_user_bookings": self._list_bookings,
             "get_booking_status": self._get_booking_status,
             "cancel_booking": self._cancel_booking,
@@ -177,10 +240,13 @@ class FacilitiesAdapterService:
         if not text:
             return False
         patterns = (
+            r"^\s*(?:option|room)?\s*[1-5]\s*[.!?]?\s*$",
             r"\boption\s*(?:number\s*)?(?:\d+|one|two|three|four|five)\b",
+            r"\broom\s*(?:number\s*)?(?:[1-5]|one|two|three|four|five)\b",
             r"\b(?:book|reserve)\s+(?:the\s+)?(?:first|second|third|fourth|fifth)\b",
             r"\b(?:first|second|third|fourth|fifth)\s+(?:one|room|space|option|result)\b",
-            r"\b(?:this|that|selected|same)\s+(?:room|space|pod|lab|venue)\b",
+            r"\b(?:it|that one|this one|the room|this room|that room)\b",
+            r"\b(?:this|that|selected|same|the)\s+(?:room|space|pod|lab|venue)\b",
             r"\b(?:room|space|pod|lab|hall|court|studio)\s*(?:id\s*)?[#:]?\s*(?:\d+[a-z0-9-]*|[a-z]+\d+[a-z0-9-]*|[a-z])\b",
             r"\b[a-z]{2,}\d*(?:-\d+){1,}\b",
             r"第\s*[一二三四五六七八九十\d]+\s*个",
@@ -188,6 +254,125 @@ class FacilitiesAdapterService:
             r"(?:房间|空间|场地|实验室)\s*(?:编号|id)?\s*[a-z]?\d+",
         )
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
+    def _booking_reference_arguments(
+        message: str, *, allow_room_rank: bool = False
+    ) -> Dict[str, Any]:
+        text = (message or "").strip().lower()
+        rank_words = {
+            "one": 1,
+            "first": 1,
+            "two": 2,
+            "second": 2,
+            "three": 3,
+            "third": 3,
+            "four": 4,
+            "fourth": 4,
+            "five": 5,
+            "fifth": 5,
+        }
+        rank_prefix = r"(?:option|room)" if allow_room_rank else r"option"
+        rank_match = re.search(
+            (
+                r"(?:^|\b){0}\s*(?:number\s*)?"
+                r"(?P<rank>[1-5]|one|two|three|four|five)(?:\b|$)"
+            ).format(rank_prefix),
+            text,
+        )
+        if rank_match is None:
+            rank_match = re.search(
+                r"(?:^|\b)(?P<rank>first|second|third|fourth|fifth)\s*(?:one|room|space|option|result)?(?:\b|$)",
+                text,
+            )
+        if rank_match is None:
+            rank_match = re.fullmatch(r"\s*(?P<rank>[1-5])\s*[.!?]?\s*", text)
+        if rank_match is not None:
+            raw_rank = rank_match.group("rank")
+            rank = rank_words.get(
+                raw_rank, int(raw_rank) if raw_rank.isdigit() else None
+            )
+            return {"candidateRank": rank}
+
+        explicit_id = re.search(r"\bspace\s*id\s*[#:]?\s*(?P<id>\d+)\b", text)
+        if explicit_id is not None:
+            return {"spaceId": int(explicit_id.group("id"))}
+
+        vague_references = (
+            "it",
+            "that one",
+            "this one",
+            "the room",
+            "this room",
+            "that room",
+            "that",
+            "that space",
+            "刚才那个",
+            "那个房间",
+        )
+        for reference in vague_references:
+            if re.search(r"(?<!\w){0}(?!\w)".format(re.escape(reference)), text):
+                return {"reference": reference}
+        return {}
+
+    @staticmethod
+    def _has_datetime_evidence(message: str) -> bool:
+        text = (message or "").strip()
+        patterns = (
+            r"\b(?:from|at|on|until|to|today|tomorrow|next\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b",
+            r"\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\b",
+            r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)",
+            r"(?<![\d.])\d{1,2}[./]\d{1,2}(?![\d.])",
+            r"(?:今天|明天|下周|上午|下午|晚上|\d{1,2}点)",
+        )
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+    @classmethod
+    def _is_booking_continuation(cls, message: str) -> bool:
+        return bool(
+            cls._booking_reference_arguments(message, allow_room_rank=True)
+            or cls._has_datetime_evidence(message)
+        )
+
+    @staticmethod
+    def _is_abandonment(message: str) -> bool:
+        text = (message or "").strip().lower()
+        return any(
+            phrase in text
+            for phrase in (
+                "cancel that",
+                "never mind",
+                "nevermind",
+                "forget it",
+                "算了",
+                "不用了",
+                "放弃",
+                "取消这个",
+            )
+        )
+
+    @classmethod
+    def _previous_turn_abandoned(cls, request: InvokeRequest) -> bool:
+        recent = request.conversation_context.shared_data.get("recent_messages")
+        if not isinstance(recent, list):
+            return False
+        user_messages = [
+            str(item.get("content") or "")
+            for item in recent
+            if isinstance(item, dict) and item.get("role") == "user"
+        ]
+        if not user_messages:
+            return False
+        if user_messages[-1].strip() == request.message.strip():
+            user_messages = user_messages[:-1]
+        return bool(user_messages and cls._is_abandonment(user_messages[-1]))
+
+    @classmethod
+    def _deterministic_booking_arguments(cls, message: str) -> Dict[str, Any]:
+        arguments = cls._booking_reference_arguments(message, allow_room_rank=True)
+        if cls._has_datetime_evidence(message):
+            arguments["datetimeText"] = message
+        return arguments
 
     @staticmethod
     def _value(
@@ -241,14 +426,54 @@ class FacilitiesAdapterService:
                 return candidate.space_id, None
             except (ContextResolutionError, TypeError, ValueError) as error:
                 return None, str(error)
-        if reference in {"that", "that room", "that space", "it", "刚才那个", "那个房间"}:
+        if reference in {
+            "that",
+            "that one",
+            "this one",
+            "the room",
+            "this room",
+            "that room",
+            "that space",
+            "it",
+            "刚才那个",
+            "那个房间",
+        }:
             selected = context.context.selected_space
             if selected is not None:
                 return selected.space_id, None
             results = context.context.search_results
             if results is not None and len(results.candidates) == 1:
                 return results.candidates[0].space_id, None
+            if results is not None and len(results.candidates) > 1:
+                return None, "Which room would you like to book? Please choose a numbered search result."
         return None, "Please provide a space ID or choose a recent search result."
+
+    def _explicit_booking_date(self, text: str) -> Optional[str]:
+        date_patterns = (
+            r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)",
+            r"(?<![\d.])\d{1,2}[./]\d{1,2}(?![\d.])",
+            r"\b(?:today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b",
+            r"(?:今天|明天|下周[一二三四五六日天])",
+        )
+        if not any(re.search(pattern, text or "", re.IGNORECASE) for pattern in date_patterns):
+            return None
+        return self._datetime_parser.parse_date(text).isoformat()
+
+    @staticmethod
+    def _candidate_for_space(
+        space_id: Optional[int], context: FacilitiesContextManager
+    ):
+        if space_id is None:
+            return None
+        selected = context.context.selected_space
+        if selected is not None and selected.space_id == space_id:
+            return selected.model_copy(deep=True)
+        results = context.context.search_results
+        if results is not None:
+            for candidate in results.candidates:
+                if candidate.space_id == space_id:
+                    return candidate.model_copy(deep=True)
+        return None
 
     def _normalized_time_range(
         self,
@@ -458,48 +683,131 @@ class FacilitiesAdapterService:
                 request_id,
             )
 
-        candidate = None
-        explicit_space_id = self._value(arguments, "spaceId", "space_id")
-        if explicit_space_id is None:
-            resolved_space_id, clarification = self._resolve_space_id(arguments, context)
-            if clarification:
-                return self._needs_more_info(
-                    clarification,
-                    context,
-                    request_id,
-                )
-            space_id = resolved_space_id
-            selected = context.context.selected_space
-            if selected is not None and selected.space_id == space_id:
-                candidate = selected.model_copy(deep=True)
-        else:
-            space_id, clarification = self._resolve_space_id(arguments, context)
-            if clarification:
-                return self._needs_more_info(clarification, context, request_id)
+        pending = context.get_pending_booking(user_id, session_id)
+        space_id = pending.space_id if pending is not None else None
+        booking_date = pending.booking_date if pending is not None else None
+        start = pending.start_date_time if pending is not None else None
+        end = pending.end_date_time if pending is not None else None
+
+        has_current_space = any(
+            self._value(arguments, key, self._camel_to_snake(key)) is not None
+            for key in ("spaceId", "candidateRank", "reference")
+        )
+        references_search_candidate = any(
+            self._value(arguments, key, self._camel_to_snake(key)) is not None
+            for key in ("candidateRank", "reference")
+        )
+        space_clarification = None
+        if has_current_space:
+            space_id, space_clarification = self._resolve_space_id(arguments, context)
+        candidate = self._candidate_for_space(space_id, context)
+
+        current_datetime_text = self._value(
+            arguments, "datetimeText", "datetime_text"
+        )
+        current_start = self._value(arguments, "startDateTime", "start_date_time")
+        current_end = self._value(arguments, "endDateTime", "end_date_time")
+        time_clarification = None
+        if current_datetime_text:
+            raw_datetime_text = str(current_datetime_text)
+            explicit_date = self._explicit_booking_date(raw_datetime_text)
+            if explicit_date is not None:
+                booking_date = explicit_date
+                # A newly supplied date must not retain a prior draft's times.
+                start = None
+                end = None
+            parse_text = raw_datetime_text
+            if explicit_date is None and booking_date is not None:
+                parse_text = "{0} {1}".format(booking_date, raw_datetime_text)
+            time_arguments, time_clarification = self._normalized_time_range(
+                {"datetimeText": parse_text}, required=False
+            )
+            if time_arguments:
+                start = time_arguments["startDateTime"]
+                end = time_arguments["endDateTime"]
+                booking_date = start.split("T", 1)[0]
+                time_clarification = None
+        elif current_start is not None or current_end is not None:
+            time_arguments, time_clarification = self._normalized_time_range(
+                {
+                    "startDateTime": current_start,
+                    "endDateTime": current_end,
+                },
+                required=False,
+            )
+            if time_arguments:
+                start = time_arguments["startDateTime"]
+                end = time_arguments["endDateTime"]
+                booking_date = start.split("T", 1)[0]
 
         search_results = context.context.search_results
-        time_arguments, clarification = self._normalized_time_range(
-            arguments, required=False
-        )
-        if clarification:
-            return self._needs_more_info(clarification, context, request_id)
         # Reuse a search window only when this turn explicitly references one of
         # those search candidates. A bare booking request must never inherit stale
         # time arguments from an earlier turn.
-        if not time_arguments and search_results is not None and candidate is not None:
+        if (
+            not start
+            and not end
+            and current_datetime_text is None
+            and current_start is None
+            and current_end is None
+            and pending is None
+            and search_results is not None
+            and candidate is not None
+            and references_search_candidate
+        ):
             inherited = {
                 "startDateTime": search_results.start_date_time,
                 "endDateTime": search_results.end_date_time,
             }
-            time_arguments, clarification = self._normalized_time_range(
+            time_arguments, time_clarification = self._normalized_time_range(
                 inherited, required=True
             )
-        elif not time_arguments:
-            clarification = "Please provide a date and both a start and end time."
-        if clarification:
-            return self._needs_more_info(clarification, context, request_id)
-        start = time_arguments["startDateTime"]
-        end = time_arguments["endDateTime"]
+            if time_arguments:
+                start = time_arguments["startDateTime"]
+                end = time_arguments["endDateTime"]
+                booking_date = start.split("T", 1)[0]
+                time_clarification = None
+
+        missing_fields = []
+        if space_id is None:
+            missing_fields.append("spaceId")
+        if not booking_date:
+            missing_fields.append("date")
+        if not start:
+            missing_fields.append("startDateTime")
+        if not end:
+            missing_fields.append("endDateTime")
+        if missing_fields:
+            context.set_pending_booking(
+                user_id=user_id,
+                session_id=session_id,
+                space_id=space_id,
+                booking_date=booking_date,
+                start_date_time=start,
+                end_date_time=end,
+                missing_fields=missing_fields,
+            )
+            if space_id is None:
+                return self._needs_more_info(
+                    space_clarification
+                    or "Which room would you like to book? Please choose a numbered search result or provide a space ID.",
+                    context,
+                    request_id,
+                )
+            if booking_date and (not start or not end):
+                return self._needs_more_info(
+                    "What start and end time would you like for {0}?".format(
+                        booking_date
+                    ),
+                    context,
+                    request_id,
+                )
+            return self._needs_more_info(
+                time_clarification
+                or "Please provide a date and both a start and end time.",
+                context,
+                request_id,
+            )
 
         exact_arguments = {
             "spaceId": space_id,
@@ -514,6 +822,7 @@ class FacilitiesAdapterService:
                 "check_availability", exact_arguments.copy()
             )
             if availability.get("success") is not True:
+                context.clear_pending_booking()
                 return map_tool_result(
                     "check_availability",
                     availability,
@@ -525,6 +834,7 @@ class FacilitiesAdapterService:
                 isinstance(availability_data, dict)
                 and availability_data.get("available") is False
             ):
+                context.clear_pending_booking()
                 reason = availability_data.get("reasonCode") or "SPACE_UNAVAILABLE"
                 return map_tool_result(
                     "check_availability",
@@ -543,6 +853,7 @@ class FacilitiesAdapterService:
         space_name = candidate.name if candidate else "space {0}".format(space_id)
         preview = dict(exact_arguments)
         preview["spaceName"] = space_name
+        context.clear_pending_booking()
         return self._create_confirmation(
             user_id,
             session_id,
