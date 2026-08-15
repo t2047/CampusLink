@@ -1,8 +1,11 @@
 # CampusLink Android Core Chat 开发状态与后续路线
 
-> 最后更新：2026-08-15  
-> 当前开发分支：`feature/mobile-core-chat-kotlin`  
-> Android 包名：`com.campuslink.mobile`  
+> 最后更新：2026-08-15
+>
+> 当前开发分支：`feature/mobile-core-chat-kotlin`
+>
+> Android 包名：`com.campuslink.mobile`
+>
 > 当前阶段：Core Chat 第一版已完成，等待云端可信 HTTPS 和真实设备联调
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
@@ -491,4 +494,3 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 7. 不要在本地创建或提交真实 Release Keystore；
 8. 开发新功能前先阅读本文档、根目录 `DEPLOYMENT.md` 和 Chat Backend Controller；
 9. 完成工作后更新“已完成功能”“当前测试结果”和“待办路线”。
-
