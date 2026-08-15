@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -60,9 +61,11 @@ from mcp_servers.security import McpSecurityMiddleware, identity_from_context
 
 logger = logging.getLogger(__name__)
 
-from lost_found_agent.config import get_settings
+from lost_found_agent.config import Settings, get_settings
 from lost_found_agent.confirmation import ConfirmationStore
-from lost_found_agent.llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
+from lost_found_agent.invoke_service import LostFoundInvokeService
+from lost_found_agent.llm import LlmInterpreter
+from lost_found_agent.memory import MemoryClient, MemoryManager
 from lost_found_agent.models import ConversationContext, InvokeRequest, InvokeResponse, TraceParent
 from lost_found_agent.pretrained import PretrainedEmbeddingClient
 from lost_found_agent.rate_limit import RateLimiter
@@ -75,69 +78,39 @@ AGENT_NAME = "lost-found-agent"
 # 自动加载仓库根目录 .env（向上查找；不覆盖已设置的变量）
 load_dotenv(find_dotenv())
 
-# ──────────────────────────────────────────────────────────────────────
-# 依赖装配（与 main.create_app 一致的参数；MCP 网关独立进程，事件存储省略
-# —— MCP 为同步调用，无 SSE 消费方）
-# ──────────────────────────────────────────────────────────────────────
-_settings = get_settings()
-_limiter = RateLimiter(
-    _settings.agent_rate_limit_per_minute,
-    _settings.agent_rate_limit_per_session,
-)
-_api_client = CampusApiClient(_settings)
-_embedding_client = PretrainedEmbeddingClient(_settings)
-_llm_interpreter: LlmInterpreter | None = None
-if _settings.effective_mode == "llm":
-    _llm_interpreter = LlmInterpreter(_settings)
-_rule_engine = RuleEngine(
-    _api_client,
-    ConfirmationStore(ttl_seconds=600),
-    _settings.lost_found_match_min_score,
-    _embedding_client,
-)
+@dataclass
+class _McpDeps:
+    """MCP 网关的已装配依赖（create_mcp_app 返回值，供宿主/测试复用）。"""
 
-# 启动环境检查：未配置 TOKEN_SERVICE_JWKS_URL 时无法 RS256 验签，请求将全部 401
-if not os.environ.get("TOKEN_SERVICE_JWKS_URL"):
-    print(
-        f"[{AGENT_NAME}-mcp] WARNING: 未配置 TOKEN_SERVICE_JWKS_URL（RS256 验签必需），"
-        "MCP 请求将全部返回 401。请先 source 仓库根目录 .env。",
-        file=sys.stderr,
-    )
-
-# streamable_http_path="/"：挂载到 FastAPI 的 /mcp 后端点即 /mcp/
-mcp = FastMCP(
-    f"{AGENT_NAME}-server",
-    streamable_http_path="/",
-    # Docker 容器间使用服务名访问，需允许非 localhost Host 头。
-    host=os.environ.get("FASTMCP_HOST", "127.0.0.1"),
-)
-
-# 必须先调用 streamable_http_app() 才能访问 mcp.session_manager
-# （mcp 1.x：session manager 的 task group 由 run() 初始化）
-_streamable_app = mcp.streamable_http_app()
+    settings: Settings
+    limiter: RateLimiter
+    api_client: CampusApiClient
+    embedding_client: PretrainedEmbeddingClient
+    llm_interpreter: LlmInterpreter | None
+    confirmation_store: ConfirmationStore
+    rule_engine: RuleEngine
+    memory_manager: MemoryManager
+    invoke_service: LostFoundInvokeService
 
 
-@mcp.tool()
-async def invoke(
+async def _invoke_tool(
     message: str,
-    conversation_context: dict | None = None,
-    confirmed: bool = False,
-    confirmation_id: str | None = None,
-    trace_parent: dict | None = None,
-    context: Context | None = None,
+    conversation_context: dict | None,
+    confirmed: bool,
+    confirmation_id: str | None,
+    trace_parent: dict | None,
+    *,
+    context: Context | None,
+    settings: Settings,
+    limiter: RateLimiter,
+    invoke_service: LostFoundInvokeService,
 ) -> str:
-    """处理一条用户请求（Lost & Found Agent 主入口，MCP 适配）。
+    """MCP invoke 工具的核心逻辑（与 REST main.invoke 共用 LostFoundInvokeService，§7.1）。
 
-    Args:
-        message: 用户自然语言请求（报失 / 搜索拾获 / 查看详情 / 认领）
-        conversation_context: 跨 Agent 共享上下文（可选，含 session_id / shared_data）
-        confirmed: 用户是否已确认前一轮的待确认操作（HITL）
-        confirmation_id: 待确认操作 ID（上一轮 needs_confirmation 返回，确认重调时传入）
-        trace_parent: 分布式追踪信息（可选）
-
-    Returns:
-        JSON 字符串（status=completed / needs_confirmation / failed，
-        与原 /agent/invoke 契约一致，含 confirmation_required）
+    独立成模块级函数以便测试注入 fake（settings/limiter/invoke_service）与
+    monkeypatch ``identity_from_context`` 后直接跨轮驱动，验证记忆落库（P5）。
+    限流异常必须转为 failed 响应：HTTPException 在 MCP 工具层不被识别，
+    直接冒泡会导致响应流中断 → 客户端连接重置（WinError 10054）。
     """
     if context is None:
         return json.dumps(
@@ -179,10 +152,8 @@ async def invoke(
             ensure_ascii=False,
         )
     session_id = conv_ctx.session_id or request_id
-    # 限流异常必须转为 failed 响应：HTTPException 在 MCP 工具层不被识别，
-    # 直接冒泡会导致响应流中断 → 客户端连接重置（WinError 10054）
     try:
-        _limiter.check(verified.user_id, session_id)
+        limiter.check(verified.user_id, session_id)
     except HTTPException as exc:
         logger.warning(
             "L&F invoke rate-limited: user_id=%s detail=%s", verified.user_id, exc.detail,
@@ -209,51 +180,16 @@ async def invoke(
 
     response = None
     try:
-        interpretation = None
-        if _llm_interpreter and not (payload.confirmed or payload.confirmation_id):
-            try:
-                interpretation = await interpret_with_retry(
-                    _llm_interpreter,
-                    payload.message,
-                    payload.conversation_context.shared_data,
-                )
-            except LlmUnavailable as exc:
-                if _settings.llm_fail_closed:
-                    # fail-closed（默认）：LLM 不可用/输出不可信 → 显式失败，不降级规则
-                    logger.warning(
-                        "L&F invoke LLM fail-closed: request_id=%s err=%s",
-                        request_id, exc,
-                    )
-                    return json.dumps(
-                        {
-                            "response": (
-                                "智能识别服务暂时不可用，请稍后重试。"
-                                if detect_language(payload.message) == "zh"
-                                else (
-                                    "The AI interpretation service is temporarily "
-                                    "unavailable. Please try again later."
-                                )
-                            ),
-                            "status": "failed",
-                            "error": f"llm_fail_closed: {exc}",
-                            "request_id": request_id,
-                        },
-                        ensure_ascii=False,
-                    )
-                # 旧行为（降级规则引擎）：仅当 llm_fail_closed=false 时生效
-                pass
-
-        response = await _rule_engine.handle(
+        # 与 REST 共用 LostFoundInvokeService（§7.1）：含记忆加载/注入/持久化。
+        # MCP 链路不注入完整 recent_messages（orchestration MemorySaver 已带，§7.6）；
+        # LLM 失败重试 3 次（与历史行为一致）。
+        response = await invoke_service.handle_invoke(
             payload,
             verified,
             request_id,
-            lambda event: None,  # 事件仅用于 REST SSE 流，MCP 同步返回不需要
-            interpreted_intent=interpretation.intent if interpretation else None,
-            interpreted_fields=(
-                interpretation.fields.model_dump(exclude_none=True)
-                if interpretation
-                else None
-            ),
+            emit=lambda event: None,  # 事件仅用于 REST SSE 流，MCP 同步返回不需要
+            interpret_attempts=3,
+            include_recent_messages=False,
         )
     except asyncio.CancelledError:
         # 客户端（编排层）超时/取消：请求中断，非内部错误。记录后保持取消语义重抛。
@@ -289,6 +225,125 @@ async def invoke(
     return json.dumps(response.model_dump(), ensure_ascii=False)
 
 
+def create_mcp_app(
+    settings: Settings | None = None,
+    api_client: CampusApiClient | None = None,
+    llm_interpreter: LlmInterpreter | None = None,
+    memory_client: MemoryClient | None = None,
+) -> tuple[FastMCP, _McpDeps]:
+    """装配 MCP 网关（与 REST ``main.create_app`` 参数一致；测试可注入 fake，P5）。
+
+    返回 ``(mcp, deps)``：``mcp`` 已注册 ``invoke`` 工具但**未**初始化会话
+    （``streamable_http_app()`` 由宿主调用，与 mcp 1.x 的 session manager 生命周期一致）；
+    ``deps`` 暴露各依赖供 /health、lifespan 与测试复用。
+
+    生产路径模块级调用一次；测试用 fake ``api_client`` / ``memory_client`` 调用后
+    经 ``_invoke_tool`` 直接驱动，验证 MCP 入口跨轮记忆落库。
+    """
+    active_settings = settings or get_settings()
+    limiter = RateLimiter(
+        active_settings.agent_rate_limit_per_minute,
+        active_settings.agent_rate_limit_per_session,
+    )
+    active_api_client = api_client or CampusApiClient(active_settings)
+    embedding_client = PretrainedEmbeddingClient(active_settings)
+    active_llm_interpreter: LlmInterpreter | None = None
+    if active_settings.effective_mode == "llm":
+        active_llm_interpreter = llm_interpreter or LlmInterpreter(active_settings)
+    confirmation_store = ConfirmationStore(ttl_seconds=600)
+    rule_engine = RuleEngine(
+        active_api_client,
+        confirmation_store,
+        active_settings.lost_found_match_min_score,
+        embedding_client,
+    )
+    # 与 REST 入口（main.create_app）共用同一套 invoke 主流程与记忆编排（§7.1）。
+    memory_manager = MemoryManager(
+        memory_client or MemoryClient(active_api_client),
+        confirmation_store,
+        llm_interpreter=active_llm_interpreter,
+    )
+    invoke_service = LostFoundInvokeService(
+        settings=active_settings,
+        rule_engine=rule_engine,
+        memory_manager=memory_manager,
+        llm_interpreter=active_llm_interpreter,
+    )
+    deps = _McpDeps(
+        settings=active_settings,
+        limiter=limiter,
+        api_client=active_api_client,
+        embedding_client=embedding_client,
+        llm_interpreter=active_llm_interpreter,
+        confirmation_store=confirmation_store,
+        rule_engine=rule_engine,
+        memory_manager=memory_manager,
+        invoke_service=invoke_service,
+    )
+
+    # streamable_http_path="/"：挂载到 FastAPI 的 /mcp 后端点即 /mcp/
+    mcp = FastMCP(
+        f"{AGENT_NAME}-server",
+        streamable_http_path="/",
+        # Docker 容器间使用服务名访问，需允许非 localhost Host 头。
+        host=os.environ.get("FASTMCP_HOST", "127.0.0.1"),
+    )
+
+    @mcp.tool()
+    async def invoke(
+        message: str,
+        conversation_context: dict | None = None,
+        confirmed: bool = False,
+        confirmation_id: str | None = None,
+        trace_parent: dict | None = None,
+        context: Context | None = None,
+    ) -> str:
+        """处理一条用户请求（Lost & Found Agent 主入口，MCP 适配）。
+
+        Args:
+            message: 用户自然语言请求（报失 / 搜索拾获 / 查看详情 / 认领）
+            conversation_context: 跨 Agent 共享上下文（可选，含 session_id / shared_data）
+            confirmed: 用户是否已确认前一轮的待确认操作（HITL）
+            confirmation_id: 待确认操作 ID（上一轮 needs_confirmation 返回，确认重调时传入）
+            trace_parent: 分布式追踪信息（可选）
+
+        Returns:
+            JSON 字符串（status=completed / needs_confirmation / failed，
+            与原 /agent/invoke 契约一致，含 confirmation_required）
+        """
+        return await _invoke_tool(
+            message,
+            conversation_context,
+            confirmed,
+            confirmation_id,
+            trace_parent,
+            context=context,
+            settings=deps.settings,
+            limiter=deps.limiter,
+            invoke_service=deps.invoke_service,
+        )
+
+    return mcp, deps
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 生产装配：与 REST main.create_app 一致；测试经 create_mcp_app 注入 fake（§7.1）
+# ──────────────────────────────────────────────────────────────────────
+mcp, _deps = create_mcp_app()
+
+# 必须先调用 streamable_http_app() 才能访问 mcp.session_manager
+# （mcp 1.x：session manager 的 task group 由 run() 初始化）
+_streamable_app = mcp.streamable_http_app()
+
+# 启动环境检查：未配置 TOKEN_SERVICE_JWKS_URL 时无法 RS256 验签，请求将全部 401
+if not os.environ.get("TOKEN_SERVICE_JWKS_URL"):
+    print(
+        f"[{AGENT_NAME}-mcp] WARNING: 未配置 TOKEN_SERVICE_JWKS_URL（RS256 验签必需），"
+        "MCP 请求将全部返回 401。请先 source 仓库根目录 .env。",
+        file=sys.stderr,
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────
 # FastAPI 入口：挂载 MCP + 安全中间件
 # ──────────────────────────────────────────────────────────────────────
@@ -301,10 +356,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             yield
         finally:
-            await _api_client.close()
-            await _embedding_client.close()
-            if _llm_interpreter:
-                await _llm_interpreter.close()
+            await _deps.api_client.close()
+            await _deps.embedding_client.close()
+            if _deps.llm_interpreter:
+                await _deps.llm_interpreter.close()
 
 
 app = FastAPI(title=f"{AGENT_NAME} MCP Gateway", version="1.0.0", lifespan=_lifespan)
@@ -317,6 +372,6 @@ async def health() -> dict[str, object]:
     return {
         "status": "ok",
         "service": f"{AGENT_NAME}-mcp",
-        "mode": _settings.effective_mode,
-        "model_configured": bool(_settings.lost_found_llm_api_key.strip()),
+        "mode": _deps.settings.effective_mode,
+        "model_configured": bool(_deps.settings.lost_found_llm_api_key.strip()),
     }

@@ -186,6 +186,7 @@ class RuleEngine:
         emit: Emit,
         interpreted_intent: Intent | None = None,
         interpreted_fields: dict[str, Any] | None = None,
+        memory_context: dict[str, Any] | None = None,
     ) -> InvokeResponse:
         language = detect_language(payload.message)
         if payload.confirmed or payload.confirmation_id:
@@ -233,15 +234,24 @@ class RuleEngine:
                 if pretrained:
                     context["visual_embeddings"] = pretrained
 
+            session_id = payload.conversation_context.session_id
             if intent == "report_lost":
-                return self._prepare_report(context, verified, request_id, language, emit)
+                return self._prepare_report(
+                    context, verified, request_id, language, emit, memory_context, session_id
+                )
             if intent == "report_found":
-                return self._prepare_found(context, verified, request_id, language, emit)
+                return self._prepare_found(
+                    context, verified, request_id, language, emit, memory_context, session_id
+                )
             if intent == "claim_item":
-                return self._prepare_claim(context, verified, request_id, language, emit)
+                return self._prepare_claim(
+                    context, verified, request_id, language, emit, session_id
+                )
             if intent == "get_item_detail":
                 return await self._detail(context, verified, request_id, language, emit)
-            return await self._search(context, verified, request_id, language, emit)
+            return await self._search(
+                context, verified, request_id, language, emit, memory_context
+            )
         except ValidationError as exc:
             # 兜底：任何路径的字段校验失败（如 LLM 幻觉值）都降级为询问，
             # 不再冒泡成"内部错误"（2026-08-11 修复；report 路径另有精准降级）
@@ -272,14 +282,19 @@ class RuleEngine:
         request_id: str,
         language: str,
         emit: Emit,
+        memory_context: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> InvokeResponse:
         required = ["item_name", "category", "description", "location", "event_date"]
         # 值不可信（如 LLM 幻觉的未来日期）先清除，再统一走缺失字段追问，
         # 避免 ValidationError 冒泡成"内部错误"（2026-08-11 修复）
         drop_invalid_fields(ReportLostInput, context)
+        suggestion_notes = self._apply_memory_suggestions(context, memory_context, language)
         missing = [field for field in required if not context.get(field)]
         if missing:
             message = missing_message(missing, language)
+            if suggestion_notes:
+                message += " " + " ".join(suggestion_notes)
             emit(AgentEvent("needs_more_info", {"missing_fields": missing, "message": message}))
             return response_with_token(
                 message,
@@ -291,7 +306,11 @@ class RuleEngine:
 
         report = ReportLostInput.model_validate(context)
         confirmation_id, pending = self._confirmations.create(
-            verified.user_id, "report_lost", report.model_dump(mode="json")
+            verified.user_id,
+            "report_lost",
+            report.model_dump(mode="json"),
+            session_id=session_id,
+            role=verified.user_role,
         )
         summary = report_summary(report, language)
         confirmation = ConfirmationRequired(
@@ -322,15 +341,20 @@ class RuleEngine:
         request_id: str,
         language: str,
         emit: Emit,
+        memory_context: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> InvokeResponse:
         """登记捡到物品（report_found）：先确认（写操作），确认后创建 FOUND 报告。"""
         required = ["item_name", "category", "description", "location", "event_date"]
         # 值不可信（如 LLM 幻觉的未来日期）先清除，再统一走缺失字段追问，
         # 避免 ValidationError 冒泡成"内部错误"（2026-08-11 修复）
         drop_invalid_fields(ReportFoundInput, context)
+        suggestion_notes = self._apply_memory_suggestions(context, memory_context, language)
         missing = [field for field in required if not context.get(field)]
         if missing:
             message = missing_message(missing, language)
+            if suggestion_notes:
+                message += " " + " ".join(suggestion_notes)
             emit(AgentEvent("needs_more_info", {"missing_fields": missing, "message": message}))
             return response_with_token(
                 message,
@@ -342,7 +366,11 @@ class RuleEngine:
 
         report = ReportFoundInput.model_validate(context)
         confirmation_id, pending = self._confirmations.create(
-            verified.user_id, "report_found", report.model_dump(mode="json")
+            verified.user_id,
+            "report_found",
+            report.model_dump(mode="json"),
+            session_id=session_id,
+            role=verified.user_role,
         )
         summary = report_summary(report, language)
         confirmation = ConfirmationRequired(
@@ -373,6 +401,7 @@ class RuleEngine:
         request_id: str,
         language: str,
         emit: Emit,
+        session_id: str | None = None,
     ) -> InvokeResponse:
         missing: list[str] = []
         if not context.get("report_id"):
@@ -392,7 +421,11 @@ class RuleEngine:
 
         claim = ClaimItemInput.model_validate(context)
         confirmation_id, pending = self._confirmations.create(
-            verified.user_id, "claim_item", claim.model_dump(mode="json")
+            verified.user_id,
+            "claim_item",
+            claim.model_dump(mode="json"),
+            session_id=session_id,
+            role=verified.user_role,
         )
         summary = (
             f"认领记录 #{claim.report_id}，证明：{claim.proof_description}"
@@ -529,6 +562,7 @@ class RuleEngine:
         request_id: str,
         language: str,
         emit: Emit,
+        memory_context: dict[str, Any] | None = None,
     ) -> InvokeResponse:
         if not any(
             context.get(field)
@@ -561,8 +595,16 @@ class RuleEngine:
             return response_with_token(
                 message, "needs_more_info", request_id, emit, shared_context=context
             )
+        # 候选偏置（§7.2）：用户无显式类别、但有 OPEN 报失事实时，按历史常报类别过滤。
+        # 偏置只作用于本次搜索 query，不写回 shared_data（避免污染下一轮上下文）。
+        search_query = dict(context)
+        bias_category = None
+        if not search_query.get("category"):
+            bias_category = self._memory_bias_category(memory_context)
+            if bias_category:
+                search_query["category"] = bias_category
         try:
-            matches, action = await self._search_candidates(context, verified, language, emit)
+            matches, action = await self._search_candidates(search_query, verified, language, emit)
         except BackendApiError as exc:
             return backend_error_response(exc, request_id, language, emit)
         if matches:
@@ -575,6 +617,13 @@ class RuleEngine:
                 else "No candidate currently meets the minimum matching score."
             )
             status = "no_match"
+        if bias_category:
+            note = (
+                f"根据你的历史报失记录，本次优先按类别 {bias_category} 匹配。"
+                if language == "zh"
+                else f"Based on your history, this search was biased to category {bias_category}."
+            )
+            message = f"{note}\n{message}"
         return response_with_token(
             message,
             status,
@@ -603,6 +652,54 @@ class RuleEngine:
             target_report_type,
             self._embedding_client,
         )
+
+    def _apply_memory_suggestions(
+        self,
+        context: dict[str, Any],
+        memory_context: dict[str, Any] | None,
+        language: str,
+    ) -> list[str]:
+        """对缺失的低风险字段（location/colour）从用户长期事实低置信度补全（§7.2）。
+
+        只补 location/colour：item_name/category/description/event_date 不从记忆推断
+        （物品各不相同、日期必须用户给定）。补全以 context 字段形式持久到 shared_data，
+        并返回提示文案要求用户确认；本轮输入 / 后续轮仍可覆盖（字段优先级 1 最高）。
+        """
+        facts = (memory_context or {}).get("user_facts") or []
+        if not facts:
+            return []
+        notes: list[str] = []
+        for field in ("location", "colour"):
+            if context.get(field):
+                continue
+            value = most_frequent_fact_value(facts, field)
+            if not value:
+                continue
+            context[field] = value
+            label = "地点" if field == "location" else "颜色"
+            if language == "zh":
+                notes.append(f"我根据你的历史信息推测{label}为“{value}”，请确认；若不是请直接告诉我。")
+            else:
+                notes.append(
+                    f"Based on your history I assumed the {field} is “{value}”. "
+                    "Please confirm or correct it."
+                )
+        return notes
+
+    @staticmethod
+    def _memory_bias_category(memory_context: dict[str, Any] | None) -> str | None:
+        """OPEN 报失事实中出现最多的类别，作为搜索候选偏置；无则不偏置。"""
+        facts = (memory_context or {}).get("user_facts") or []
+        categories = [
+            fact.get("category")
+            for fact in facts
+            if fact.get("fact_type") == "LOST_ITEM"
+            and fact.get("status") == "OPEN"
+            and fact.get("category")
+        ]
+        if not categories:
+            return None
+        return max(set(categories), key=categories.count)
 
     async def _detail(
         self,
@@ -983,6 +1080,14 @@ def map_category(value: str) -> str | None:
         if keyword in normalized:
             return category
     return None
+
+
+def most_frequent_fact_value(facts: list[dict[str, Any]], field: str) -> Any | None:
+    """用户事实中某字段出现最多的值；无则 None（用于低置信度补全/偏置，§7.2）。"""
+    values = [fact.get(field) for fact in facts if fact.get(field)]
+    if not values:
+        return None
+    return max(set(values), key=values.count)
 
 
 def parse_date(value: Any) -> date | None:

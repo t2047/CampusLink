@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -237,6 +238,112 @@ class CampusApiClient:
             user_id,
             user_role,
             json={"proofDescription": payload.proof_description},
+        )
+
+    # ─────────────────────────── 记忆内部 API ───────────────────────────
+    # chat-memory-requirements §6：agent 无 DB 连接，经这些端点读写 MySQL 记忆。
+    # sessionId 作为路径段，须 URL 编码（uuid 等安全字符不变，兼容任意合法值）。
+
+    async def memory_upsert_session(
+        self,
+        user_id: str,
+        user_role: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/api/internal/lost-found/memory/sessions",
+            "memory_upsert_session",
+            user_id,
+            user_role,
+            json=payload,
+        )
+
+    async def memory_get_session(
+        self,
+        user_id: str,
+        user_role: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            f"/api/internal/lost-found/memory/sessions/{quote(session_id, safe='')}",
+            "memory_read",
+            user_id,
+            user_role,
+        )
+
+    async def memory_append_message(
+        self,
+        user_id: str,
+        user_role: str,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/api/internal/lost-found/memory/sessions/{quote(session_id, safe='')}/messages",
+            "memory_append",
+            user_id,
+            user_role,
+            json=payload,
+        )
+
+    async def memory_prune_messages(
+        self,
+        user_id: str,
+        user_role: str,
+        session_id: str,
+        keep_latest: int,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/api/internal/lost-found/memory/sessions/{quote(session_id, safe='')}/messages/prune",
+            "memory_prune_messages",
+            user_id,
+            user_role,
+            json={"keepLatest": keep_latest},
+        )
+
+    async def memory_get_user_facts(
+        self,
+        user_id: str,
+        user_role: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/api/internal/lost-found/memory/users/me",
+            "memory_read",
+            user_id,
+            user_role,
+        )
+
+    async def memory_upsert_fact(
+        self,
+        user_id: str,
+        user_role: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/api/internal/lost-found/memory/users/me/facts",
+            "memory_upsert_fact",
+            user_id,
+            user_role,
+            json=payload,
+        )
+
+    async def memory_delete_user(
+        self,
+        user_id: str,
+        user_role: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            "/api/internal/lost-found/memory/users/me",
+            "memory_delete",
+            user_id,
+            user_role,
         )
 
     async def _request(

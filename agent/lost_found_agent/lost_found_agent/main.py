@@ -11,7 +11,9 @@ from fastapi.responses import StreamingResponse
 from .config import Settings, get_settings
 from .confirmation import ConfirmationStore
 from .events import AgentEvent, EventStore
-from .llm import LlmInterpreter, LlmUnavailable, interpret_with_retry
+from .invoke_service import LostFoundInvokeService
+from .llm import LlmInterpreter, LlmUnavailable
+from .memory import MemoryClient, MemoryManager
 from .models import (
     ClassifyRequest,
     ClassifyResponse,
@@ -31,6 +33,7 @@ def create_app(
     settings: Settings | None = None,
     api_client: CampusApiClient | None = None,
     llm_interpreter: LlmInterpreter | None = None,
+    memory_client: MemoryClient | None = None,
 ) -> FastAPI:
     active_settings = settings or get_settings()
     security = AgentSecurity(active_settings)
@@ -52,11 +55,26 @@ def create_app(
         classify_interpreter = (
             active_llm_interpreter or llm_interpreter or LlmInterpreter(active_settings)
         )
+    confirmation_store = ConfirmationStore(ttl_seconds=600)
     rule_engine = RuleEngine(
         active_api_client,
-        ConfirmationStore(ttl_seconds=600),
+        confirmation_store,
         active_settings.lost_found_match_min_score,
         embedding_client,
+    )
+    # 记忆：REST/MCP 共用 invoke service 的底座。memory 读写 best-effort，
+    # 降级为空记忆不影响主流程（chat-memory-requirements §4）。
+    active_memory_client = memory_client or MemoryClient(active_api_client)
+    memory_manager = MemoryManager(
+        active_memory_client,
+        confirmation_store,
+        llm_interpreter=active_llm_interpreter,
+    )
+    invoke_service = LostFoundInvokeService(
+        settings=active_settings,
+        rule_engine=rule_engine,
+        memory_manager=memory_manager,
+        llm_interpreter=active_llm_interpreter,
     )
 
     @asynccontextmanager
@@ -121,74 +139,17 @@ def create_app(
                 "agent_start", {"agent": active_settings.agent_name, "message": payload.message}
             ),
         )
-        try:
-            interpretation = None
-            if active_llm_interpreter and not (payload.confirmed or payload.confirmation_id):
-                try:
-                    interpretation = await interpret_with_retry(
-                        active_llm_interpreter,
-                        payload.message,
-                        payload.conversation_context.shared_data,
-                        # 在线请求只尝试一次，确保模型超时后能在 Web 超时前降级。
-                        attempts=1,
-                    )
-                except LlmUnavailable:
-                    if active_settings.llm_fail_closed:
-                        # 可选 fail-closed：LLM 不可用/输出不可信 → 显式失败。
-                        event_store.append(
-                            request_id,
-                            AgentEvent(
-                                "model_error",
-                                {"reason": "model_unavailable_or_invalid", "mode": "fail_closed"},
-                            ),
-                        )
-                        return InvokeResponse(
-                            response=(
-                                "智能识别服务（llm）暂时不可用，请稍后重试。"
-                                if detect_language(payload.message) == "zh"
-                                else (
-                                    "The AI interpretation service is temporarily "
-                                    "unavailable. Please try again later."
-                                )
-                            ),
-                            status="failed",
-                            request_id=request_id,
-                        )
-                    # 默认行为：降级到同样受确认流程和工具白名单约束的规则引擎。
-                    event_store.append(
-                        request_id,
-                        AgentEvent(
-                            "model_fallback",
-                            {"reason": "model_unavailable_or_invalid", "mode": "rules"},
-                        ),
-                    )
-            response = await rule_engine.handle(
-                payload,
-                verified,
-                request_id,
-                lambda event: event_store.append(request_id, event),
-                interpreted_intent=interpretation.intent if interpretation else None,
-                interpreted_fields=(
-                    interpretation.fields.model_dump(exclude_none=True) if interpretation else None
-                ),
-            )
-        except Exception:
-            response = InvokeResponse(
-                response=(
-                    "Agent 处理请求时发生内部错误。"
-                    if detect_language(payload.message) == "zh"
-                    else "The agent encountered an internal error while processing your request."
-                ),
-                status="failed",
-                request_id=request_id,
-            )
-            event_store.append(
-                request_id,
-                AgentEvent(
-                    "agent_error",
-                    {"code": "INTERNAL_ERROR", "message": response.response},
-                ),
-            )
+        # REST 与 MCP 共用同一 invoke 主流程（chat-memory-requirements §7.1）。
+        response = await invoke_service.handle_invoke(
+            payload,
+            verified,
+            request_id,
+            emit=lambda event: event_store.append(request_id, event),
+            # 在线请求只尝试一次，确保模型超时后能在 Web 超时前降级。
+            interpret_attempts=1,
+            # 面板链路注入 recent_messages（§7.6）。
+            include_recent_messages=True,
+        )
         event_store.append(
             request_id,
             AgentEvent(

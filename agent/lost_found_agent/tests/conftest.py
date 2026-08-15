@@ -10,6 +10,7 @@ os.environ.setdefault("LOST_FOUND_CONFIRMATION_SECRET", "c" * 64)
 
 from lost_found_agent.config import Settings  # noqa: E402
 from lost_found_agent.main import create_app  # noqa: E402
+from lost_found_agent.memory import MemoryClient  # noqa: E402
 from lost_found_agent.tools import (  # noqa: E402
     CampusApiClient,
     ClaimItemInput,
@@ -89,12 +90,101 @@ def settings() -> Settings:
     )
 
 
+class FakeMemoryClient:
+    """进程内记忆后端（与 MemoryClient 鸭子类型一致，供记忆单测/集成测试）。"""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, dict] = {}
+        self.messages: dict[str, list[dict]] = {}
+        self.facts: list[dict] = []
+        self.degraded = False
+
+    async def get_session(self, verified, session_id: str) -> dict | None:
+        if session_id not in self.sessions:
+            return None
+        return {
+            **self.sessions[session_id],
+            "messages": list(self.messages.get(session_id, [])),
+        }
+
+    async def upsert_session(
+        self,
+        verified,
+        session_id: str,
+        *,
+        title=None,
+        summary=None,
+        pending_confirmation=None,
+        clear_pending_confirmation=False,
+    ) -> dict:
+        session = self.sessions.setdefault(session_id, {"session_id": session_id})
+        if title is not None:
+            session["title"] = title
+        if summary is not None:
+            session["summary"] = summary
+        if pending_confirmation is not None:
+            session["pending_confirmation"] = pending_confirmation
+        elif clear_pending_confirmation:
+            session.pop("pending_confirmation", None)
+        return dict(session)
+
+    async def append_message(self, verified, session_id, role, text, *, intent=None,
+                             extracted_fields=None, image_object_keys=None, trace_id=None) -> dict:
+        message = {
+            "role": role,
+            "message_text": text,
+            "intent": intent,
+            "extracted_fields": extracted_fields,
+            "image_object_keys": image_object_keys or [],
+            "trace_id": trace_id,
+        }
+        self.messages.setdefault(session_id, []).append(message)
+        return dict(message)
+
+    async def prune_messages(self, verified, session_id, keep_latest: int) -> dict:
+        current = self.messages.get(session_id, [])
+        deleted = max(0, len(current) - keep_latest)
+        kept = current[-keep_latest:]
+        self.messages[session_id] = kept
+        return {"kept": len(kept), "deleted": deleted}
+
+    async def get_user_facts(self, verified) -> list[dict]:
+        return list(self.facts)
+
+    async def upsert_fact(self, verified, fact: dict) -> dict:
+        for existing in self.facts:
+            if (
+                existing.get("fact_type") == fact.get("fact_type")
+                and existing.get("category") == fact.get("category")
+                and existing.get("location") == fact.get("location")
+            ):
+                existing.update({key: value for key, value in fact.items() if value is not None})
+                return dict(existing)
+        self.facts.append(dict(fact))
+        return dict(fact)
+
+
 @pytest.fixture
 def fake_api() -> FakeCampusApiClient:
     return FakeCampusApiClient()
 
 
 @pytest.fixture
+def fake_memory() -> FakeMemoryClient:
+    return FakeMemoryClient()
+
+
+@pytest.fixture
 def client(settings: Settings, fake_api: FakeCampusApiClient) -> Generator[TestClient, None, None]:
     with TestClient(create_app(settings, fake_api)) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def client_with_memory(
+    settings: Settings,
+    fake_api: FakeCampusApiClient,
+    fake_memory: FakeMemoryClient,
+) -> Generator[TestClient, None, None]:
+    with TestClient(create_app(settings, fake_api, memory_client=fake_memory)) as test_client:
         yield test_client

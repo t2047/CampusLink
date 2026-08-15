@@ -166,6 +166,28 @@ public class AgentDelegationAuthFilter extends OncePerRequestFilter {
         if ("POST".equals(method) && path.matches("reports/\\d+/claims")) {
             return "claim_item";
         }
+        // L&F 记忆内部 API（chat-memory-requirements §6.2）
+        if ("POST".equals(method) && "memory/sessions".equals(path)) {
+            return "memory_upsert_session";
+        }
+        if ("POST".equals(method) && path.matches("memory/sessions/[^/]+/messages/prune")) {
+            return "memory_prune_messages";
+        }
+        if ("POST".equals(method) && path.matches("memory/sessions/[^/]+/messages")) {
+            return "memory_append";
+        }
+        if ("GET".equals(method) && path.matches("memory/sessions/[^/]+")) {
+            return "memory_read";
+        }
+        if ("GET".equals(method) && "memory/users/me".equals(path)) {
+            return "memory_read";
+        }
+        if ("POST".equals(method) && "memory/users/me/facts".equals(path)) {
+            return "memory_upsert_fact";
+        }
+        if ("DELETE".equals(method) && "memory/users/me".equals(path)) {
+            return "memory_delete";
+        }
         return null;
     }
 

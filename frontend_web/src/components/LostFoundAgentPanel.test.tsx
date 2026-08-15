@@ -7,12 +7,28 @@ import {
   type AgentInvokeResponse,
   type StagedAgentImage,
 } from '../api/lostFoundAgent'
+import { AuthProvider } from '../auth/AuthContext'
 import { LostFoundAgentPanel } from './LostFoundAgentPanel'
 
 vi.mock('../api/lostFoundAgent', () => ({
   invokeLostFoundAgent: vi.fn(),
   uploadAgentImage: vi.fn(),
 }))
+
+function renderPanel(props?: React.ComponentProps<typeof LostFoundAgentPanel>) {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <LostFoundAgentPanel {...props} />
+      </AuthProvider>
+    </MemoryRouter>,
+  )
+}
+
+/** 预设某账号的 active session，模拟刷新后页面恢复该会话。 */
+function seedActiveSession(email: string, sessionId: string) {
+  window.localStorage.setItem(`lf-active-session-${email}`, sessionId)
+}
 
 function stagedImage(objectKey: string, url: string, name = 'a.png'): StagedAgentImage {
   return {
@@ -39,6 +55,7 @@ describe('LostFoundAgentPanel', () => {
   const invoke = vi.mocked(invokeLostFoundAgent)
 
   beforeEach(() => {
+    window.localStorage.clear()
     invoke.mockReset()
     invoke.mockResolvedValue(baseResponse)
     vi.mocked(uploadAgentImage).mockReset()
@@ -47,7 +64,7 @@ describe('LostFoundAgentPanel', () => {
   afterEach(() => cleanup())
 
   it('sends natural language and renders the Agent response', async () => {
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
       target: { value: '我丢了一副黑色耳机' },
@@ -84,7 +101,7 @@ describe('LostFoundAgentPanel', () => {
         request_id: 'request-2',
       })
     const onReportCreated = vi.fn()
-    render(<MemoryRouter><LostFoundAgentPanel onReportCreated={onReportCreated} /></MemoryRouter>)
+    renderPanel({ onReportCreated })
 
     fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
       target: { value: '完整的报失描述' },
@@ -118,7 +135,7 @@ describe('LostFoundAgentPanel', () => {
         },
         request_id: 'request-2',
       })
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     const input = screen.getByLabelText('Describe what you lost or want to find')
     fireEvent.change(input, { target: { value: '我丢了一副黑色耳机' } })
@@ -143,7 +160,7 @@ describe('LostFoundAgentPanel', () => {
         expires_at: '2026-08-09T14:00:00Z',
       },
     })
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
       target: { value: '完整的报失描述' },
@@ -158,7 +175,7 @@ describe('LostFoundAgentPanel', () => {
 
   it('shows a recoverable error when the Agent service is unavailable', async () => {
     invoke.mockRejectedValueOnce(new Error('Lost & Found Agent is temporarily unavailable'))
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
       target: { value: '帮我找蓝色雨伞' },
@@ -175,7 +192,7 @@ describe('LostFoundAgentPanel', () => {
   it('stages selected images and includes them in the invoke request', async () => {
     const upload = vi.mocked(uploadAgentImage)
     upload.mockResolvedValue(stagedImage('lost-found-staging/k1.png', '/api/lost-found/images/staging/k1.png'))
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File([new Uint8Array([1, 2, 3, 4])], 'a.png', { type: 'image/png' })
@@ -199,7 +216,7 @@ describe('LostFoundAgentPanel', () => {
     vi.mocked(uploadAgentImage).mockResolvedValue(
       stagedImage('lost-found-staging/k1.png', '/api/lost-found/images/staging/k1.png'),
     )
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(input, {
@@ -217,7 +234,7 @@ describe('LostFoundAgentPanel', () => {
     vi.mocked(uploadAgentImage).mockResolvedValue(
       stagedImage('lost-found-staging/k1.png', '/api/lost-found/images/staging/k1.png'),
     )
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     fireEvent.change(input, {
@@ -231,7 +248,7 @@ describe('LostFoundAgentPanel', () => {
 
   it('shows a validation error for oversized images without uploading', async () => {
     const upload = vi.mocked(uploadAgentImage)
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' })
@@ -263,7 +280,7 @@ describe('LostFoundAgentPanel', () => {
       }],
       actions_taken: [{ action: 'search_lost_items', status: 'success' }],
     })
-    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+    renderPanel()
 
     fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
       target: { value: '我捡到一把红色雨伞' },
@@ -280,5 +297,75 @@ describe('LostFoundAgentPanel', () => {
       'src',
       'https://images.example.test/88.jpg',
     )
+  })
+
+  it('restores the active session for the logged-in account on mount', async () => {
+    // 模拟已登录账号 + 该账号存在持久化的 active session（刷新页面场景，§8.1）
+    sessionStorage.setItem('campuslink.token', 'test-token')
+    sessionStorage.setItem(
+      'campuslink.user',
+      JSON.stringify({ email: 'student@example.edu', role: 'STUDENT' }),
+    )
+    seedActiveSession('student@example.edu', 'web-persisted-1')
+    renderPanel()
+
+    fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
+      target: { value: '我丢了一把伞' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    expect(invoke.mock.calls[0][0].conversationContext.sessionId).toBe('web-persisted-1')
+  })
+
+  it('persists a freshly generated session under the account key', async () => {
+    sessionStorage.setItem('campuslink.token', 'test-token')
+    sessionStorage.setItem(
+      'campuslink.user',
+      JSON.stringify({ email: 'student@example.edu', role: 'STUDENT' }),
+    )
+    renderPanel()
+
+    fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
+      target: { value: '我丢了一把伞' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    const sentSessionId = invoke.mock.calls[0][0].conversationContext.sessionId as string
+    expect(sentSessionId).toMatch(/^web-/)
+    expect(window.localStorage.getItem('lf-active-session-student@example.edu')).toBe(sentSessionId)
+  })
+
+  it('starts a new conversation with a fresh session and overwrites the active key', async () => {
+    sessionStorage.setItem('campuslink.token', 'test-token')
+    sessionStorage.setItem(
+      'campuslink.user',
+      JSON.stringify({ email: 'student@example.edu', role: 'STUDENT' }),
+    )
+    seedActiveSession('student@example.edu', 'web-old-1')
+    renderPanel()
+
+    // 先发一轮，拿到当前（恢复的）会话 id
+    fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
+      target: { value: '我丢了一把伞' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    const oldSessionId = invoke.mock.calls[0][0].conversationContext.sessionId as string
+    expect(oldSessionId).toBe('web-old-1')
+
+    // 点击 New conversation：生成新会话并覆盖 active key，历史消息清空
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
+      target: { value: '再找一把钥匙' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    const newSessionId = invoke.mock.calls[1][0].conversationContext.sessionId as string
+    expect(newSessionId).toMatch(/^web-/)
+    expect(newSessionId).not.toBe(oldSessionId)
+    expect(window.localStorage.getItem('lf-active-session-student@example.edu')).toBe(newSessionId)
   })
 })

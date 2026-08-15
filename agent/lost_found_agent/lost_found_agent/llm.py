@@ -141,6 +141,14 @@ conversation_history (when present) is the recent dialogue as role/content pairs
 "message" is the user's latest turn. Use the history to understand short follow-ups
 (e.g. user replies "刚刚" after a lost/found report — it refers to the time of the
 item in the previous turn) and merge fields across turns instead of restarting.
+memory_context (when present) is server-provided persistent user memory: "user_facts"
+(items the user previously lost/found, with category/colour/location/status), "session_summary"
+(a fold of earlier turns in this session), "recent_messages" (panel chain only, last few turns
+verbatim), and "pending_confirmation" (an unfinished write the user had been confirming). Use it
+only to interpret short follow-ups and to suggest fields the user did NOT state this turn. This
+turn's explicit input always wins over memory. When you would rely on memory for a field, prefer
+leaving that field null so the server can surface it for the user to confirm. Never use memory to
+invent item_name, description, proof_description, or a date the user did not state.
 The item_name must contain 2-100 characters (Chinese item names may be 2 characters
 such as 钥匙/钱包); description and proof_description must contain
 at least 10 characters. The fields object may contain only item_name, category, description,
@@ -148,6 +156,16 @@ colour, location,
 event_date, time_description, keyword, date_from, date_to, report_id, proof_description.
 Never invent description or proof_description: leave them as null unless the user
 explicitly described the item's appearance, features, or circumstances.
+"""
+
+
+SUMMARY_PROMPT = """You are a terse conversation summarizer for a CampusLink Lost & Found assistant.
+Return exactly one JSON object and no markdown: {"summary": "..."} where "summary" is a single
+short paragraph (at most ~200 words) capturing the resolved and still-open facts: what the user is
+trying to do (report lost/found, search, claim), the item, category, colour, location, dates, and
+any unfinished steps. The "existing_summary" (if present) is the previous fold of earlier turns —
+fold it in rather than repeating. "turns" are the older turns being archived as role/content
+pairs. Keep it factual; do not invent details. Output no other keys.
 """
 
 
@@ -188,6 +206,7 @@ class LlmInterpreter:
         self,
         message: str,
         shared_context: dict[str, Any],
+        memory_context: dict[str, Any] | None = None,
     ) -> LlmInterpretation:
         context = safe_context(shared_context)
         # 今天日期优先用编排层注入的 system_facts（权威、统一）；未注入时服务端兜底
@@ -214,6 +233,7 @@ class LlmInterpreter:
                             "message": message,
                             "trusted_context": trusted,
                             "conversation_history": history,
+                            "memory_context": memory_context or {},
                         },
                         ensure_ascii=False,
                         separators=(",", ":"),
@@ -267,6 +287,76 @@ class LlmInterpreter:
                 )
             )
         return interpretation
+
+    async def summarize_history(
+        self,
+        turns: list[dict[str, str]],
+        existing_summary: str | None = None,
+    ) -> str:
+        """把较早的对话折叠为一句摘要（memory roll，§7.4）。
+
+        失败抛 LlmUnavailable，由 MemoryManager 降级为规则截断。输出仅一个 JSON
+        对象 {"summary": "..."}；summary 为空串或解析失败一律视为不可信 → LlmUnavailable。
+        """
+        request_payload = {
+            "model": self._settings.lost_found_llm_model,
+            "temperature": 0,
+            "max_tokens": 800,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": SUMMARY_PROMPT},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "existing_summary": existing_summary,
+                            "turns": turns,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                },
+            ],
+        }
+        started = perf_counter()
+        try:
+            response = await self._client.post(
+                self._endpoint(),
+                headers={
+                    "Authorization": f"Bearer {self._settings.lost_found_llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_payload,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            content = self._extract_content(payload)
+            if len(content) > 20_000:
+                raise ValueError("model output is too large")
+            data = json.loads(strip_code_fence(content))
+            summary = str(data["summary"]).strip()
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            if isinstance(exc, httpx.TimeoutException):
+                detail = f"timeout after {self._settings.lost_found_llm_timeout_seconds}s"
+            else:
+                detail = str(exc).strip()[:300]
+            raise LlmUnavailable(
+                f"摘要模型不可用或返回了无效结果: {detail}" if detail else "摘要模型不可用或返回了无效结果"
+            ) from exc
+        if not summary:
+            raise LlmUnavailable("摘要模型返回了空摘要")
+        if self._on_complete is not None:
+            input_tokens, output_tokens = usage_tokens(payload)
+            self._on_complete(
+                LlmTelemetry(
+                    model=self._settings.lost_found_llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    duration_ms=(perf_counter() - started) * 1000.0,
+                    http_status=response.status_code,
+                )
+            )
+        return summary
 
     async def classify_item(self, item_name: str) -> CategorySuggestion:
         """轻量分类：只返回 9 枚举之一或 None，不涉及描述等长文本。
@@ -367,6 +457,7 @@ async def interpret_with_retry(
     interpreter: LlmInterpreter,
     message: str,
     shared_context: dict[str, Any],
+    memory_context: dict[str, Any] | None = None,
     attempts: int = 3,
 ) -> LlmInterpretation:
     """LLM 输出偶发不达标时重试（fail-closed 前最多 attempts 次）。
@@ -378,7 +469,7 @@ async def interpret_with_retry(
     last_exc: LlmUnavailable | None = None
     for _ in range(attempts):
         try:
-            return await interpreter.interpret(message, shared_context)
+            return await interpreter.interpret(message, shared_context, memory_context)
         except LlmUnavailable as exc:
             last_exc = exc
     if last_exc is None:

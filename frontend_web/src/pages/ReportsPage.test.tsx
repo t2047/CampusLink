@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { invokeLostFoundAgent, uploadAgentImage, type AgentInvokeResponse, type AgentMatchResult } from '../api/lostFoundAgent'
 import { searchByImage, searchReports } from '../api/lostFound'
 import type { LostFoundReport, PageResponse } from '../types'
+import { AuthProvider } from '../auth/AuthContext'
 import { ReportsPage } from './ReportsPage'
 
 vi.mock('../api/lostFoundAgent', () => ({ invokeLostFoundAgent: vi.fn(), uploadAgentImage: vi.fn() }))
@@ -70,9 +71,11 @@ describe('ReportsPage Agent refresh', () => {
 
   it('clears stale filters, switches to lost items and shows the newly created report', async () => {
     render(
-      <MemoryRouter initialEntries={['/lost-found?reportType=LOST&status=OPEN&colour=red']}>
-        <Routes><Route path="/lost-found" element={<ReportsPage />} /></Routes>
-      </MemoryRouter>,
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/lost-found?reportType=LOST&status=OPEN&colour=red']}>
+          <Routes><Route path="/lost-found" element={<ReportsPage />} /></Routes>
+        </MemoryRouter>
+      </AuthProvider>,
     )
 
     expect(await screen.findByText('No matching reports')).toBeInTheDocument()
@@ -137,9 +140,11 @@ describe('ReportsPage image search', () => {
 
   function renderPage() {
     render(
-      <MemoryRouter initialEntries={['/lost-found?reportType=FOUND&status=OPEN']}>
-        <Routes><Route path="/lost-found" element={<ReportsPage />} /></Routes>
-      </MemoryRouter>,
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/lost-found?reportType=FOUND&status=OPEN']}>
+          <Routes><Route path="/lost-found" element={<ReportsPage />} /></Routes>
+        </MemoryRouter>
+      </AuthProvider>,
     )
   }
 

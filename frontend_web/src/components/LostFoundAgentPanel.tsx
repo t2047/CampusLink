@@ -1,5 +1,6 @@
 import AddPhotoAlternateOutlinedIcon from '@mui/icons-material/AddPhotoAlternateOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SendIcon from '@mui/icons-material/Send'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import {
@@ -16,9 +17,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import {
   invokeLostFoundAgent,
   uploadAgentImage,
@@ -44,6 +46,26 @@ function newSessionId() {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+// 会话 ID 按账号持久化到 localStorage：刷新页面后恢复当前 active chat，
+// 不同账号用不同 key，防止串会话（chat-memory-requirements §8.1）。
+const activeSessionKeyPrefix = 'lf-active-session-'
+
+function activeSessionKey(email: string | undefined) {
+  return email ? `${activeSessionKeyPrefix}${email}` : undefined
+}
+
+function restoreOrCreateSession(email: string | undefined) {
+  const key = activeSessionKey(email)
+  if (key) {
+    const stored = window.localStorage.getItem(key)
+    if (stored) return stored
+    const fresh = newSessionId()
+    window.localStorage.setItem(key, fresh)
+    return fresh
+  }
+  return newSessionId()
+}
+
 function createdReportId(response: AgentInvokeResponse) {
   const summary = response.actions_taken.find(
     (action) => ['report_lost', 'report_found'].includes(action.action) && action.status === 'success',
@@ -53,9 +75,11 @@ function createdReportId(response: AgentInvokeResponse) {
 }
 
 export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (reportId?: number) => void }) {
+  const { user } = useAuth()
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ConversationMessage[]>([])
-  const [sessionId] = useState(newSessionId)
+  // 优先恢复当前账号的 active session；刷新页面后继续上一会话（§8.1）。
+  const [sessionId, setSessionId] = useState(() => restoreOrCreateSession(user?.email))
   const [sharedData, setSharedData] = useState<Record<string, unknown>>({})
   const [pendingConfirmation, setPendingConfirmation] = useState<AgentConfirmationRequired | null>(null)
   const [latestCreatedReportId, setLatestCreatedReportId] = useState<number | undefined>()
@@ -173,6 +197,27 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
     ])
   }
 
+  // 会话 ID 变化（新会话）时同步覆盖当前账号的 active key，刷新后延续最新会话（§8.1）。
+  useEffect(() => {
+    const key = activeSessionKey(user?.email)
+    if (key) window.localStorage.setItem(key, sessionId)
+  }, [sessionId, user?.email])
+
+  function startNewSession() {
+    const fresh = newSessionId()
+    const key = activeSessionKey(user?.email)
+    if (key) window.localStorage.setItem(key, fresh)
+    setSessionId(fresh)
+    // 旧会话保留在后端历史中；前端清空当前对话状态，从头开始新会话。
+    setMessages([])
+    setSharedData({})
+    setPendingConfirmation(null)
+    setStagedImages([])
+    setLatestCreatedReportId(undefined)
+    setError('')
+    setInput('')
+  }
+
   return (
     <Paper component="section" aria-labelledby="agent-test-heading" sx={{ p: 2.5 }}>
       <Stack spacing={2}>
@@ -185,6 +230,16 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
             </Typography>
           </Box>
           <Chip label="Test" size="small" color="primary" variant="outlined" sx={{ ml: 'auto' }} />
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RestartAltIcon />}
+            onClick={startNewSession}
+            disabled={loading || uploading}
+            title="Start a new conversation"
+          >
+            New conversation
+          </Button>
         </Stack>
 
         {messages.length > 0 && (
