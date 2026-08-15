@@ -112,6 +112,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # 全部 ru
 curl http://localhost/api/chat/stream 2>/dev/null || true   # 或直接访问 http://<vm-ip>
 ```
 
+> 政策/规章制度 RAG（`search_policy`）的 Qdrant 向量库随默认栈启动；索引由 CD 部署
+> 自动构建（见第 9 节）。手动重建：
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal up -d --pull always lost-found-embedding
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal run --rm policy-index-builder
+> ```
+
 > 本地开发仍用 `docker compose up -d --build`（compose 默认本地构建）。
 
 ## 6. 域名 + HTTPS（certbot webroot 容器）
@@ -148,7 +156,7 @@ REGISTRY=ghcr.io/<owner> docker compose -f docker-compose.yml -f docker-compose.
 
 ## 8. 备份
 
-- 数据全在命名卷（`mysql_data` / `minio_data` / `delegation_keys`）
+- 数据全在命名卷（`mysql_data` / `minio_data` / `delegation_keys` / `lost_found_model_cache` / `qdrant_data`）
 - 推荐 **EBS 快照**（AWS 控制台手动/定时）或定时导出：
   ```bash
   docker compose exec -T mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_PASSWORD" campusLink_db' > backup.sql
@@ -173,8 +181,8 @@ docker compose start chat-backend
 ## 9. CD（持续部署：CI 构建镜像 + VM 拉取）
 
 见 `.github/workflows/cd-deploy.yml`，流程：
-1. 推 `main` → GitHub Actions 构建 5 个镜像（backend/orchestration/mcp-servers/lost-found-agent/web）推 **GHCR**（`ghcr.io/<owner>/campuslink-*`）
-2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ `git pull` + `compose up -d --pull always`
+1. 推 `main` → GitHub Actions 构建 6 个镜像（backend/orchestration/mcp-servers/lost-found-agent/lost-found-embedding/web）推 **GHCR**（`ghcr.io/<owner>/campuslink-*`）
+2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ `git pull` + `compose up -d --pull always` + 自动构建政策 RAG 索引（`policy-index-builder`，失败仅 WARN 不阻塞部署）
 
 **首次启用需两步**：
 - GitHub 仓库 Settings → Packages → 把 `campuslink-*` 包设为 **public**（VM 免登录拉取）
