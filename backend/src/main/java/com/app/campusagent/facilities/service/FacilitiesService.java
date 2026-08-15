@@ -2,6 +2,7 @@ package com.app.campusagent.facilities.service;
 
 import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
+import com.app.campusagent.repository.UserRepository;
 import com.app.campusagent.facilities.domain.*;
 import com.app.campusagent.facilities.dto.*;
 import com.app.campusagent.facilities.exception.FacilityErrorCode;
@@ -34,13 +35,16 @@ public class FacilitiesService {
     private final SpaceRepository spaceRepository;
     private final BookingRepository bookingRepository;
     private final MaintenanceTicketRepository maintenanceTicketRepository;
+    private final UserRepository userRepository;
 
     public FacilitiesService(SpaceRepository spaceRepository,
                              BookingRepository bookingRepository,
-                             MaintenanceTicketRepository maintenanceTicketRepository) {
+                             MaintenanceTicketRepository maintenanceTicketRepository,
+                             UserRepository userRepository) {
         this.spaceRepository = spaceRepository;
         this.bookingRepository = bookingRepository;
         this.maintenanceTicketRepository = maintenanceTicketRepository;
+        this.userRepository = userRepository;
     }
 
     /** Searches spaces and optionally removes spaces unavailable in the supplied time window. */
@@ -134,6 +138,21 @@ public class FacilitiesService {
     }
 
     @Transactional(readOnly = true)
+    public List<AdminBookingResponse> listAllBookings() {
+        return bookingRepository.findAllByOrderByStartDateTimeDesc().stream()
+                .map(this::toAdminBookingResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AdminBookingResponse getAnyBooking(Long bookingId) {
+        return bookingRepository.findById(bookingId)
+                .map(this::toAdminBookingResponse)
+                .orElseThrow(() -> new FacilityException(FacilityErrorCode.BOOKING_NOT_FOUND,
+                        "Booking not found", HttpStatus.NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
     public BookingResponse getBookingStatus(User user, Long bookingId) {
         requireUser(user);
         if (bookingId == null) {
@@ -217,6 +236,21 @@ public class FacilitiesService {
         return maintenanceTicketRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId()).stream()
                 .map(this::toMaintenanceResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<MaintenanceResponse> listAllMaintenanceRequests() {
+        return maintenanceTicketRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toMaintenanceResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public MaintenanceResponse getAnyMaintenanceRequest(Long ticketId) {
+        return maintenanceTicketRepository.findById(ticketId)
+                .map(this::toMaintenanceResponse)
+                .orElseThrow(() -> new FacilityException(FacilityErrorCode.TICKET_NOT_FOUND,
+                        "Maintenance ticket not found", HttpStatus.NOT_FOUND));
     }
 
     @Transactional(readOnly = true)
@@ -400,6 +434,14 @@ public class FacilitiesService {
 
     private BookingResponse toBookingResponse(Booking booking) {
         return new BookingResponse(true, booking.getId(), toSpaceResponse(booking.getSpace()),
+                booking.getStartDateTime(), booking.getEndDateTime(), booking.getStatus().name(),
+                booking.getCreatedAt(), booking.getUpdatedAt());
+    }
+
+    private AdminBookingResponse toAdminBookingResponse(Booking booking) {
+        User owner = userRepository.findById(booking.getUserId()).orElse(null);
+        return new AdminBookingResponse(true, booking.getId(), booking.getUserId(),
+                owner == null ? "Unknown account" : owner.getEmail(), toSpaceResponse(booking.getSpace()),
                 booking.getStartDateTime(), booking.getEndDateTime(), booking.getStatus().name(),
                 booking.getCreatedAt(), booking.getUpdatedAt());
     }

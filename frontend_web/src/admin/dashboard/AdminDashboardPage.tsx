@@ -1,101 +1,31 @@
-import { Box, Card, CardActionArea, CardContent, Chip, Stack, Typography } from '@mui/material'
+import { Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material'
 import { Link as RouterLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
+import { apiErrorMessage } from '../../api/client'
+import { facilitiesApi, FacilitiesDashboard } from '../../api/facilities'
 import { LostFoundOverviewSection } from './sections/LostFoundOverviewSection'
 
-interface AdminModuleCardProps {
-  title: string
-  description: string
-  path: string
-  available?: boolean
+function FacilityMetric({ label, value }: { label: string; value: number }) {
+  return <Card variant="outlined"><CardContent><Stack spacing={1}><Typography color="text.secondary">{label}</Typography><Typography variant="h4" fontWeight={700}>{value}</Typography></Stack></CardContent></Card>
 }
 
-function AdminModuleCard({ title, description, path, available = false }: AdminModuleCardProps) {
-  return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <CardActionArea
-        component={RouterLink}
-        to={path}
-        aria-label={title}
-        sx={{ height: '100%', alignItems: 'stretch' }}
-      >
-        <CardContent>
-          <Stack spacing={2} alignItems="flex-start">
-            <Typography component="h2" variant="h6" fontWeight={700}>{title}</Typography>
-            <Typography color="text.secondary">{description}</Typography>
-            <Chip
-              label={available ? 'Available' : 'Coming Soon'}
-              size="small"
-              color={available ? 'success' : 'default'}
-            />
-          </Stack>
-        </CardContent>
-      </CardActionArea>
-    </Card>
-  )
+function FacilitiesOverview() {
+  const [data, setData] = useState<FacilitiesDashboard | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { facilitiesApi.getDashboard().then(setData).catch((e) => setError(apiErrorMessage(e))) }, [])
+  return <Card variant="outlined"><CardActionArea component={RouterLink} to="/admin/facilities"><CardContent><Stack spacing={3}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography component="h2" variant="h5" fontWeight={700}>Facilities Overview</Typography><Typography color="primary" variant="body2">View details →</Typography></Stack>{error ? <Typography color="error">{error}</Typography> : !data ? <Typography color="text.secondary">Loading facility KPIs…</Typography> : <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(2, 1fr)' }}><FacilityMetric label="Total Facilities" value={data.summary.totalFacilities} /><FacilityMetric label="Available" value={data.summary.availableFacilities} /><FacilityMetric label="Today's Reservations" value={data.summary.todayReservations} /><FacilityMetric label="Under Maintenance" value={data.summary.underMaintenance} /></Box>}</Stack></CardContent></CardActionArea></Card>
 }
 
-interface AdminSectionCardProps {
-  title: string
-  message: string
-  status?: string
-}
-
-function AdminSectionCard({ title, message, status }: AdminSectionCardProps) {
-  return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <CardContent>
-        <Stack spacing={2} alignItems="flex-start">
-          <Typography component="h2" variant="h6" fontWeight={700}>{title}</Typography>
-          {status && <Chip label={status} size="small" color="default" />}
-          <Typography color="text.secondary">{message}</Typography>
-        </Stack>
-      </CardContent>
-    </Card>
-  )
+function RecentActivity() {
+  return <Card variant="outlined"><CardContent><Stack spacing={1}><Typography component="h2" variant="h6" fontWeight={700}>Recent Activity</Typography><Typography color="text.secondary">Activity data is not available yet.</Typography></Stack></CardContent></Card>
 }
 
 export function AdminDashboardPage() {
   const { user } = useAuth()
-
-  return (
-    <Box sx={{ display: 'grid', gap: 4 }}>
-      <Card>
-        <CardContent>
-          <Stack spacing={1}>
-            <Typography component="h1" variant="h4" fontWeight={700}>Dashboard Overview</Typography>
-            <Typography variant="h6">Welcome to CampusLink Administration.</Typography>
-            <Typography color="text.secondary">Signed in as {user?.email ?? 'Unknown user'}</Typography>
-            <Typography color="text.secondary">Role: {user?.role ?? 'Unknown role'}</Typography>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }}>
-        <AdminModuleCard
-          title="Lost & Found"
-          description="Review report volume, status metrics, and operational records."
-          path="/admin/lost-found"
-          available
-        />
-        <AdminModuleCard
-          title="Facilities"
-          description="Facilities administration will be available here."
-          path="/admin/facilities"
-        />
-        <AdminModuleCard
-          title="User Management"
-          description="The scope of this module is pending team confirmation."
-          path="/admin/users"
-        />
-      </Box>
-
-      <LostFoundOverviewSection />
-
-      <AdminSectionCard
-        title="Recent Activity"
-        message="Activity data is not available yet."
-      />
-    </Box>
-  )
+  return <Box sx={{ display: 'grid', gap: 4 }}>
+    <Card><CardContent><Stack spacing={1}><Typography component="h1" variant="h4" fontWeight={700}>Dashboard Overview</Typography><Typography variant="h6">Welcome to CampusLink Administration.</Typography><Typography color="text.secondary">Signed in as {user?.email ?? 'Unknown user'}</Typography><Typography color="text.secondary">Role: {user?.role ?? 'Unknown role'}</Typography></Stack></CardContent></Card>
+    <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', alignItems: 'start' }}><Card variant="outlined"><CardContent><LostFoundOverviewSection /></CardContent></Card><FacilitiesOverview /></Box>
+    <RecentActivity />
+  </Box>
 }

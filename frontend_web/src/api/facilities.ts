@@ -1,10 +1,39 @@
 import { apiClient } from './client'
 
 export interface FacilitiesDashboard {
+  facilities: (Space & { reservations: Booking[] })[]
   summary: { totalFacilities: number; availableFacilities: number; todayReservations: number; underMaintenance: number }
   statusBreakdown: { status: string; count: number }[]
   reservationTrend: { date: string; count: number }[]
   facilityUsage: { facilityId: number; facilityName: string; reservationCount: number }[]
+}
+
+export interface UtilizationAnalytics {
+  fromDate: string
+  toDate: string
+  model: string
+  summary: {
+    averageUtilization: number
+    peakHour: string
+    mostUtilizedSpace: string
+    underutilizedSpaces: number
+    totalBookings: number
+    predictedBookings: number
+  }
+  heatmap: { day: string; hour: number; bookings: number }[]
+  spaces: {
+    spaceId: number
+    name: string
+    building: string
+    spaceType: string
+    reservationCount: number
+    bookedHours: number
+    availableHours: number
+    utilizationRate: number
+    classification: 'UNDERUTILIZED' | 'STABLE' | 'HIGH_DEMAND' | string
+  }[]
+  forecast: { date: string; predictedBookings: number; confidence: number }[]
+  insights: { type: string; title: string; message: string }[]
 }
 
 export interface Space {
@@ -56,6 +85,11 @@ export interface BookingResponse {
   updatedAt: string
 }
 
+export interface AdminBooking extends BookingResponse {
+  userId: number
+  userEmail: string
+}
+
 export type Booking = BookingResponse
 
 export type MaintenancePriority = 'LOW' | 'MEDIUM' | 'HIGH'
@@ -97,6 +131,11 @@ const localDate = (date: Date) => {
 const activeBookings = (bookings: Booking[]) => bookings.filter((booking) => booking.status !== 'CANCELLED')
 
 export const facilitiesApi = {
+  getUtilizationAnalytics: (fromDate?: string, toDate?: string) => apiClient.get<UtilizationAnalytics>('/admin/facilities/analytics', { params: { fromDate, toDate } }).then((response) => response.data),
+  getAdminReservations: () => apiClient.get<AdminBooking[]>('/admin/facilities/bookings').then((response) => response.data),
+  getAdminReservationDetail: (id: number) => apiClient.get<AdminBooking>(`/admin/facilities/bookings/${id}`).then((response) => response.data),
+  getAdminMaintenance: () => apiClient.get<MaintenanceRequest[]>('/admin/facilities/maintenance').then((response) => response.data),
+  getAdminMaintenanceDetail: (id: number) => apiClient.get<MaintenanceRequest>(`/admin/facilities/maintenance/${id}`).then((response) => response.data),
   searchSpaces: (filters: SpaceSearchFilters = {}) => {
     const params = new URLSearchParams()
     const append = (key: string, value: string | number | undefined) => {
@@ -127,8 +166,8 @@ export const facilitiesApi = {
   getDashboard: async () => {
     const [spacesResponse, bookingsResponse, maintenanceResponse] = await Promise.all([
       apiClient.get<Space[]>('/facilities/spaces'),
-      apiClient.get<Booking[]>('/facilities/bookings'),
-      apiClient.get<MaintenanceRequest[]>('/facilities/maintenance'),
+      apiClient.get<Booking[]>('/admin/facilities/bookings'),
+      apiClient.get<MaintenanceRequest[]>('/admin/facilities/maintenance'),
     ])
     const spaces = spacesResponse.data
     const bookings = bookingsResponse.data
@@ -142,6 +181,7 @@ export const facilitiesApi = {
     })
     const currentBookings = activeBookings(bookings)
     return {
+      facilities: spaces.map((space) => ({ ...space, reservations: bookings.filter((booking) => booking.space.spaceId === space.spaceId) })),
       summary: {
         totalFacilities: spaces.length,
         availableFacilities: spaces.filter((space) => space.status === 'AVAILABLE').length,

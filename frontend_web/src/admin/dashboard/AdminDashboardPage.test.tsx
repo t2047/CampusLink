@@ -54,17 +54,10 @@ describe('AdminDashboardPage', () => {
     expect(screen.getByText('Signed in as admin@nus.edu.sg')).toBeInTheDocument()
     expect(screen.getByText('Role: ADMIN')).toBeInTheDocument()
 
-    expect(screen.getByRole('heading', { name: 'Lost & Found' })).toBeInTheDocument()
-    expect(screen.getByText('Review report volume, status metrics, and operational records.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Facilities' })).toBeInTheDocument()
-    expect(screen.getByText('Facilities administration will be available here.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'User Management' })).toBeInTheDocument()
-    expect(screen.getByText('The scope of this module is pending team confirmation.')).toBeInTheDocument()
-    expect(screen.getByText('Available')).toBeInTheDocument()
-    expect(screen.getAllByText('Coming Soon')).toHaveLength(2)
-    expect(screen.getByRole('link', { name: 'Lost & Found' })).toHaveAttribute('href', '/admin/lost-found')
-    expect(screen.getByRole('link', { name: 'Facilities' })).toHaveAttribute('href', '/admin/facilities')
-    expect(screen.getByRole('link', { name: 'User Management' })).toHaveAttribute('href', '/admin/users')
+    expect(screen.getByRole('heading', { name: 'Lost & Found Overview' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Facilities Overview' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'User Management' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Coming Soon')).not.toBeInTheDocument()
 
     expect(
       await screen.findByRole('group', { name: 'Total Reports' }),

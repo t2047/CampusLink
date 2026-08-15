@@ -10,5 +10,7 @@ public interface MaintenanceTicketRepository extends JpaRepository<MaintenanceTi
 
     List<MaintenanceTicket> findAllByUserIdOrderByCreatedAtDesc(Long userId);
 
+    List<MaintenanceTicket> findAllByOrderByCreatedAtDesc();
+
     Optional<MaintenanceTicket> findByIdAndUserId(Long ticketId, Long userId);
 }
