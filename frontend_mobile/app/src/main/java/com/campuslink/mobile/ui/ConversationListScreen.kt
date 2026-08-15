@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,13 +39,17 @@ fun ConversationListScreen(
     text: UiStrings,
     onOpen: (String) -> Unit,
     onSettings: () -> Unit,
+    onServices: () -> Unit,
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(text.conversations) },
-                actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, text.settings) } },
+                actions = {
+                    IconButton(onClick = onServices) { Icon(Icons.Default.Apps, "Services") }
+                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, text.settings) }
+                },
             )
         },
         floatingActionButton = {
