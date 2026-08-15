@@ -20,7 +20,8 @@ agent/mail_agent/
 │   ├── email_classifier.py
 │   └── models/email_classifier.joblib
 ├── tests/
-├── Dockerfile
+├── Dockerfile                     # 自包含镜像（build context = 本目录）
+├── docker-compose.yml             # 独立部署（Gmail + Calendar）
 └── pyproject.toml
 ```
 
@@ -42,6 +43,56 @@ Google Cloud Console is `http://localhost:5000/callback`. The Vite dev server
 proxies `/api/mail` here, and the MCP mail gateway
 (`agent/mcp_servers/mail_server.py`) calls this service via `MAIL_REST_URL`
 (default `http://127.0.0.1:5000`).
+
+## Run with Docker
+
+The whole mail module backend (REST + calendar + ML classifier + LangChain
+agent) is packaged as a self-contained image (`build context = agent/mail_agent`,
+no repo-root context needed).
+
+### Standalone（只起 mail 服务）
+
+```bash
+# 首次：准备仓库根 .env（含 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / MAIL_LLM_API_KEY 等）
+cp ../../.env.example ../../.env
+
+# 构建并启动
+docker compose -f agent/mail_agent/docker-compose.yml up -d --build
+
+# 验证
+curl http://localhost:5000/health
+```
+
+### 并入整站 compose（推荐）
+
+根 `docker-compose.yml` 已含 `mail-service`（随 `docker compose up -d` 一起起），
+且 `mail-agent-mcp` 通过 `MAIL_REST_URL=http://mail-service:5000` 在容器网络内
+直连 mail 服务，不再依赖宿主机上手动运行的进程。
+
+### 容器化要点
+
+* **宿主机端口必须保持 5000**：Google Cloud Console 注册的回调
+  `http://localhost:5000/callback` 要求浏览器从宿主机访问该端口进入容器，
+  因此 `ports` 映射固定为 `5000:5000`，不能改成别的宿主端口。
+* **数据持久化**：`token.json`（Gmail OAuth 刷新令牌）与 `calendar.db`
+  （SQLite 日历库）在镜像内默认落到 `/data`（`GMAIL_TOKEN_PATH` /
+  `MAIL_CALENDAR_DB`），compose 用命名卷 `mail_data:/data` 持久化，
+  容器重建/升级不丢失授权与日历数据。本地开发仍落在 `agent/mail_agent/`。
+* **Gmail 凭据 / LLM 配置**：从仓库根 `.env` 读取（`env_file`），
+  或直接在 compose 的 `environment` 覆盖（`GMAIL_CLIENT_ID`、
+  `GMAIL_CLIENT_SECRET`、`GMAIL_REDIRECT_URI`、`MAIL_LLM_API_KEY` 等）。
+* **非 root 运行**：镜像内以 `app` 用户运行；`/data` 属主为 `app`，
+  命名卷会自动继承该属主。若改用 bind mount，请确保目录权限可写。
+* 健康检查：`GET /health`（`gmail_connected` / `agent_configured`）。
+
+### 构建 / 推送镜像（CI 已接入）
+
+```bash
+docker build -t campuslink-mail-agent agent/mail_agent
+# CD workflow（.github/workflows/cd-deploy.yml）会在 push main 时构建并推送
+# ghcr.io/<owner>/campuslink-mail-agent:<sha>，生产 override（docker-compose.prod.yml）
+# 中 mail-service 引用该镜像。
+```
 
 ## One-time Gmail authorization
 
@@ -140,6 +191,27 @@ Response:
   "model": "deepseek-v4-flash"
 }
 ```
+
+### Chat 通信（chat 模块 → mail agent）
+
+聊天里的邮件请求由 **mail 模块自己的 agent** 直接回复：编排层（chat agent）把消息
+经 MCP 转发给 `mail-agent-mcp`（`agent/mcp_servers/mail_server.py`），其 `invoke`
+主路径调用本服务 `POST /api/mail/agent/chat`，把编排层的消息与多轮会话（`session_id`，
+按 `mcp-<user>-<chat-session>` 派生，避免跨用户串记忆）透传给本 agent，再把 agent
+的回复按 MCP 契约返回给编排层 → SSE → 前端。
+
+```
+用户 → chat-backend(/api/chat/stream) → 编排层(意图路由 → mail-agent)
+     → mail-agent-mcp (MCP invoke)
+     → 本服务 /api/mail/agent/chat（LangChain agent 回复）
+     → 编排层 → SSE → 用户
+```
+
+* **agent 未配置（503）/ 调用失败**时，`mail-agent-mcp` 自动回退到关键词规则分派
+  （直接调 `/api/mail/messages` 等 REST 端点），无 LLM 凭据的环境仍可用。
+* agent 的删除/发送确认是**对话式**的（agent 先与你确认再执行），不触发编排层的
+  结构化 HITL 确认按钮流。
+* 相关配置：`MAIL_AGENT_CHAT_TIMEOUT_SECONDS`（默认 60，agent 多轮回复的超时上限）。
 
 ## API
 
