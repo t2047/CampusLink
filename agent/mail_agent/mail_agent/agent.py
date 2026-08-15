@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from datetime import datetime
 from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -37,24 +39,70 @@ logger = logging.getLogger(__name__)
 
 MAX_LIST_SIZE = gmail_service.MAX_PAGE_SIZE
 
+# Idempotency guard for deletions: LLMs sometimes re-issue a tool call for an
+# action that already succeeded (especially delete), so remember recently
+# trashed message ids and skip duplicates within a short window.
+_TRASHED_TTL_SECONDS = 300  # 5 minutes
+_recently_trashed: dict[str, float] = {}
+
+
+def _is_recently_trashed(message_id: str) -> bool:
+    now = time.monotonic()
+    trashed_at = _recently_trashed.get(message_id)
+    if trashed_at is None:
+        return False
+    if now - trashed_at > _TRASHED_TTL_SECONDS:
+        _recently_trashed.pop(message_id, None)
+        return False
+    return True
+
+
+def _mark_trashed(message_id: str) -> None:
+    _recently_trashed[message_id] = time.monotonic()
+    if len(_recently_trashed) > 500:
+        now = time.monotonic()
+        for stale in [
+            key for key, at in _recently_trashed.items()
+            if now - at > _TRASHED_TTL_SECONDS
+        ]:
+            _recently_trashed.pop(stale, None)
+
 SYSTEM_PROMPT = """You are the CampusLink Mail Assistant. You help users manage their
 campus Gmail account by calling the tools you have been given.
 
+Current date (server local time): {today}
+
+When the user mentions relative dates ("今天", "昨天", "上周", "这个月", "today",
+"yesterday", "last week", "this month", "3天前"), resolve them against the current
+date above and pass concrete ISO dates (YYYY-MM-DD) to the after/before parameters.
+Never guess a date when you are not sure — prefer asking the user.
+
 Available tools:
-1. search_mail(query, folder, unread, starred, max_results) - find messages. Returns
+1. search_mail(query, folder, unread, starred, after, before, max_results) - find messages. Returns
    message ids, subjects, senders and previews. ALWAYS call this first when the user
-   does not provide a concrete message id.
+   does not provide a concrete message id. Supports date filters:
+   - after / before: ISO dates (YYYY-MM-DD) bounding the received date; after is
+     inclusive, before is exclusive. Use them when the user asks for mail from a
+     period ("上周的邮件", "8月以来的邮件", "the emails from last week", "before March").
+     Convert relative periods to concrete dates relative to today.
 2. read_mail(message_id, query, folder) - read the full body of a message. Reading
    automatically marks it as read.
-3. delete_mail(message_id, query, folder) - move a message to trash.
-4. star_mail(message_id, query, folder, starred) - star or unstar a message.
-5. archive_mail(message_id, query, folder) - remove a message from the inbox.
-6. send_mail(recipients, subject, body) - send a new email.
+3. delete_mail(message_id, query, folder) - move a single email to trash.
+4. delete_mail_batch(query, folder, unread, starred, after, before, max_results) - move ALL
+   matching emails to trash in ONE call. ALWAYS use this for bulk deletion ("删掉所有垃圾邮件",
+   "delete all spam", "删除这个发件人的所有邮件", "删除上周的所有邮件"), never loop delete_mail.
+   To delete everything except today, use before=<today's date>.
+5. star_mail(message_id, query, folder, starred) - star or unstar a message.
+6. archive_mail(message_id, query, folder) - remove a message from the inbox.
+7. send_mail(recipients, subject, body) - send a new email.
 
 Rules:
 - You operate on the user's real mailbox. Only perform an action the user asked for.
 - For delete/send, first confirm the exact target (subject + sender for delete, the
   full recipients/subject/body for send) with the user before calling the tool.
+- NEVER call delete_mail or delete_mail_batch twice for the same email. Once a delete
+  tool reports success for a message id, do not call it again for that id — move on and
+  summarize. If a delete tool reports "already deleted", do NOT retry it.
 - When the user refers to an email by description ("the exam email", "邮件关于考试"),
   first call search_mail to find its message id, then pass that id to the next tool.
 - Reply in the same language the user wrote in (中文/English). Keep answers concise;
@@ -99,7 +147,9 @@ def _fmt_message(message: Any) -> str:
     if message.starred:
         flags.append("starred")
     flag_text = f" ({', '.join(flags)})" if flags else ""
-    created = message.created_at.strftime("%Y-%m-%d") if message.created_at else "?"
+    # created_at is UTC; render it in the server's local timezone (with the
+    # time of day) so it matches what the web UI shows in the browser timezone.
+    created = message.created_at.astimezone().strftime("%Y-%m-%d %H:%M") if message.created_at else "?"
     return (
         f"- id={message.id}{flag_text} | {message.subject} | from {message.sender} | "
         f"{created} | {message.preview[:120]}"
@@ -112,6 +162,8 @@ def search_mail(
     folder: str = "inbox",
     unread: bool | None = None,
     starred: bool | None = None,
+    after: str = "",
+    before: str = "",
     max_results: int = 10,
 ) -> str:
     """Search the mailbox and return a list of matching messages.
@@ -122,6 +174,10 @@ def search_mail(
         folder: inbox | sent | archived | trash.
         unread: filter to unread (True) or read (False) messages.
         starred: filter to starred (True) or unstarred (False) messages.
+        after: only messages received on or after this date (ISO YYYY-MM-DD,
+            e.g. "2026-08-01"). Inclusive of that day.
+        before: only messages received before this date (ISO YYYY-MM-DD,
+            exclusive of that day).
         max_results: how many messages to return (max 50).
     """
     size = max(1, min(int(max_results), MAX_LIST_SIZE))
@@ -131,6 +187,8 @@ def search_mail(
             q=query,
             unread=unread,
             starred=starred,
+            after=after or None,
+            before=before or None,
             page=0,
             size=size,
         )
@@ -161,11 +219,15 @@ def read_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> s
     except Exception as exc:  # noqa: BLE001
         return f"Failed to read email: {exc}"
     body = message.body_html or message.body
+    # created_at is UTC; convert to local time so the date shown to the user
+    # matches the web UI (browser-local formatting).
+    local_date = message.created_at.astimezone() if message.created_at else None
+    date_line = f"{local_date:%Y-%m-%d %H:%M}" if local_date else "?"
     return (
         f"Subject: {message.subject}\n"
         f"From: {message.sender}\n"
         f"To: {', '.join(message.recipients)}\n"
-        f"Date: {message.created_at:%Y-%m-%d %H:%M}\n\n"
+        f"Date: {date_line}\n\n"
         f"{body}"
     )
 
@@ -178,16 +240,78 @@ def delete_mail(message_id: str = "", query: str = "", folder: str = "inbox") ->
         message_id: the id returned by search_mail (preferred).
         query: when no message_id is given, locate the first message matching this
             description.
-        folder: inbox | sent | archived | trash.
+        folder: inbox | sent | archived | trash | spam.
     """
     target = _resolve_message_id(message_id, query, folder)
     if not target:
         return "Could not find the email to delete."
+    if _is_recently_trashed(target):
+        return "That email was already deleted moments ago (moved to trash); skipping duplicate deletion."
     try:
         deleted = gmail_service.trash_message(target)
     except Exception as exc:  # noqa: BLE001
         return f"Failed to delete email: {exc}"
+    _mark_trashed(target)
     return f"Deleted email '{deleted.subject}' (moved to trash)."
+
+
+@tool
+def delete_mail_batch(
+    query: str = "",
+    folder: str = "inbox",
+    unread: bool | None = None,
+    starred: bool | None = None,
+    after: str = "",
+    before: str = "",
+    max_results: int = 50,
+) -> str:
+    """Move ALL matching emails to trash in one call.
+
+    Use this when the user wants to delete many emails at once (e.g. all spam,
+    everything from a sender, or everything before a date) instead of calling
+    delete_mail repeatedly.
+
+    Args:
+        query: Gmail search terms (subject, sender, words). Empty means all
+            messages in the folder.
+        folder: inbox | sent | archived | trash | spam.
+        unread: filter to unread (True) or read (False) messages.
+        starred: filter to starred (True) or unstarred (False) messages.
+        after: only messages received on or after this date (ISO YYYY-MM-DD,
+            inclusive of that day).
+        before: only messages received before this date (ISO YYYY-MM-DD,
+            exclusive of that day).
+        max_results: maximum number of messages to delete (max 200).
+    """
+    size = max(1, min(int(max_results), 200))
+    try:
+        messages, _total, _has_next = gmail_service.list_messages(
+            _safe_folder(folder),
+            q=query,
+            unread=unread,
+            starred=starred,
+            after=after or None,
+            before=before or None,
+            page=0,
+            size=size,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"Search failed: {exc}"
+    if not messages:
+        return "No matching emails found to delete."
+    ids = [message.id for message in messages]
+    fresh_ids = [message_id for message_id in ids if not _is_recently_trashed(message_id)]
+    skipped = len(ids) - len(fresh_ids)
+    if not fresh_ids:
+        return "All matching emails were already deleted moments ago; nothing to do."
+    try:
+        done = gmail_service.trash_messages(fresh_ids)
+    except Exception as exc:  # noqa: BLE001
+        return f"Failed to delete emails: {exc}"
+    for message_id in fresh_ids:
+        _mark_trashed(message_id)
+    suffix = f" ({skipped} already deleted skipped)" if skipped else ""
+    return f"Moved {done} email(s) to trash ({', '.join(message.subject for message in messages[:3])}...){suffix}"
 
 
 @tool
@@ -260,7 +384,7 @@ def send_mail(recipients: list[str], subject: str, body: str) -> str:
     )
 
 
-MAIL_TOOLS = [search_mail, read_mail, delete_mail, star_mail, archive_mail, send_mail]
+MAIL_TOOLS = [search_mail, read_mail, delete_mail, delete_mail_batch, star_mail, archive_mail, send_mail]
 
 
 def _thread_id(session_id: str) -> str:
@@ -282,15 +406,24 @@ def _llm() -> ChatOpenAI:
     )
 
 
-_agent_cache: dict[tuple[str, str], Any] = {}
+_agent_cache: dict[tuple[str, str, str], Any] = {}
 
 
 def is_configured() -> bool:
     return bool(config.MAIL_LLM_API_KEY)
 
 
+def _today_stamp() -> str:
+    """Local date for the prompt, e.g. ``2026-08-15 (Saturday)``."""
+    return datetime.now().astimezone().strftime("%Y-%m-%d (%A)")
+
+
 def build_agent() -> Any:
     """Build (and cache) the LangChain agent.
+
+    The system prompt embeds the current date so the model can resolve relative
+    dates ("昨天", "last week") into concrete after/before values. The cache is
+    keyed by date so a long-running process picks up a new date at midnight.
 
     Raises:
         RuntimeError: when no LLM API key is configured in the environment.
@@ -300,13 +433,14 @@ def build_agent() -> Any:
             "Mail agent is not configured: set MAIL_LLM_API_KEY (or DEEPSEEK_API_KEY) "
             "in the repository .env file."
         )
-    key = (config.MAIL_LLM_MODEL, config.MAIL_LLM_BASE_URL)
+    today = _today_stamp()
+    key = (config.MAIL_LLM_MODEL, config.MAIL_LLM_BASE_URL, today)
     if key not in _agent_cache:
-        logger.info("building mail agent: model=%s base=%s", *key)
+        logger.info("building mail agent: model=%s base=%s date=%s", *key)
         _agent_cache[key] = create_react_agent(
             _llm(),
             MAIL_TOOLS,
-            prompt=SystemMessage(content=SYSTEM_PROMPT),
+            prompt=SystemMessage(content=SYSTEM_PROMPT.format(today=today)),
             checkpointer=InMemorySaver(),
         )
     return _agent_cache[key]

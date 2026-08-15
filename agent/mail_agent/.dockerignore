@@ -1,0 +1,18 @@
+# Build context = agent/mail_agent（自包含 mail 服务镜像）
+# 排除本地开发产物 / 密钥 / 测试，缩小上下文（COPY 引用的源码不受影响）
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+tests/
+token.json
+credentials.json
+tokens/
+calendar.db
+*.log
+.DS_Store
+Thumbs.db

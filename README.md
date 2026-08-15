@@ -38,9 +38,17 @@ openssl rand -base64 64
 # The backend reads its local .env from backend/
 cp .env backend/.env
 
-# Start infrastructure, Spring Boot, Chat Core, and MCP services
+# Start infrastructure, Spring Boot, Chat Core, MCP services, and the Mail REST service
 docker compose up -d
 ```
+
+The Mail module (Gmail REST + Calendar + ML classifier + LangChain agent) runs as
+the `mail-service` container on port 5000 (OAuth callback
+`http://localhost:5000/callback` — keep the host port at 5000). Gmail tokens
+(`token.json`) and the SQLite calendar (`calendar.db`) persist in the `mail_data`
+named volume. Chat mail requests are answered by the mail module's own LangChain
+agent via `mail-agent-mcp` (falls back to rule-based dispatch when no LLM key is
+configured). See [agent/mail_agent/README.md](agent/mail_agent/README.md).
 
 To add the optional Lost & Found REST Agent used by the module test panel, also set the three Agent secrets from `.env.example` (generate each with `openssl rand -hex 32`) and run:
 

@@ -18,6 +18,7 @@ class MailFolder(StrEnum):
     sent = "sent"
     archived = "archived"
     trash = "trash"
+    spam = "spam"
 
 
 class MailCategory(StrEnum):

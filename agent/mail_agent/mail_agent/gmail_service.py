@@ -12,12 +12,14 @@ the persisted (auto-refreshing) credentials.
 from __future__ import annotations
 
 import base64
+import functools
 import re
 import secrets
+import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -29,12 +31,38 @@ from . import config
 from . import classifier
 from .models import MailFolder, MailMessage, SendMailRequest, preview_of
 
+# ---------------------------------------------------------------------------
+# Thread safety
+# ---------------------------------------------------------------------------
+# The shared Gmail client (httplib2 transport) is NOT thread-safe: the LangChain
+# agent executes its tools in a thread pool (parallel tool calls), so concurrent
+# Gmail API requests through one client crashed the process with a native
+# "Windows fatal exception: access violation" inside ssl/httplib2. Serialize
+# every public Gmail operation with a re-entrant lock (RLock: nested calls such
+# as update_message -> get_message stay safe).
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+_api_lock = threading.RLock()
+
+
+def _serialized(func: _F) -> _F:
+    """Run ``func`` while holding the module-wide Gmail API lock."""
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with _api_lock:
+            return func(*args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
 # Gmail label ids we care about.
 _LABEL_INBOX = "INBOX"
 _LABEL_UNREAD = "UNREAD"
 _LABEL_STARRED = "STARRED"
 _LABEL_SENT = "SENT"
 _LABEL_TRASH = "TRASH"
+_LABEL_SPAM = "SPAM"
 
 MAX_PAGE_SIZE = 50  # "最多 50 条" - the service only ever exposes the latest 50.
 
@@ -121,6 +149,7 @@ def _build_flow(state: str | None = None) -> Flow:
     )
 
 
+@_serialized
 def authorization_url() -> tuple[str, str]:
     """Return ``(url, state)`` for the Google consent screen."""
     flow = _build_flow()
@@ -139,6 +168,7 @@ def authorization_url() -> tuple[str, str]:
     return url, state
 
 
+@_serialized
 def exchange_code(code: str, state: str) -> Credentials:
     """Exchange an authorization code for credentials and persist them."""
     if state not in _pending_states:
@@ -151,11 +181,13 @@ def exchange_code(code: str, state: str) -> Credentials:
     return creds
 
 
+@_serialized
 def save_credentials(creds: Credentials) -> None:
     _invalidate_service()
     config.TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
 
 
+@_serialized
 def load_credentials() -> Credentials | None:
     if not config.TOKEN_PATH.exists():
         return None
@@ -171,6 +203,7 @@ def load_credentials() -> Credentials | None:
     return creds
 
 
+@_serialized
 def is_connected() -> bool:
     try:
         return load_credentials() is not None
@@ -178,6 +211,7 @@ def is_connected() -> bool:
         return False
 
 
+@_serialized
 def connected_email() -> str | None:
     try:
         creds = load_credentials()
@@ -260,6 +294,8 @@ def _folder_from_labels(label_ids: list[str]) -> MailFolder:
         return MailFolder.sent
     if _LABEL_INBOX in labels:
         return MailFolder.inbox
+    if _LABEL_SPAM in labels:
+        return MailFolder.spam
     return MailFolder.archived
 
 
@@ -309,10 +345,16 @@ def _build_query(
     q: str,
     unread: bool | None,
     starred: bool | None,
+    after: str | None = None,
+    before: str | None = None,
 ) -> str:
     parts: list[str] = []
     if q:
         parts.append(q)
+    if after:
+        parts.append(f"after:{after}")
+    if before:
+        parts.append(f"before:{before}")
     if unread is True:
         parts.append("is:unread")
     elif unread is False:
@@ -327,6 +369,51 @@ def _build_query(
     return " ".join(parts)
 
 
+def _normalize_date_arg(value: str | None) -> str | None:
+    """Normalize an ISO date (``2026-08-01`` or ``2026/08/01``) to Gmail syntax.
+
+    Note: Gmail's ``after:``/``before:`` operators match on the message *header
+    Date* (the send time), not the received time the UI shows. Date-range
+    filtering therefore uses ``_date_arg_to_utc_bound`` + local filtering on
+    ``internalDate`` instead; this helper is kept only for legacy callers.
+    """
+    if not value or not value.strip():
+        return None
+    text = value.strip().replace("-", "/")
+    match = re.fullmatch(r"(\d{4})/(\d{1,2})/(\d{1,2})", text)
+    if not match:
+        raise ValueError(f"Invalid date: {value!r} (expected YYYY-MM-DD)")
+    year, month, day = (int(part) for part in match.groups())
+    return f"{year:04d}/{month:02d}/{day:02d}"
+
+
+def _date_arg_to_utc_bound(
+    value: str | None, end_of_day: bool = False
+) -> datetime | None:
+    """Parse ``YYYY-MM-DD`` as a local calendar day and return the UTC instant.
+
+    ``after`` maps to the start of the day (00:00 local), ``before`` to the
+    start of the following day, so the range covers the whole local day —
+    matching what the UI displays (browser-local receive time).
+    """
+    if not value or not value.strip():
+        return None
+    text = value.strip().replace("-", "/")
+    match = re.fullmatch(r"(\d{4})/(\d{1,2})/(\d{1,2})", text)
+    if not match:
+        raise ValueError(f"Invalid date: {value!r} (expected YYYY-MM-DD)")
+    year, month, day = (int(part) for part in match.groups())
+    hour, minute = (23, 59) if end_of_day else (0, 0)
+    # Naive local datetime -> aware local -> UTC, so comparisons against
+    # ``created_at`` (UTC internalDate) are correct.
+    return datetime(year, month, day, hour, minute).astimezone(timezone.utc)
+
+
+# Upper bound on candidates pulled for a local date-range filter. Gmail lists
+# newest-first, so pulling this many recent messages covers a week+ of mail.
+_DATE_FILTER_MAX_CANDIDATES = 500
+
+
 def _folder_label_ids(folder: MailFolder) -> list[str] | None:
     if folder == MailFolder.inbox:
         return [_LABEL_INBOX]
@@ -334,6 +421,8 @@ def _folder_label_ids(folder: MailFolder) -> list[str] | None:
         return [_LABEL_SENT]
     if folder == MailFolder.trash:
         return [_LABEL_TRASH]
+    if folder == MailFolder.spam:
+        return [_LABEL_SPAM]
     return None  # archived uses a search query
 
 
@@ -447,6 +536,34 @@ def _fetch_page_ids(
     if len(tokens) == page:
         tokens.append(listed.get("nextPageToken"))
     return ids, estimate, has_next
+
+
+def _fetch_recent_ids(
+    service: Any,
+    query: str,
+    label_ids: list[str] | None,
+    max_results: int = _DATE_FILTER_MAX_CANDIDATES,
+) -> list[str]:
+    """Walk pages newest-first and collect up to ``max_results`` message ids.
+
+    Gmail returns list results newest-first, so this covers the most recent
+    ``max_results`` matching messages (used for the local date-range filter).
+    """
+    ids: list[str] = []
+    page_token: str | None = None
+    while len(ids) < max_results:
+        listed = _list_page(
+            service,
+            min(50, max_results - len(ids)),
+            query,
+            label_ids,
+            page_token,
+        )
+        ids.extend(ref["id"] for ref in (listed.get("messages") or []))
+        page_token = listed.get("nextPageToken")
+        if not page_token:
+            break
+    return ids[:max_results]
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +695,57 @@ def _fuzzy_search(
     return page_messages, total, has_next
 
 
+@_serialized
+def list_recent_messages(
+    days: int = 0,
+    max_results: int = 20,
+) -> list[MailMessage]:
+    """Fetch full messages *received* within the last ``days`` days.
+
+    ``days=0`` means only today's mail; ``days=2`` means today and the two
+    previous days (a window of ``days + 1`` calendar days). Used by the calendar
+    schedule extraction. Returns full bodies so callers can parse schedules.
+
+    The window is applied locally on the received date (internalDate), because
+    Gmail's ``after:``/``before:`` match the header send date and would miss
+    forwarded messages.
+    """
+    if days < 0:
+        days = 0
+    service = _service()
+    today = datetime.now().astimezone()
+    start_local = today - timedelta(days=days)
+    after_utc = datetime(
+        start_local.year, start_local.month, start_local.day
+    ).astimezone(timezone.utc)
+    before_utc = datetime(
+        today.year, today.month, today.day
+    ).astimezone(timezone.utc) + timedelta(days=1)
+    ids = _fetch_recent_ids(service, "", [_LABEL_INBOX], _DATE_FILTER_MAX_CANDIDATES)
+    if not ids:
+        return []
+    fetched = _fetch_metadata(service, ids)
+    in_window = [
+        message
+        for message in fetched
+        if after_utc <= message.created_at < before_utc
+    ]
+    in_window.sort(key=lambda message: message.created_at, reverse=True)
+    in_window = in_window[:max_results]
+    if not in_window:
+        return []
+    # Metadata-only messages carry the snippet as body; upgrade them to full
+    # bodies so schedule parsing sees the real content.
+    full: list[MailMessage] = []
+    for message in in_window:
+        try:
+            full.append(get_message(message.id, mark_read=False))
+        except Exception:  # noqa: BLE001 - keep going on per-message failures
+            full.append(message)
+    return full
+
+
+@_serialized
 def list_messages(
     folder: MailFolder,
     q: str = "",
@@ -585,6 +753,8 @@ def list_messages(
     starred: bool | None = None,
     page: int = 0,
     size: int = MAX_PAGE_SIZE,
+    after: str | None = None,
+    before: str | None = None,
 ) -> tuple[list[MailMessage], int, bool]:
     """Fetch one page of matching messages (capped at MAX_PAGE_SIZE per page).
 
@@ -593,10 +763,22 @@ def list_messages(
     batch-fetched only for the requested page. Returns
     ``(messages, total_estimate, has_next)``; ``total_estimate`` comes from
     Gmail's ``resultSizeEstimate`` and is not an exact count.
+
+    ``after`` / ``before`` filter by *received* date (ISO ``YYYY-MM-DD``, or
+    ``YYYY/MM/DD``); ``after`` is inclusive, ``before`` exclusive. The filter is
+    applied locally on ``internalDate`` (the receive time the UI shows) rather
+    than Gmail's ``after:``/``before:`` operators, which match the header
+    *send* date — forwarded mail would otherwise be invisible to date queries.
     """
     size = max(1, min(size, MAX_PAGE_SIZE))
     page = max(0, page)
     service = _service()
+    after_utc = _date_arg_to_utc_bound(after)
+    before_utc = _date_arg_to_utc_bound(before, end_of_day=True)
+    if after_utc or before_utc:
+        return _list_by_received_date(
+            service, folder, q, unread, starred, page, size, after_utc, before_utc
+        )
     # 模糊匹配：普通自然语言词走 OR 预筛 + 本地打分；带 Gmail 语法（from:/subject: 等）
     # 的查询仍按精确语法透传，保留高级检索能力。
     if q.strip() and ":" not in q:
@@ -622,6 +804,45 @@ def list_messages(
 
     messages = _fetch_metadata(service, ids)
     return messages, estimate, has_next
+
+
+def _list_by_received_date(
+    service: Any,
+    folder: MailFolder,
+    q: str,
+    unread: bool | None,
+    starred: bool | None,
+    page: int,
+    size: int,
+    after_utc: datetime | None,
+    before_utc: datetime | None,
+) -> tuple[list[MailMessage], int, bool]:
+    """Filter by the *received* date (internalDate) locally.
+
+    Gmail's ``after:``/``before:`` operators match the header send date, so a
+    forwarded message (sent days earlier, received today) would be missed. Here
+    we pull the newest candidates, keep only those whose ``created_at``
+    (internalDate) lands in ``[after_utc, before_utc)``, then paginate locally.
+    """
+    query = _build_query(folder, q, unread, starred)
+    label_ids = _folder_label_ids(folder)
+    ids = _fetch_recent_ids(service, query, label_ids, _DATE_FILTER_MAX_CANDIDATES)
+    if not ids:
+        return [], 0, False
+    messages = _fetch_metadata(service, ids)
+    filtered = [
+        message
+        for message in messages
+        if (after_utc is None or message.created_at >= after_utc)
+        and (before_utc is None or message.created_at < before_utc)
+    ]
+    # Newest first (matches Gmail list order and the web UI).
+    filtered.sort(key=lambda message: message.created_at, reverse=True)
+    total = len(filtered)
+    start = page * size
+    page_messages = filtered[start : start + size]
+    has_next = start + size < total
+    return page_messages, total, has_next
 
 
 def _fetch_full_marked_read(service: Any, message_id: str) -> dict[str, Any]:
@@ -662,6 +883,7 @@ def _fetch_full_marked_read(service: Any, message_id: str) -> dict[str, Any]:
     return fetched["get"]
 
 
+@_serialized
 def get_message(message_id: str, mark_read: bool = True) -> MailMessage:
     service = _service()
     cached = _cache_get(message_id)
@@ -696,6 +918,7 @@ def get_message(message_id: str, mark_read: bool = True) -> MailMessage:
     return message
 
 
+@_serialized
 def send_message(request: SendMailRequest) -> MailMessage:
     import email.message
 
@@ -717,6 +940,7 @@ def send_message(request: SendMailRequest) -> MailMessage:
     return get_message(str(sent["id"]), mark_read=False)
 
 
+@_serialized
 def update_message(
     message_id: str,
     read: bool | None = None,
@@ -755,10 +979,12 @@ def update_message(
     return get_message(message_id, mark_read=False)
 
 
+@_serialized
 def archive_message(message_id: str) -> MailMessage:
     return update_message(message_id, folder=MailFolder.archived)
 
 
+@_serialized
 def trash_message(message_id: str) -> MailMessage:
     service = _service()
     service.users().messages().trash(userId="me", id=message_id).execute()
@@ -766,6 +992,28 @@ def trash_message(message_id: str) -> MailMessage:
     return get_message(message_id, mark_read=False)
 
 
+@_serialized
+def trash_messages(message_ids: list[str]) -> int:
+    """Move many messages to trash in batched requests; returns the count done."""
+    if not message_ids:
+        return 0
+    service = _service()
+    done = 0
+    for start in range(0, len(message_ids), 10):
+        batch = service.new_batch_http_request()
+        chunk = message_ids[start : start + 10]
+        for message_id in chunk:
+            batch.add(
+                service.users().messages().trash(userId="me", id=message_id)
+            )
+        batch.execute()
+        done += len(chunk)
+        for message_id in chunk:
+            _cache_drop(message_id)
+    return done
+
+
+@_serialized
 def reset_connection() -> None:
     """Remove the persisted Gmail token (e.g. to re-authorize)."""
     _MESSAGE_CACHE.clear()
