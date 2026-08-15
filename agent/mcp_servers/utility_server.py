@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import json
+import logging
 import os
 import re
 import sys
@@ -27,15 +28,15 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from fastapi import FastAPI
 from dotenv import find_dotenv, load_dotenv
+from fastapi import FastAPI
 
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError as _e:  # pragma: no cover - 依赖缺失/版本错误时的清晰报错
     raise ImportError(
         "无法导入 mcp.server.fastmcp：请安装 mcp 1.x（本项目锁定 1.x API）。"
-        "执行：pip install \"mcp>=1.28,<2\"。"
+        '执行：pip install "mcp>=1.28,<2"。'
         "注意：若之前执行过无版本限制的 pip install mcp，会装成 2.x 并移除 fastmcp 模块，需降级。"
     ) from _e
 
@@ -70,6 +71,7 @@ _streamable_app = mcp.streamable_http_app()
 # 工具实现
 # ──────────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def calculator(expression: str) -> str:
     """执行数学表达式计算（支持 + - * / 幂 开方）。"""
@@ -79,6 +81,7 @@ def calculator(expression: str) -> str:
     try:
         safe_expr = expression.replace("^", "**").replace("sqrt", "math.sqrt")
         import math
+
         result = eval(safe_expr, {"__builtins__": {}}, {"math": math})
         return json.dumps({"expression": expression, "result": result})
     except Exception as e:
@@ -106,31 +109,183 @@ def get_current_time(timezone: str = "Asia/Singapore", format: str = "datetime")
         return json.dumps({"timezone": timezone, "value": now.strftime("%H:%M:%S")})
     if format == "iso8601":
         return json.dumps({"timezone": timezone, "value": now.isoformat()})
-    return json.dumps({"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")})
+    return json.dumps(
+        {"timezone": timezone, "value": now.strftime("%Y-%m-%d %H:%M:%S")}
+    )
+
+
+# 货币代码映射（用户常用中文货币名 → ISO 4217）
+_CURRENCY_ALIASES = {
+    "人民币": "CNY",
+    "美元": "USD",
+    "欧元": "EUR",
+    "英镑": "GBP",
+    "日元": "JPY",
+    "港币": "HKD",
+    "新币": "SGD",
+    "新加坡元": "SGD",
+    "澳元": "AUD",
+    "加元": "CAD",
+    "韩元": "KRW",
+    "卢布": "RUB",
+    "泰铢": "THB",
+    "马来西亚令吉": "MYR",
+    "林吉特": "MYR",
+}
+
+# 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
+_EXCHANGE_RATE_API = os.environ.get(
+    "EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest"
+)
+
+# 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）
+_FALLBACK_RATES: dict[tuple[str, str], float] = {
+    ("人民币", "美元"): 1 / 7.2,
+    ("美元", "人民币"): 7.2,
+    ("人民币", "欧元"): 1 / 7.8,
+    ("欧元", "人民币"): 7.8,
+}
+
+# 货币换算结果缓存（TTL 1 小时，避免每次调用打汇率 API）
+_rate_cache: dict[str, tuple[float, dict[str, float] | None]] = {}
+_RATE_CACHE_TTL = 3600.0
+# 失败负缓存 TTL（API 故障时短缓存，避免每请求阻塞 5s 重试）
+_RATE_FAIL_TTL = 60.0
+
+logger = logging.getLogger(__name__)
+
+
+def _to_iso_code(name: str) -> str | None:
+    """货币名 → ISO 4217 代码。支持中文别名与直接输入 ISO 代码（USD/CNY 等）。"""
+    upper = name.strip().upper()
+    if re.fullmatch(r"[A-Z]{3}", upper):
+        return upper
+    return _CURRENCY_ALIASES.get(name)
+
+
+def _get_rates(base: str) -> dict[str, float] | None:
+    """获取 base 货币对全货币汇率（带 1h 缓存）。失败返回 None（调用方回退固定汇率）。"""
+    import time
+
+    cached = _rate_cache.get(base)
+    if cached and time.monotonic() - cached[0] < (
+        _RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL
+    ):
+        return cached[1]
+    try:
+        import httpx
+
+        response = httpx.get(
+            f"{_EXCHANGE_RATE_API}/{base}",
+            timeout=5.0,
+            headers={"User-Agent": "CampusLink/1.0"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rates = payload.get("rates") if isinstance(payload, dict) else None
+        if not isinstance(rates, dict) or not rates:
+            raise ValueError(f"empty rates payload: {str(payload)[:200]}")
+        parsed = {k: float(v) for k, v in rates.items() if isinstance(v, (int, float))}
+        _rate_cache[base] = (time.monotonic(), parsed)
+        return parsed
+    except Exception as exc:
+        # 失败负缓存 + 日志：避免每请求阻塞 5s 重试且无迹可查
+        logger.warning("exchange rate fetch failed: base=%s err=%s", base, exc)
+        _rate_cache[base] = (time.monotonic(), None)
+        return None
 
 
 @mcp.tool()
 def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
-    """单位换算（长度/重量/温度/货币的基础换算）。"""
+    """单位换算（长度/重量/温度/货币）。
+
+    货币换算使用实时汇率（open.er-api.com，免费无 key，1 小时缓存）；
+    API 不可用时回退固定汇率。非货币换算为固定比率。
+    """
+    # 货币换算：中文别名/ISO 代码 → 实时汇率
+    from_code = _to_iso_code(from_unit)
+    to_code = _to_iso_code(to_unit)
+    # 涉及货币：任一侧是货币 → 走货币逻辑（含同币种恒 1 与错误语义）
+    if from_code or to_code:
+        if from_code and to_code:
+            if from_code == to_code:  # 同币种恒为 1，无需查 API
+                return json.dumps(
+                    {
+                        "value": value,
+                        "from_unit": from_unit,
+                        "to_unit": to_unit,
+                        "result": value,
+                        "rate": 1.0,
+                        "source": "identity",
+                    },
+                    ensure_ascii=False,
+                )
+            rates = _get_rates(from_code)
+            if rates and to_code in rates:
+                result = value * rates[to_code]
+                return json.dumps(
+                    {
+                        "value": value,
+                        "from_unit": from_unit,
+                        "to_unit": to_unit,
+                        "result": result,
+                        "rate": rates[to_code],
+                        "source": "live",
+                    },
+                    ensure_ascii=False,
+                )
+            # API 失败 → 回退固定汇率
+            fallback = _FALLBACK_RATES.get((from_unit, to_unit))
+            if fallback is not None:
+                return json.dumps(
+                    {
+                        "value": value,
+                        "from_unit": from_unit,
+                        "to_unit": to_unit,
+                        "result": value * fallback,
+                        "rate": fallback,
+                        "source": "fallback",
+                    },
+                    ensure_ascii=False,
+                )
+        return json.dumps(
+            {
+                "value": value,
+                "from_unit": from_unit,
+                "to_unit": to_unit,
+                "error": f"unsupported currency: {from_unit} → {to_unit}",
+            },
+            ensure_ascii=False,
+        )
+
     conversions = {
         # 长度（米基准）
-        ("米", "公里"): 0.001, ("公里", "米"): 1000,
-        ("米", "英里"): 1 / 1609.344, ("英里", "米"): 1609.344,
-        ("米", "英尺"): 3.28084, ("英尺", "米"): 1 / 3.28084,
+        ("米", "公里"): 0.001,
+        ("公里", "米"): 1000,
+        ("米", "英里"): 1 / 1609.344,
+        ("英里", "米"): 1609.344,
+        ("米", "英尺"): 3.28084,
+        ("英尺", "米"): 1 / 3.28084,
         # 重量（千克基准）
-        ("千克", "斤"): 2.0, ("斤", "千克"): 0.5,
-        ("千克", "磅"): 2.20462, ("磅", "千克"): 1 / 2.20462,
+        ("千克", "斤"): 2.0,
+        ("斤", "千克"): 0.5,
+        ("千克", "磅"): 2.20462,
+        ("磅", "千克"): 1 / 2.20462,
         # 温度
         ("摄氏度", "华氏度"): None,  # 特殊处理
         ("华氏度", "摄氏度"): None,
-        # 货币（简化固定汇率）
-        ("人民币", "美元"): 1 / 7.2, ("美元", "人民币"): 7.2,
-        ("人民币", "欧元"): 1 / 7.8, ("欧元", "人民币"): 7.8,
     }
     key = (from_unit, to_unit)
     if key not in conversions:
-        return json.dumps({"value": value, "from_unit": from_unit, "to_unit": to_unit,
-                           "error": f"unsupported conversion: {from_unit} → {to_unit}"})
+        return json.dumps(
+            {
+                "value": value,
+                "from_unit": from_unit,
+                "to_unit": to_unit,
+                "error": f"unsupported conversion: {from_unit} → {to_unit}",
+            },
+            ensure_ascii=False,
+        )
     factor = conversions[key]
     if factor is None:  # 温度特殊换算
         if key == ("摄氏度", "华氏度"):
@@ -139,7 +294,43 @@ def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
             result = (value - 32) * 5 / 9
     else:
         result = value * factor
-    return json.dumps({"value": value, "from_unit": from_unit, "to_unit": to_unit, "result": result})
+    return json.dumps(
+        {"value": value, "from_unit": from_unit, "to_unit": to_unit, "result": result},
+        ensure_ascii=False,
+    )
+
+
+def _parse_ddg_results(html_text: str, max_results: int = 5) -> list[dict[str, str]]:
+    """从 DuckDuckGo HTML 响应提取搜索结果（标题/链接/摘要），纯标准库。
+
+    DDG html 端点每个结果块含 ``result__a``（标题+链接）与 ``result__snippet``
+    （摘要）。解析失败/无结果时返回空列表，绝不抛异常（搜索为低风险读操作）。
+    """
+    results: list[dict[str, str]] = []
+
+    def _clean(text: str) -> str:
+        text = re.sub(r"<[^>]+>", "", text)  # 去内嵌标签
+        return html_unescape(text).strip()
+
+    titles = re.findall(
+        r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+        html_text,
+        re.DOTALL,
+    )
+    snippets = re.findall(
+        r'<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>',
+        html_text,
+        re.DOTALL,
+    )
+    for index, (url, title) in enumerate(titles[:max_results]):
+        results.append(
+            {
+                "title": _clean(title),
+                "url": url,
+                "snippet": _clean(snippets[index]) if index < len(snippets) else "",
+            }
+        )
+    return results
 
 
 def _parse_ddg_results(html_text: str, max_results: int = 5) -> list[dict[str, str]]:
@@ -200,12 +391,21 @@ async def web_search(query: str, max_results: int = 5) -> str:
             response.raise_for_status()
     except Exception as exc:
         return json.dumps(
-            {"query": query, "results": [], "error": f"search failed: {exc}", "status": "failed"},
+            {
+                "query": query,
+                "results": [],
+                "error": f"search failed: {exc}",
+                "status": "failed",
+            },
             ensure_ascii=False,
         )
     results = _parse_ddg_results(response.text, max_results)
     return json.dumps(
-        {"query": query, "results": results, "status": "ok" if results else "no_results"},
+        {
+            "query": query,
+            "results": results,
+            "status": "ok" if results else "no_results",
+        },
         ensure_ascii=False,
     )
 
@@ -214,6 +414,7 @@ async def web_search(query: str, max_results: int = 5) -> str:
 # FastAPI 入口：挂载 MCP + 安全中间件
 # ──────────────────────────────────────────────────────────────────────
 
+
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI):
     # 关键：mount 到 FastAPI 后，子应用的 lifespan 不执行，task group 永远为
@@ -221,6 +422,7 @@ async def _lifespan(app: FastAPI):
     # 手动 session_manager.run() 初始化（mcp 1.x 官方 mounting 方式）。
     async with mcp.session_manager.run():
         yield
+
 
 app = FastAPI(title="Utility Tools MCP Server", version="1.0.0", lifespan=_lifespan)
 app.add_middleware(McpSecurityMiddleware, agent_name=AGENT_NAME)

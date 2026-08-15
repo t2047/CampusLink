@@ -47,6 +47,7 @@ _AGENT_AFTER_ROUTES = {
 }
 
 _UTILITY_AFTER_ROUTES = {
+    "human_approval": "human_approval",
     "agent_invoker": "agent_invoker",
     "to_guard": "output_guardrail",
     "to_chat": "chat_responder",
