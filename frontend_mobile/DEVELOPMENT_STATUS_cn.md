@@ -1,12 +1,12 @@
 # CampusLink Android Core Chat 开发状态与后续路线
 
-> 最后更新：2026-08-15
+> 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/mobile-core-chat-kotlin`
+> 当前开发分支：`feature/facilities-mobile`
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat 第一版已完成，等待云端可信 HTTPS 和真实设备联调
+> 当前阶段：Core Chat 第一版和 Facilities Mobile Phase 1 已完成
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -218,6 +218,24 @@ message
 
 当前 UI 以功能验证为主，尚未进行完整品牌设计、动画、无障碍和多尺寸视觉优化。
 
+### 3.9 Facilities Mobile Phase 1
+
+状态：**已完成**
+
+- Chat 和会话页提供统一 Services 入口，Facilities 作为首个原生服务模块；
+- Facilities 首页和 Search Spaces 入口沿用现有单 Activity、Compose 手动导航；
+- 空间搜索调用真实 `GET /api/facilities/spaces`，支持关键词、楼宇、空间类型、最小容量和多个设备条件；
+- 搜索页包含加载、空结果、错误、重试和重置状态；
+- 空间详情调用真实 `GET /api/facilities/spaces/{spaceId}`；
+- 可用性查询调用真实 `GET /api/facilities/spaces/{spaceId}/availability`；
+- 日期时间按 Spring `LocalDateTime` 契约发送 `yyyy-MM-dd'T'HH:mm:ss`，不附加 `Z` 或时区偏移；
+- 日期或时间变化会立即清除旧可用性结果，并防止较慢的旧请求覆盖新选择；
+- 新增共享认证 HTTP 客户端，自动附加现有 SessionStore JWT，并统一处理 JSON、401、网络错误和请求取消；
+- 已在 Android 模拟器使用 `localDebug` 对本地 Spring Backend 和 phpStudy MySQL 完成真实搜索、详情及可用性只读验证。
+- 本阶段开始前，Android Central Agent → Facilities Agent → MCP 的搜索及预约 HITL/Confirm 链路已完成人工验证；该链路继续由 Core Chat 复用，不在原生页面重复实现 Agent 业务逻辑。
+
+本阶段没有实现预约创建、我的预约、取消预约和维修请求，也没有在移动端复制后端冲突检测或权限规则。
+
 ## 4. 本地数据与安全
 
 ### 4.1 已完成的安全措施
@@ -315,7 +333,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 7 个通过 |
+| JVM 单元测试 | 20 个通过 |
 | 模拟器测试 | 2 个通过 |
 | `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
@@ -323,7 +341,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API 和 Room Repository。设备测试覆盖登录页启动及 Room v1 架构创建。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API 序列化及 Facilities ViewModel 状态。设备测试覆盖登录页启动及 Room v1 架构创建。
 
 ### 6.3 CI/CD
 
@@ -360,7 +378,7 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.2 使用真实 Android 设备完成 Core Chat 验收
 
-- 状态：**未开始**
+- 状态：**本地模拟器已完成主要 Chat/Facilities 链路验证，真实物理设备与云端 HTTPS 仍待完成**
 - 依赖：7.1、可用测试账号、云端 Chat Core 和至少一个 Agent
 - 建议负责人：Android 开发者 + Chat Core 开发者
 - 验收标准：
@@ -430,8 +448,9 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.10 Facilities 原生页面
 
-- 状态：**未开始**
-- 需要开发：设施搜索、空间详情、预约、我的预约、维修请求和状态跟踪。
+- 状态：**Phase 1 已完成**
+- 已完成：Services 入口、设施搜索、空间详情和可用性查询，并已连接真实 Spring Backend。
+- 需要开发：预约创建、我的预约、取消预约、维修请求和状态跟踪。
 
 #### 7.11 Mail 原生页面
 

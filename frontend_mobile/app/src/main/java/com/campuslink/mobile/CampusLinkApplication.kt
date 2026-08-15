@@ -2,13 +2,16 @@ package com.campuslink.mobile
 
 import android.app.Application
 import com.campuslink.mobile.core.network.AuthApi
+import com.campuslink.mobile.core.network.AuthenticatedHttpClient
 import com.campuslink.mobile.core.network.ChatSseClient
+import com.campuslink.mobile.core.network.FacilitiesApi
 import com.campuslink.mobile.core.security.CryptoManager
 import com.campuslink.mobile.core.security.DatabaseKeyStore
 import com.campuslink.mobile.core.security.SessionStore
 import com.campuslink.mobile.core.settings.AppSettings
 import com.campuslink.mobile.core.storage.CampusDatabase
 import com.campuslink.mobile.core.storage.ChatRepository
+import com.campuslink.mobile.facilities.FacilitiesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,4 +51,12 @@ class AppContainer(application: Application) {
         .build()
     val authApi = AuthApi(httpClient, BuildConfig.API_BASE_URL, json)
     val chatClient = ChatSseClient(httpClient, BuildConfig.API_BASE_URL, sessionStore, json)
+    private val authenticatedHttpClient = AuthenticatedHttpClient(
+        httpClient,
+        BuildConfig.API_BASE_URL,
+        json,
+        tokenProvider = { sessionStore.session.value?.token },
+        onUnauthorized = sessionStore::clear,
+    )
+    val facilitiesRepository = FacilitiesRepository(FacilitiesApi(authenticatedHttpClient, json))
 }
