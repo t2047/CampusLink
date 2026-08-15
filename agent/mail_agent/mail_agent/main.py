@@ -13,6 +13,7 @@ OAuth flow:
 
 from __future__ import annotations
 
+import contextvars
 import math
 import re
 import uuid
@@ -58,7 +59,9 @@ def _unauthorized(message: str) -> MailApiError:
 
 
 def _not_connected() -> MailApiError:
-    url, _state = gmail_service.authorization_url()
+    url, _state = gmail_service.authorization_url(
+        redirect_uri=_effective_redirect_uri()
+    )
     return MailApiError(
         status.HTTP_409_CONFLICT,
         "GMAIL_NOT_CONNECTED",
@@ -90,6 +93,42 @@ def _user_from_auth(authorization: str | None) -> str:
     return authorization[len("bearer "):].strip()
 
 
+# Bound to every request so helpers can derive the public origin (scheme + host)
+# even from error paths (e.g. the 409 auth_url) that carry no Request parameter.
+_current_request: contextvars.ContextVar[Request | None] = contextvars.ContextVar(
+    "mail_current_request", default=None
+)
+
+
+def _public_base_url(request: Request | None = None) -> str:
+    """The public origin the client used to reach this service.
+
+    Behind the nginx reverse proxy the service sees container-internal host/port,
+    so trust ``X-Forwarded-Proto`` + ``Host`` (both set by nginx); when accessed
+    directly (local dev, port 5000) fall back to the raw URL parts.
+    """
+    req = request or _current_request.get()
+    if req is None:
+        return "http://localhost:5000"
+    scheme = (
+        req.headers.get("x-forwarded-proto") or req.url.scheme
+    ).split(",")[0].strip()
+    host = req.headers.get("host") or req.url.netloc
+    return f"{scheme}://{host}"
+
+
+def _effective_redirect_uri(request: Request | None = None) -> str:
+    """Redirect URI the Google OAuth flow should use.
+
+    An explicitly configured ``GMAIL_REDIRECT_URI`` (local dev) wins; otherwise
+    derive ``https://<public-host>/callback`` from the request so any deployment
+    domain matches the URI registered in the Google Cloud Console.
+    """
+    if config.GMAIL_REDIRECT_URI:
+        return config.GMAIL_REDIRECT_URI
+    return f"{_public_base_url(request)}/callback"
+
+
 app = FastAPI(title="CampusLink Mail Service", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
@@ -98,6 +137,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _bind_current_request(request: Request, call_next):
+    token = _current_request.set(request)
+    try:
+        return await call_next(request)
+    finally:
+        _current_request.reset(token)
 
 
 @app.exception_handler(MailApiError)
@@ -125,7 +173,9 @@ async def health() -> dict[str, object]:
 @app.get("/api/mail/oauth/url", response_model=OAuthUrlResponse)
 async def oauth_url(authorization: str | None = Header(default=None)) -> OAuthUrlResponse:
     _user_from_auth(authorization)
-    url, _state = gmail_service.authorization_url()
+    url, _state = gmail_service.authorization_url(
+        redirect_uri=_effective_redirect_uri()
+    )
     return OAuthUrlResponse(auth_url=url, connected=gmail_service.is_connected())
 
 
@@ -139,7 +189,12 @@ async def oauth_status(authorization: str | None = Header(default=None)) -> OAut
 
 
 @app.get("/callback")
-async def oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+async def oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
     if error:
         raise MailApiError(status.HTTP_400_BAD_REQUEST, "OAUTH_ERROR", error)
     if not code or not state:
@@ -154,7 +209,8 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
         raise MailApiError(status.HTTP_400_BAD_REQUEST, "OAUTH_ERROR", str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
-    return RedirectResponse(url=f"{config.FRONTEND_URL}/mail?connected=1")
+    frontend = config.FRONTEND_URL or _public_base_url(request)
+    return RedirectResponse(url=f"{frontend}/mail?connected=1")
 
 
 @app.post("/api/mail/oauth/disconnect", response_model=OAuthStatusResponse)

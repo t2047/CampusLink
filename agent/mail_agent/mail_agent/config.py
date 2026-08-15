@@ -40,9 +40,14 @@ GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "").strip() or (
     "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"
 )
 GMAIL_PROJECT_ID = os.environ.get("GMAIL_PROJECT_ID", "").strip() or "river-lantern-436006-s4"
-GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "").strip() or (
-    "http://localhost:5000/callback"
-)
+
+# Google 授权回调地址。留空时（生产默认）由 API 按请求的 Host /
+# X-Forwarded-Proto 动态推导为 ``https://<public-host>/callback``，部署到任意
+# 域名都无需改环境变量；本地开发 .env 显式设为 http://localhost:5000/callback。
+# 回调地址必须与 Google Cloud Console 中注册的 Authorized redirect URI 完全一致
+# （含协议/域名/路径），否则报 400 redirect_uri_mismatch。
+GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "").strip() or None
+DEFAULT_GMAIL_REDIRECT_URI = "http://localhost:5000/callback"
 
 # gmail.modify = read, send, modify labels, trash (everything we need, without
 # bypassing the trash bin).
@@ -56,7 +61,9 @@ TOKEN_PATH = Path(
 )
 
 # Frontend origin to bounce back to after the OAuth callback completes.
-FRONTEND_URL = os.environ.get("MAIL_FRONTEND_URL", "http://localhost:5173")
+# Empty (production default) -> derived from the callback request's public
+# origin, so the browser lands back on the same domain the user started from.
+FRONTEND_URL = os.environ.get("MAIL_FRONTEND_URL", "").strip() or None
 
 # ---- Mail Agent LLM (LangChain) ----------------------------------------------
 # 显式配置 MAIL_LLM_*（写入仓库根 .env）；未配置时回退到 DEEPSEEK_*，保证
@@ -86,6 +93,6 @@ def client_config() -> dict:
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": GMAIL_CLIENT_SECRET,
-            "redirect_uris": [GMAIL_REDIRECT_URI],
+            "redirect_uris": [GMAIL_REDIRECT_URI or DEFAULT_GMAIL_REDIRECT_URI],
         }
     }
