@@ -6,8 +6,10 @@ import androidx.compose.runtime.saveable.listSaver
 import com.campuslink.mobile.core.model.ReportType
 
 internal sealed interface Screen {
+    data object Home : Screen
     data object Conversations : Screen
     data class Chat(val id: String) : Screen
+    data object Profile : Screen
     data object Settings : Screen
     data object Services : Screen
     data object FacilitiesHome : Screen
@@ -26,8 +28,8 @@ internal sealed interface Screen {
 }
 
 internal data class NavigationState(
-    val screen: Screen = Screen.Conversations,
-    val servicesReturnScreen: Screen = Screen.Conversations,
+    val screen: Screen = Screen.Home,
+    val servicesReturnScreen: Screen = Screen.Home,
     val bookingDetailsReturnScreen: Screen = Screen.MyBookings,
     val maintenanceDetailsReturnScreen: Screen = Screen.MyMaintenance,
 ) {
@@ -49,10 +51,12 @@ internal data class NavigationState(
     )
 
     fun backTarget(): Screen? = when (val active = screen) {
-        Screen.Conversations -> null
-        is Screen.Chat, Screen.Settings -> Screen.Conversations
+        Screen.Home -> null
+        Screen.Conversations, Screen.Profile -> Screen.Home
+        is Screen.Chat -> Screen.Conversations
+        Screen.Settings -> Screen.Profile
         Screen.Services -> servicesReturnScreen
-        Screen.FacilitiesHome -> Screen.Services
+        Screen.FacilitiesHome -> Screen.Home
         Screen.FacilitiesSearch -> Screen.FacilitiesHome
         is Screen.SpaceDetails -> Screen.FacilitiesSearch
         Screen.MyBookings -> Screen.FacilitiesHome
@@ -62,7 +66,7 @@ internal data class NavigationState(
             ?: Screen.FacilitiesHome
         Screen.MyMaintenance -> Screen.FacilitiesHome
         is Screen.MaintenanceDetails -> maintenanceDetailsReturnScreen
-        Screen.LostFoundHome -> Screen.Services
+        Screen.LostFoundHome -> Screen.Home
         Screen.LostFoundBrowse -> Screen.LostFoundHome
         is Screen.LostFoundDetails -> if (active.returnToClaims) {
             Screen.LostFoundClaims
@@ -104,8 +108,10 @@ internal fun NavigationBackHandler(state: NavigationState, onBack: (NavigationSt
 }
 
 internal fun Screen.routeKey(): String = when (this) {
+    Screen.Home -> "home"
     Screen.Conversations -> "conversations"
     is Screen.Chat -> "chat|$id"
+    Screen.Profile -> "profile"
     Screen.Settings -> "settings"
     Screen.Services -> "services"
     Screen.FacilitiesHome -> "facilities-home"
@@ -126,8 +132,10 @@ internal fun Screen.routeKey(): String = when (this) {
 internal fun screenFromRouteKey(routeKey: String?): Screen {
     val parts = routeKey.orEmpty().split('|')
     return when (parts.firstOrNull()) {
+        "home" -> Screen.Home
         "conversations" -> Screen.Conversations
         "chat" -> parts.getOrNull(1)?.takeIf(String::isNotBlank)?.let(Screen::Chat)
+        "profile" -> Screen.Profile
         "settings" -> Screen.Settings
         "services" -> Screen.Services
         "facilities-home" -> Screen.FacilitiesHome
@@ -148,7 +156,7 @@ internal fun screenFromRouteKey(routeKey: String?): Screen {
         }?.let(Screen::CreateLostFoundReport)
         "lost-found-claims" -> Screen.LostFoundClaims
         else -> null
-    } ?: Screen.Conversations
+    } ?: Screen.Home
 }
 
 private fun Long?.orEmpty(): String = this?.toString().orEmpty()
