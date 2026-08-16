@@ -18,5 +18,8 @@ internal fun formatBookingRange(start: String, end: String): String =
 internal fun formatBookingRange(booking: BookingResponse): String =
     formatBookingRange(booking.startDateTime, booking.endDateTime)
 
+internal fun formatMaintenanceDateTime(value: String): String = parseDateTime(value)?.format(DATE_TIME_FORMAT) ?: value
+
 private val DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy")
 private val TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm")
+private val DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a")

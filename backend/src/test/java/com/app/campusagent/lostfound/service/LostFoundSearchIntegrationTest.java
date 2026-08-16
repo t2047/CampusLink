@@ -74,6 +74,73 @@ class LostFoundSearchIntegrationTest {
     }
 
     @Test
+    void colourFilterExpandsToCrossLanguageAndSynonymValues() {
+        User owner = userRepository.save(new User("owner-colour@u.nus.edu", "encoded"));
+        reportRepository.save(report(
+                ReportType.FOUND, "White Cup", ItemCategory.OTHER,
+                "A white ceramic cup.", "白色", "Canteen",
+                LocalDate.now().minusDays(1), owner));
+        reportRepository.save(report(
+                ReportType.FOUND, "Black Wallet", ItemCategory.WALLET_PURSE,
+                "A black leather wallet.", "Black", "Library",
+                LocalDate.now().minusDays(1), owner));
+        reportRepository.flush();
+
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+
+        // white 命中数据库里 colour='白色' 的候选（P0 复现场景）
+        var whiteToChinese = service.search(
+                ReportType.FOUND, null, null, "white", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+        assertThat(whiteToChinese.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("White Cup");
+
+        // 反向：白色 命中 colour='White' 的候选
+        var chineseToEnglish = service.search(
+                ReportType.FOUND, null, null, "白色", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+        assertThat(chineseToEnglish.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("White Cup");
+
+        // 非同色（Black）不命中白色候选
+        var blackSearch = service.search(
+                ReportType.FOUND, null, null, "black", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+        assertThat(blackSearch.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("Black Wallet");
+    }
+
+    @Test
+    void unknownColourFallsBackToSubstringLike() {
+        User owner = userRepository.save(new User("owner-unknown-colour@u.nus.edu", "encoded"));
+        reportRepository.save(report(
+                ReportType.FOUND, "Rainbow Scarf", ItemCategory.CLOTHING,
+                "A colourful scarf.", "multicolour", "Gym",
+                LocalDate.now().minusDays(1), owner));
+        reportRepository.flush();
+
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+
+        // "colour" 未命中 canonical 表 → 回退原始 lower(colour) like '%colour%'
+        var result = service.search(
+                ReportType.FOUND, null, null, "colour", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+
+        assertThat(result.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("Rainbow Scarf");
+    }
+
+    @Test
     void searchCandidatesExposesImageUrls() {
         User owner = userRepository.save(new User("owner2@u.nus.edu", "encoded"));
         LostFoundReport report = report(

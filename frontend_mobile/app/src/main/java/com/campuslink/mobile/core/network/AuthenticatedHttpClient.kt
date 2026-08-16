@@ -10,6 +10,7 @@ import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -25,9 +26,12 @@ class AuthenticatedHttpClient(
     private val onUnauthorized: () -> Unit,
 ) {
     suspend fun get(path: String, query: List<Pair<String, String>> = emptyList()): String =
-        execute("GET", path, query, null)
+        execute("GET", path, query, jsonBody = null)
 
     suspend fun post(path: String, jsonBody: String): String = execute("POST", path, emptyList(), jsonBody)
+
+    suspend fun postMultipart(path: String, body: RequestBody): String =
+        execute("POST", path, emptyList(), body)
 
     suspend fun patch(path: String, jsonBody: String? = null): String = execute("PATCH", path, emptyList(), jsonBody)
 
@@ -36,6 +40,18 @@ class AuthenticatedHttpClient(
         path: String,
         query: List<Pair<String, String>>,
         jsonBody: String?,
+    ): String = execute(
+        method = method,
+        path = path,
+        query = query,
+        body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE),
+    )
+
+    private suspend fun execute(
+        method: String,
+        path: String,
+        query: List<Pair<String, String>>,
+        body: RequestBody?,
     ): String {
         val token = tokenProvider()?.takeIf(String::isNotBlank)
             ?: throw ApiException(401, "Not authenticated")
@@ -47,8 +63,8 @@ class AuthenticatedHttpClient(
             .header("Accept", "application/json")
         when (method) {
             "GET" -> requestBuilder.get()
-            "POST" -> requestBuilder.post(requireNotNull(jsonBody).toRequestBody(JSON_MEDIA_TYPE))
-            "PATCH" -> requestBuilder.patch((jsonBody ?: "").toRequestBody(JSON_MEDIA_TYPE))
+            "POST" -> requestBuilder.post(requireNotNull(body))
+            "PATCH" -> requestBuilder.patch(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
             else -> error("Unsupported HTTP method: $method")
         }
         return await(requestBuilder.build())
@@ -70,7 +86,12 @@ class AuthenticatedHttpClient(
                         if (continuation.isActive) {
                             val backendError = parseError(body, response.code)
                             continuation.resumeWithException(
-                                ApiException(response.code, backendError.message, backendError.code),
+                                ApiException(
+                                    response.code,
+                                    backendError.message,
+                                    backendError.code,
+                                    backendError.validationErrors,
+                                ),
                             )
                         }
                         return
@@ -84,18 +105,23 @@ class AuthenticatedHttpClient(
     private fun parseError(body: String, statusCode: Int): BackendError = runCatching {
         val value = json.parseToJsonElement(body).jsonObject
         val code = value["code"]?.jsonPrimitive?.contentOrNull
-        val validationMessage = value["errors"]?.jsonObject?.values
-            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
-            ?.joinToString(" ")
+        val validationErrors = value["errors"]?.jsonObject?.mapNotNull { (field, message) ->
+            message.jsonPrimitive.contentOrNull?.let { field to it }
+        }?.toMap().orEmpty()
+        val validationMessage = validationErrors.values.joinToString(" ").ifBlank { null }
         val message = value["error"]?.jsonPrimitive?.contentOrNull
             ?: value["message"]?.jsonPrimitive?.contentOrNull
             ?: validationMessage
             ?: code
             ?: "HTTP $statusCode"
-        BackendError(message, code)
-    }.getOrNull() ?: BackendError("HTTP $statusCode", null)
+        BackendError(message, code, validationErrors)
+    }.getOrNull() ?: BackendError("HTTP $statusCode", null, emptyMap())
 
-    private data class BackendError(val message: String, val code: String?)
+    private data class BackendError(
+        val message: String,
+        val code: String?,
+        val validationErrors: Map<String, String>,
+    )
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

@@ -5,6 +5,7 @@ import com.campuslink.mobile.core.network.AuthApi
 import com.campuslink.mobile.core.network.AuthenticatedHttpClient
 import com.campuslink.mobile.core.network.ChatSseClient
 import com.campuslink.mobile.core.network.FacilitiesApi
+import com.campuslink.mobile.core.network.LostFoundApi
 import com.campuslink.mobile.core.security.CryptoManager
 import com.campuslink.mobile.core.security.DatabaseKeyStore
 import com.campuslink.mobile.core.security.SessionStore
@@ -12,6 +13,7 @@ import com.campuslink.mobile.core.settings.AppSettings
 import com.campuslink.mobile.core.storage.CampusDatabase
 import com.campuslink.mobile.core.storage.ChatRepository
 import com.campuslink.mobile.facilities.FacilitiesRepository
+import com.campuslink.mobile.lostfound.LostFoundRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,4 +61,5 @@ class AppContainer(application: Application) {
         onUnauthorized = sessionStore::clear,
     )
     val facilitiesRepository = FacilitiesRepository(FacilitiesApi(authenticatedHttpClient, json))
+    val lostFoundRepository = LostFoundRepository(LostFoundApi(authenticatedHttpClient, json))
 }

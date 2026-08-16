@@ -3,8 +3,10 @@ package com.campuslink.mobile.core.network
 import com.campuslink.mobile.core.model.AvailabilityResponse
 import com.campuslink.mobile.core.model.BookingResponse
 import com.campuslink.mobile.core.model.CreateBookingRequest
+import com.campuslink.mobile.core.model.MaintenanceResponse
 import com.campuslink.mobile.core.model.Space
 import com.campuslink.mobile.core.model.SpaceSearchFilters
+import com.campuslink.mobile.core.model.SubmitMaintenanceRequest
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -61,8 +63,24 @@ class FacilitiesApi(
         client.patch("$BOOKINGS_PATH/$bookingId/cancel"),
     )
 
+    suspend fun submitMaintenance(request: SubmitMaintenanceRequest): MaintenanceResponse = json.decodeFromString(
+        MaintenanceResponse.serializer(),
+        client.post(MAINTENANCE_PATH, json.encodeToString(request)),
+    )
+
+    suspend fun listMaintenanceRequests(): List<MaintenanceResponse> = json.decodeFromString(
+        ListSerializer(MaintenanceResponse.serializer()),
+        client.get(MAINTENANCE_PATH),
+    )
+
+    suspend fun getMaintenanceDetails(ticketId: Long): MaintenanceResponse = json.decodeFromString(
+        MaintenanceResponse.serializer(),
+        client.get("$MAINTENANCE_PATH/$ticketId"),
+    )
+
     companion object {
         private const val SPACES_PATH = "api/facilities/spaces"
         private const val BOOKINGS_PATH = "api/facilities/bookings"
+        private const val MAINTENANCE_PATH = "api/facilities/maintenance"
     }
 }

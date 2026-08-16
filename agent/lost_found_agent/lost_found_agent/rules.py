@@ -10,7 +10,12 @@ from pydantic import BaseModel, ValidationError
 
 from .confirmation import ConfirmationError, ConfirmationStore
 from .events import AgentEvent
-from .matching import rank_candidates
+from .matching import (
+    COLOUR_FORM_ASCII_PATTERN,
+    COLOUR_GROUPS,
+    contains_colour_form,
+    rank_candidates,
+)
 from .models import (
     ActionTaken,
     ConfirmationRequired,
@@ -79,32 +84,6 @@ CATEGORIES: dict[str, str] = {
     "车辆": "OTHER",
     "other": "OTHER",
     "其他": "OTHER",
-}
-
-COLOURS = {
-    "black": "Black",
-    "white": "White",
-    "blue": "Blue",
-    "red": "Red",
-    "green": "Green",
-    "yellow": "Yellow",
-    "grey": "Grey",
-    "gray": "Grey",
-    "purple": "Purple",
-    "pink": "Pink",
-    "orange": "Orange",
-    "brown": "Brown",
-    "黑色": "黑色",
-    "白色": "白色",
-    "蓝色": "蓝色",
-    "红色": "红色",
-    "绿色": "绿色",
-    "黄色": "黄色",
-    "灰色": "灰色",
-    "紫色": "紫色",
-    "粉色": "粉色",
-    "橙色": "橙色",
-    "棕色": "棕色",
 }
 
 ALLOWED_CONTEXT_FIELDS = {
@@ -798,6 +777,21 @@ def safe_context(shared_data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def extract_colour(message: str) -> str | None:
+    """从消息抽取颜色，命中 canonical 表后返回该组的展示形式。
+
+    英文表面形式（如 ivory）命中时返回组内英文展示（White），中文表面形式
+    （如 乳白）命中时返回中文展示（白色），尽量保持用户输入语言；"black" 不会
+    因词边界规则误命中 "backpack"。
+    """
+    lowered = message.lower()
+    for group in COLOUR_GROUPS:
+        for form in group.forms:
+            if contains_colour_form(lowered, form):
+                return group.en if COLOUR_FORM_ASCII_PATTERN.search(form) else group.zh
+    return None
+
+
 def extract_fields(message: str, intent: Intent, today: str | None = None) -> dict[str, Any]:
     """从消息提取结构化字段。
 
@@ -839,10 +833,9 @@ def extract_fields(message: str, intent: Intent, today: str | None = None) -> di
             fields["category"] = mapped
 
     if "colour" not in fields:
-        for keyword, value in COLOURS.items():
-            if keyword in message.lower():
-                fields["colour"] = value
-                break
+        colour = extract_colour(message)
+        if colour:
+            fields["colour"] = colour
 
     iso_dates = re.findall(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", message)
     if iso_dates:
