@@ -44,7 +44,7 @@ public class AdminFacilitiesController {
         return adminFacilitiesService.overview();
     }
 
-    @GetMapping("/bookings")
+    @GetMapping("/bookings/search")
     public AdminFacilitiesPageResponse<AdminFacilityBookingResponse> bookings(
             @RequestParam(required = false) BookingStatus status,
             @RequestParam(required = false) Long spaceId,
@@ -67,7 +67,7 @@ public class AdminFacilitiesController {
                 bookingPageable(page, size, sort));
     }
 
-    @GetMapping("/maintenance")
+    @GetMapping("/maintenance/search")
     public AdminFacilitiesPageResponse<AdminFacilityMaintenanceResponse> maintenance(
             @RequestParam(name = "status", required = false) List<MaintenanceStatus> statuses,
             @RequestParam(required = false) MaintenancePriority priority,
@@ -94,7 +94,7 @@ public class AdminFacilitiesController {
                 maintenancePageable(page, size, sort));
     }
 
-    @GetMapping("/maintenance/{ticketId}")
+    @GetMapping("/maintenance/search/{ticketId}")
     public AdminFacilityMaintenanceResponse maintenanceDetail(@PathVariable Long ticketId) {
         return adminFacilitiesService.getMaintenance(ticketId);
     }
