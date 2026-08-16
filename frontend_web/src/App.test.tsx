@@ -54,6 +54,42 @@ vi.mock('./api/facilities', () => ({
     getSpace: vi.fn(),
   },
 }))
+
+vi.mock('./api/adminFacilities', () => ({
+  getAdminFacilitiesOverview: vi.fn().mockResolvedValue({
+    summary: {
+      totalSpaces: 5,
+      availableSpaces: 3,
+      outOfServiceSpaces: 1,
+      inactiveSpaces: 1,
+      totalBookings: 0,
+      confirmedBookings: 0,
+      cancelledBookings: 0,
+      completedBookings: 0,
+      totalMaintenanceRequests: 0,
+      submittedMaintenanceRequests: 0,
+      inProgressMaintenanceRequests: 0,
+      resolvedMaintenanceRequests: 0,
+      cancelledMaintenanceRequests: 0,
+      openMaintenanceRequests: 0,
+    },
+    spaceStatusBreakdown: [
+      { status: 'AVAILABLE', count: 3 },
+      { status: 'OUT_OF_SERVICE', count: 1 },
+      { status: 'INACTIVE', count: 1 },
+    ],
+    bookingStatusBreakdown: [],
+    maintenanceStatusBreakdown: [],
+  }),
+  searchAdminFacilityBookings: vi.fn().mockResolvedValue({
+    content: [], page: 0, size: 100, totalElements: 0, totalPages: 0, first: true, last: true,
+  }),
+  searchAdminFacilityMaintenance: vi.fn().mockResolvedValue({
+    content: [], page: 0, size: 25, totalElements: 0, totalPages: 0, first: true, last: true,
+  }),
+  getAdminFacilityMaintenance: vi.fn(),
+}))
+
 vi.mock('./api/adminLostFound', () => ({
   getAdminLostFoundOverview: vi.fn().mockResolvedValue({
     totalReports: 0,
@@ -63,6 +99,7 @@ vi.mock('./api/adminLostFound', () => ({
     lostReports: 0,
     foundReports: 0,
     submittedClaims: 0,
+  processedClaims: 0
   }),
   searchAdminLostFoundReports: vi.fn().mockResolvedValue({
     content: [],
