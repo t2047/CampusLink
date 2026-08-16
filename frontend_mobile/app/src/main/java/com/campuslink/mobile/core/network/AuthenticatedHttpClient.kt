@@ -86,7 +86,12 @@ class AuthenticatedHttpClient(
                         if (continuation.isActive) {
                             val backendError = parseError(body, response.code)
                             continuation.resumeWithException(
-                                ApiException(response.code, backendError.message, backendError.code),
+                                ApiException(
+                                    response.code,
+                                    backendError.message,
+                                    backendError.code,
+                                    backendError.validationErrors,
+                                ),
                             )
                         }
                         return
@@ -100,18 +105,23 @@ class AuthenticatedHttpClient(
     private fun parseError(body: String, statusCode: Int): BackendError = runCatching {
         val value = json.parseToJsonElement(body).jsonObject
         val code = value["code"]?.jsonPrimitive?.contentOrNull
-        val validationMessage = value["errors"]?.jsonObject?.values
-            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
-            ?.joinToString(" ")
+        val validationErrors = value["errors"]?.jsonObject?.mapNotNull { (field, message) ->
+            message.jsonPrimitive.contentOrNull?.let { field to it }
+        }?.toMap().orEmpty()
+        val validationMessage = validationErrors.values.joinToString(" ").ifBlank { null }
         val message = value["error"]?.jsonPrimitive?.contentOrNull
             ?: value["message"]?.jsonPrimitive?.contentOrNull
             ?: validationMessage
             ?: code
             ?: "HTTP $statusCode"
-        BackendError(message, code)
-    }.getOrNull() ?: BackendError("HTTP $statusCode", null)
+        BackendError(message, code, validationErrors)
+    }.getOrNull() ?: BackendError("HTTP $statusCode", null, emptyMap())
 
-    private data class BackendError(val message: String, val code: String?)
+    private data class BackendError(
+        val message: String,
+        val code: String?,
+        val validationErrors: Map<String, String>,
+    )
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/mobile-lost-found`（基于 `main` 提交 `0034868`）
+> 当前开发分支：`feature/facilities-mobile-maintenance`（已同步 `origin/main` 提交 `d893dfb`）
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat 第一版、Facilities Mobile Phase 1/2 已完成；Lost & Found Native Phase 1 已完成开发和本地自动化验证
+> 当前阶段：Core Chat 第一版、Facilities Mobile Phase 1/2/3 已完成；Lost & Found Native Phase 1 已完成开发和本地自动化验证
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -250,9 +250,27 @@ Lost & Found 原生详情页已经开发，但 Chat 内匹配卡片尚未接入�
 - 已在 `localDebug` 模拟器通过真实 Spring Backend 和 phpStudy MySQL 验证 Create → List → Details → Cancel；
 - 重叠时段在真实运行中由 Availability preflight 返回 `BOOKING_CONFLICT` 并阻止 Book 按钮；测试创建的预约最终均已取消。
 
-Maintenance 原生页面尚未实现。Facilities 原生确认属于 REST 页面误操作防护，不替代 Central Agent 的 HITL `/api/chat/resume`。
+Phase 2 当时未包含 Maintenance 原生页面；该部分现已在 Phase 3 完成。Facilities 原生确认属于 REST 页面误操作防护，不替代 Central Agent 的 HITL `/api/chat/resume`。
 
-### 3.11 Lost & Found Native Phase 1
+### 3.11 Facilities Mobile Phase 3
+
+状态：**已完成**
+
+- Facilities 首页新增 Report Maintenance 和 My Maintenance Requests 两个入口；
+- Report Maintenance 复用真实 `GET /api/facilities/spaces` 加载空间，不使用硬编码房间或手工 ID；
+- Space Details 新增 `Report a facility issue`，进入表单时自动预选当前真实空间，同时仍可更改；
+- 提交严格使用用户端 `POST /api/facilities/maintenance`，只发送 `spaceId`、`facilityType`、`description` 和真实 `LOW / MEDIUM / HIGH` 优先级，不发送 `userId`；
+- 提交前显示原生确认对话框，提交期间锁定重复点击；成功后保留 Backend response，并提供详情和列表入口；
+- 表单覆盖必填、255/2000 字符上限、Backend 字段校验错误、401、空间 404、网络、超时、5xx 和解析失败；
+- My Maintenance Requests 使用真实 ownership API `GET /api/facilities/maintenance`，包含加载、空状态、错误、重试、活动请求优先及更新时间倒序；
+- Maintenance Details 使用 `GET /api/facilities/maintenance/{ticketId}`，不存在与非 owner 都按相同安全 404 展示；
+- 普通用户只查看 `SUBMITTED / IN_PROGRESS / RESOLVED / CANCELLED`，没有状态修改入口，也不调用 Admin-only status API；
+- Spring `LocalDateTime` 继续作为 Singapore wall-clock string 处理，不添加 `Z` 或时区偏移；
+- 已在 Pixel 7 Android Emulator（API 36）使用 `localDebug` 对本地 Spring Backend 和 phpStudy MySQL 完成 Submit → List → Details 真实运行时验证；创建并读回 Ticket #4：COM2-03-12、Projector、HIGH、SUBMITTED；
+- Space Details → Report Issue 的 COM2-03-12 自动预选联动也已完成真实模拟器验证；
+- Central Agent Facilities Search / Booking HITL 代码本阶段没有修改。
+
+### 3.12 Lost & Found Native Phase 1
 
 状态：**已完成开发和本地自动化验证，等待真实后端/设备联调与 PR 合并**
 
@@ -408,15 +426,15 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 47 个通过 |
-| 模拟器测试 | 5 个通过 |
-| `assembleDemoDebug` | 通过 |
+| JVM 单元测试 | 58 个通过 |
+| 模拟器测试 | 11 个通过 |
+| `assembleLocalDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
 | Nginx `nginx -t` | 通过 |
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，以及两类业务 ViewModel 的成功、空结果、校验、错误和审核状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、创建确认和取消确认；Lost & Found Compose 设备测试仍待补充。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情，以及 Lost & Found 首页、浏览、发布和 Claims 主要 Compose 流程。
 
 ### 6.3 CI/CD
 
@@ -516,15 +534,15 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.9 Lost & Found 原生页面
 
-- 状态：**Phase 1 已完成开发和本地自动化验证；真机/云端联调、UI 测试和 PR 合并待完成**
+- 状态：**Phase 1 已完成开发和本地自动化验证；真机/云端联调和 PR 合并待完成**
 - 已完成：Services 入口、浏览筛选、分页、详情、多图发布 LOST/FOUND、认领申请、My Claims、Received Claims 和批准/拒绝。
-- 下一阶段：我的发布、编辑/关闭/删除、通知、Chat 卡片跳转、日期选择器、图片压缩/拍摄、完整中英文文案、Compose UI 测试与真机验收。
+- 下一阶段：我的发布、编辑/关闭/删除、通知、Chat 卡片跳转、日期选择器、图片压缩/拍摄、完整中英文文案、更完整的 Compose UI 覆盖与真机验收。
 
 #### 7.10 Facilities 原生页面
 
-- 状态：**Phase 1 和 Phase 2 已完成**
-- 已完成：Services 入口、设施搜索、空间详情、可用性查询、预约创建、我的预约、预约详情和取消预约，并已连接真实 Spring Backend。
-- 需要开发：维修请求、我的维修请求和状态跟踪。
+- 状态：**Phase 1、Phase 2 和 Phase 3 已完成**
+- 已完成：Services 入口、设施搜索、空间详情、可用性查询、预约创建、我的预约、预约详情、取消预约、维修请求、我的维修请求、维修详情和状态跟踪，并已连接真实 Spring Backend。
+- 当前用户端 Facilities 范围无缺失项；Admin Facilities 与维修状态更新不属于普通用户 Android 范围。
 
 #### 7.11 Mail 原生页面
 

@@ -3,6 +3,9 @@ package com.campuslink.mobile.core.network
 import com.campuslink.mobile.core.model.SpaceSearchFilters
 import com.campuslink.mobile.core.model.BookingStatus
 import com.campuslink.mobile.core.model.CreateBookingRequest
+import com.campuslink.mobile.core.model.MaintenancePriority
+import com.campuslink.mobile.core.model.MaintenanceStatus
+import com.campuslink.mobile.core.model.SubmitMaintenanceRequest
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -206,6 +209,73 @@ class FacilitiesApiTest {
         assertEquals(404, missing.statusCode)
     }
 
+    @Test
+    fun `submit maintenance posts authenticated strict json and parses response`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201).setBody(MAINTENANCE_JSON))
+
+        val result = api.submitMaintenance(
+            SubmitMaintenanceRequest(4, "Projector", "The projector cannot turn on.", MaintenancePriority.HIGH),
+        )
+
+        assertEquals(91L, result.ticketId)
+        assertEquals(MaintenancePriority.HIGH, result.priority)
+        assertEquals(MaintenanceStatus.SUBMITTED, result.status)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/facilities/maintenance", request.path)
+        assertEquals("Bearer jwt", request.getHeader("Authorization"))
+        val body = request.body.readUtf8()
+        assertTrue(body.contains("\"spaceId\":4"))
+        assertTrue(body.contains("\"priority\":\"HIGH\""))
+        assertFalse(body.contains("userId"))
+        assertFalse(body.contains("building"))
+    }
+
+    @Test
+    fun `submit maintenance preserves validation fields and space not found`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(400)
+                .setBody("""{"errors":{"description":"size must be between 0 and 2000"}}"""),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(404)
+                .setBody("""{"code":"SPACE_NOT_FOUND","error":"Space not found: 999"}"""),
+        )
+        val request = SubmitMaintenanceRequest(4, "Projector", "Broken", MaintenancePriority.MEDIUM)
+
+        val validation = runCatching { api.submitMaintenance(request) }.exceptionOrNull() as ApiException
+        val missing = runCatching { api.submitMaintenance(request.copy(spaceId = 999)) }
+            .exceptionOrNull() as ApiException
+
+        assertEquals("size must be between 0 and 2000", validation.validationErrors["description"])
+        assertEquals(404, missing.statusCode)
+        assertEquals("SPACE_NOT_FOUND", missing.errorCode)
+    }
+
+    @Test
+    fun `list maintenance gets authenticated array`() = runTest {
+        server.enqueue(MockResponse().setBody("[$MAINTENANCE_JSON]"))
+
+        val result = api.listMaintenanceRequests()
+
+        assertEquals(91L, result.single().ticketId)
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertEquals("/api/facilities/maintenance", request.path)
+        assertEquals("Bearer jwt", request.getHeader("Authorization"))
+    }
+
+    @Test
+    fun `maintenance details uses ticket id and maps safe not found`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"code":"TICKET_NOT_FOUND"}"""))
+
+        val failure = runCatching { api.getMaintenanceDetails(999) }.exceptionOrNull() as ApiException
+
+        assertEquals("/api/facilities/maintenance/999", server.takeRequest().path)
+        assertEquals(404, failure.statusCode)
+        assertEquals("TICKET_NOT_FOUND", failure.errorCode)
+    }
+
     companion object {
         private val SPACE_JSON = """
             {
@@ -233,6 +303,23 @@ class FacilitiesApiTest {
               "status": "CONFIRMED",
               "createdAt": "2026-08-16T10:00:00",
               "updatedAt": "2026-08-16T10:00:00"
+            }
+        """.trimIndent()
+
+        private val MAINTENANCE_JSON = """
+            {
+              "success": true,
+              "ticketId": 91,
+              "spaceId": 4,
+              "spaceName": "COM3-01-20 Project Room",
+              "building": "COM3",
+              "roomNumber": "01-20",
+              "facilityType": "Projector",
+              "description": "The projector cannot turn on.",
+              "priority": "HIGH",
+              "status": "SUBMITTED",
+              "createdAt": "2026-08-16T13:45:00",
+              "updatedAt": "2026-08-16T13:45:00"
             }
         """.trimIndent()
     }

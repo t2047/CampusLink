@@ -52,6 +52,45 @@ data class BookingResponse(
     val updatedAt: String,
 )
 
+@Serializable
+enum class MaintenancePriority {
+    LOW,
+    MEDIUM,
+    HIGH,
+}
+
+@Serializable
+enum class MaintenanceStatus {
+    SUBMITTED,
+    IN_PROGRESS,
+    RESOLVED,
+    CANCELLED,
+}
+
+@Serializable
+data class SubmitMaintenanceRequest(
+    val spaceId: Long,
+    val facilityType: String,
+    val description: String,
+    val priority: MaintenancePriority = MaintenancePriority.MEDIUM,
+)
+
+@Serializable
+data class MaintenanceResponse(
+    val success: Boolean,
+    val ticketId: Long,
+    val spaceId: Long? = null,
+    val spaceName: String? = null,
+    val building: String,
+    val roomNumber: String,
+    val facilityType: String,
+    val description: String,
+    val priority: MaintenancePriority,
+    val status: MaintenanceStatus,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
 data class SpaceSearchFilters(
     val query: String = "",
     val building: String = "",
