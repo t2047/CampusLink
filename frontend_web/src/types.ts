@@ -17,6 +17,16 @@ export interface AuthResponse {
   token: string
   email: string
   role: string
+  nickname: string | null
+  avatarUrl: string | null
+}
+
+/** 当前用户资料（个人中心需求 §9.3）。nickname/avatarUrl 为 null 时前端回退默认展示。 */
+export interface UserProfile {
+  email: string
+  role: string
+  nickname: string | null
+  avatarUrl: string | null
 }
 
 export interface LostFoundImage {
@@ -40,6 +50,7 @@ export interface LostFoundReport {
   status: ReportStatus
   images: LostFoundImage[]
   createdByMe: boolean
+  adminHidden: boolean
   createdAt: string
   updatedAt: string
 }

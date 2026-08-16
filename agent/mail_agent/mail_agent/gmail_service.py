@@ -106,7 +106,9 @@ class GmailNotConnectedError(RuntimeError):
 
 
 # Pending OAuth states (CSRF protection) - in-memory is fine for a one-time flow.
-_pending_states: set[str] = set()
+# Maps state -> redirect_uri so the token exchange reuses the exact URI the
+# consent URL was built with (required when the URI is derived per request).
+_pending_states: dict[str, str] = {}
 
 
 _service_instance: Any | None = None
@@ -140,19 +142,30 @@ def _service():
 # OAuth2 web flow
 # ---------------------------------------------------------------------------
 
-def _build_flow(state: str | None = None) -> Flow:
+def _effective_redirect_uri(redirect_uri: str | None = None) -> str:
+    """Resolve the redirect URI to use, falling back to the dev default."""
+    return (
+        redirect_uri
+        or config.GMAIL_REDIRECT_URI
+        or config.DEFAULT_GMAIL_REDIRECT_URI
+    )
+
+
+def _build_flow(
+    state: str | None = None, redirect_uri: str | None = None
+) -> Flow:
     return Flow.from_client_config(
         config.client_config(),
         scopes=config.GMAIL_SCOPES,
-        redirect_uri=config.GMAIL_REDIRECT_URI,
+        redirect_uri=_effective_redirect_uri(redirect_uri),
         state=state,
     )
 
 
 @_serialized
-def authorization_url() -> tuple[str, str]:
+def authorization_url(redirect_uri: str | None = None) -> tuple[str, str]:
     """Return ``(url, state)`` for the Google consent screen."""
-    flow = _build_flow()
+    flow = _build_flow(redirect_uri=redirect_uri)
     url, state = flow.authorization_url(
         access_type="offline",
         # Force consent so a refresh token is always granted on re-auth.
@@ -164,17 +177,17 @@ def authorization_url() -> tuple[str, str]:
         code_challenge=None,
         code_challenge_method=None,
     )
-    _pending_states.add(state)
+    _pending_states[state] = _effective_redirect_uri(redirect_uri)
     return url, state
 
 
 @_serialized
 def exchange_code(code: str, state: str) -> Credentials:
     """Exchange an authorization code for credentials and persist them."""
-    if state not in _pending_states:
+    redirect_uri = _pending_states.pop(state, None)
+    if redirect_uri is None:
         raise ValueError("Invalid or expired OAuth state")
-    _pending_states.discard(state)
-    flow = _build_flow(state=state)
+    flow = _build_flow(state=state, redirect_uri=redirect_uri)
     flow.fetch_token(code=code)
     creds = flow.credentials
     save_credentials(creds)
@@ -412,6 +425,15 @@ def _date_arg_to_utc_bound(
 # Upper bound on candidates pulled for a local date-range filter. Gmail lists
 # newest-first, so pulling this many recent messages covers a week+ of mail.
 _DATE_FILTER_MAX_CANDIDATES = 500
+
+# Calendar extraction pre-filter: Gmail's ``after:``/``before:`` match the
+# header send date, so widen the bound by this buffer and still filter exactly
+# on ``internalDate`` locally. Newest-first list order guarantees every
+# in-window message is among the first candidates.
+_DATE_PREFILTER_BUFFER_DAYS = 7
+# Calendar extraction never needs more than a handful of candidates (it only
+# keeps ``max_results``), so cap the walk instead of scanning 500 messages.
+_DATE_PREFILTER_MIN_CANDIDATES = 50
 
 
 def _folder_label_ids(folder: MailFolder) -> list[str] | None:
@@ -708,7 +730,8 @@ def list_recent_messages(
 
     The window is applied locally on the received date (internalDate), because
     Gmail's ``after:``/``before:`` match the header send date and would miss
-    forwarded messages.
+    forwarded messages; the Gmail query only pre-filters with a widened
+    ``after:`` bound so the candidate walk stays small.
     """
     if days < 0:
         days = 0
@@ -721,7 +744,18 @@ def list_recent_messages(
     before_utc = datetime(
         today.year, today.month, today.day
     ).astimezone(timezone.utc) + timedelta(days=1)
-    ids = _fetch_recent_ids(service, "", [_LABEL_INBOX], _DATE_FILTER_MAX_CANDIDATES)
+    # Pre-filter with Gmail's ``after:`` (header send date) widened by a buffer,
+    # so "today only" stops walking the whole mailbox; the exact window is still
+    # applied locally on internalDate below.
+    prefetch_after = after_utc - timedelta(
+        days=max(_DATE_PREFILTER_BUFFER_DAYS, days)
+    )
+    ids = _fetch_recent_ids(
+        service,
+        f"after:{int(prefetch_after.timestamp())}",
+        [_LABEL_INBOX],
+        max(max_results * 3, _DATE_PREFILTER_MIN_CANDIDATES),
+    )
     if not ids:
         return []
     fetched = _fetch_metadata(service, ids)
@@ -1025,8 +1059,8 @@ def reset_connection() -> None:
         pass
 
 
-def new_state() -> str:
+def new_state(redirect_uri: str | None = None) -> str:
     """Generate and remember a fresh CSRF state token."""
     state = secrets.token_urlsafe(16)
-    _pending_states.add(state)
+    _pending_states[state] = _effective_redirect_uri(redirect_uri)
     return state

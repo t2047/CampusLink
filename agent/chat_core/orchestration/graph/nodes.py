@@ -34,7 +34,12 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..llm import chat_llm, intent_llm, summary_llm
-from .state import AgentInvocation, AgentState
+from .state import (
+    AgentInvocation,
+    AgentState,
+    current_turn_invocations,
+    invocation_can_update_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +61,7 @@ UTILITY_CAPABILITIES: dict[str, str] = {
     "get_current_time": "查询当前日期时间、星期几",
     "unit_converter": "单位换算（长度/重量/温度/货币）",
     "web_search": "联网搜索获取实时信息",
+    "search_policy": "查询学校政策、规章制度、考试条例、评估规则、学生行为守则等官方文档内容",
 }
 
 _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分析用户消息，返回严格 JSON：
@@ -71,11 +77,14 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
    典型语义（含问句形式）：查询/登记/查找失物下落、报失、捡到东西、认领、
    预约或查询教室/场馆/研讨室、查邮件、技能搜索与交易等——即使表述为
    "我的东西在哪""帮我看看"等口语问句，只要涉及上述业务域，即为 domain_agent
-2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索。
-   联网搜索包括查询任何实时/最新信息（新闻、天气、汇率、股价、赛事、百科事实等），
-   典型语义："搜索/搜一下/查一下/查询/有什么新闻/今天天气/最新消息/帮我找找资料"——
-   即使表述为问句（"最近有什么新闻？"）也归 utility，targets=["web_search"]；
-   不得把含"搜索/查询"意图的消息归为 chat（chat 只用于纯闲聊/知识问答且用户未要求联网）
+2. intent_type="utility"：用户需要计算、查时间、单位换算、联网搜索、
+   或查询学校政策/规章制度。联网搜索包括查询任何实时/最新信息（新闻、天气、
+   汇率、股价、赛事、百科事实等），典型语义："搜索/搜一下/查一下/查询/有什么新闻/
+   今天天气/最新消息/帮我找找资料"——即使表述为问句（"最近有什么新闻？"）也归
+   utility，targets=["web_search"]；不得把含"搜索/查询"意图的消息归为 chat
+   （chat 只用于纯闲聊/知识问答且用户未要求联网）。政策/规章制度查询（如
+   "考试可以带计算器吗""学生守则对抄袭怎么规定""查一下评估规则"）归
+   utility，targets=["search_policy"]——不得在 chat 中凭常识编造校规条款
 3. intent_type="chat"：闲聊、问候、一般知识问答（与校园业务无关）
 4. 一句话同时涉及多类时，intent_type 取主意图，targets 列出所有命中的目标
 5. 无法确定时：若消息明显涉及校园业务域（失物/设施/邮件/技能），返回
@@ -104,6 +113,8 @@ Utility Tool 能力：
 - "把 15 美元换算成人民币" → {{"intent_type":"utility","targets":["unit_converter"]}}
 - "今天天气怎么样" → {{"intent_type":"utility","targets":["web_search"]}}（实时信息查询归联网搜索）
 - "搜索一下最近有什么新闻" → {{"intent_type":"utility","targets":["web_search"]}}
+- "考试可以带计算器吗" → {{"intent_type":"utility","targets":["search_policy"]}}（校规/考试规则查询）
+- "学生守则对抄袭是怎么规定的" → {{"intent_type":"utility","targets":["search_policy"]}}
 - "不要用工具，直接告诉我 2+2" → {{"intent_type":"chat","targets":[]}}
 """
 
@@ -345,6 +356,7 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
     )
 
     invocation: AgentInvocation = {
+        "turn_id": state.get("turn_id") or "",
         "agent_name": agent_name,
         "input_message": user_msg,
         "output_response": result.get("response", ""),
@@ -445,6 +457,8 @@ def _build_conversation_context(state: AgentState) -> dict[str, Any]:
     if isinstance(supplied_shared, dict):
         shared.update(supplied_shared)
     for inv in state.get("agent_invocations", []):
+        if not invocation_can_update_context(inv):
+            continue
         invocation_shared = inv.get("shared_context") or {}
         if isinstance(invocation_shared, dict):
             shared.update(invocation_shared)
@@ -646,6 +660,16 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
             flags=re.IGNORECASE,
         ).strip()
         return {"query": query or msg.strip()}
+    if tool_name == "search_policy":
+        # 规则级提取 query：与 web_search 相同去除引导词；无引导词时用整句（如"考试可以带计算器吗"）
+        query = re.sub(
+            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查|帮我搜|查询|"
+            r"search(?:\s+for)?\s*[:：]?\s*|find\s*[:：]?\s*)",
+            "",
+            msg,
+            flags=re.IGNORECASE,
+        ).strip()
+        return {"query": query or msg.strip()}
     # text_translator 已移除（2026-08-08）：翻译由 chat_responder 的 LLM 直答
     return {}
 
@@ -765,7 +789,7 @@ async def response_aggregator(state: AgentState) -> AgentState:
     if state.get("messages") and isinstance(state["messages"][-1], AIMessage):
         return {}  # 已有最终回复（如 chat_responder 生成），不重复
 
-    agent_invocations = state.get("agent_invocations", [])
+    agent_invocations = current_turn_invocations(state)
     utility_results = state.get("utility_results", {})
     parts: list[str] = []
 

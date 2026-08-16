@@ -21,6 +21,12 @@ dependencies = [
     "PyJWT>=2.8",
     # MCP（Sprint 3：编排层 ↔ Agent/Utility 统一走 MCP 协议；锁 v1.x 稳定 API）
     "mcp>=1.28,<2",
+    # Policy RAG（政策/规章制度检索：LlamaIndex 0.14 + Qdrant；embedding 复用
+    # lost-found-embedding HTTP 接口，不在此加载模型）
+    # 注：llama-index-core wheel 内置 tiktoken/nltk 缓存，离线容器开箱即用
+    "llama-index-core>=0.14,<0.15",
+    "llama-index-readers-file>=0.6,<0.7",
+    "llama-index-vector-stores-qdrant>=0.10,<0.11",
 ]
 
 [project.optional-dependencies]

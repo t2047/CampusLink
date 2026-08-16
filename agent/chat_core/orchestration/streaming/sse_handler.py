@@ -15,7 +15,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..graph.state import AgentState
+from ..graph.state import AgentState, current_turn_invocations
 
 
 @dataclass
@@ -54,7 +54,7 @@ class OrchestrationStreamer:
         )
 
         # Agent 调用事件
-        for inv in self.state.get("agent_invocations", []):
+        for inv in current_turn_invocations(self.state):
             agent_name = inv.get("agent_name", "")
             request_meta = {"request_id": inv["request_id"]} if inv.get("request_id") else {}
             events.append(SSEEvent("agent_start", {"agent": agent_name, **request_meta}))

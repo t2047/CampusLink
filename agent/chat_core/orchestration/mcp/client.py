@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -69,6 +70,11 @@ def _describe_mcp_failure(e: BaseException, service: str, url: str) -> str:
             f"MCP service '{service}' is unreachable at {url}: {root}. Please ensure the service is running."
         )
     return _root_cause(e) or root.__class__.__name__
+
+
+def _is_retryable_mcp_failure(e: BaseException) -> bool:
+    """仅把连接、协议中断和超时视为可安全重试的临时故障。"""
+    return isinstance(_root_exc(e), httpx.TransportError)
 
 
 @dataclass
@@ -131,18 +137,32 @@ class AgentClient:
             },
         }
 
-        try:
-            raw = await self._call_mcp_tool(agent.mcp_url, "invoke", arguments, token)
-            return self._normalize_result(raw, agent_name)
-        except Exception as e:
-            detail = _describe_mcp_failure(e, agent_name, agent.mcp_url or "")
-            logger.error("invoke_agent %s failed: %s", agent_name, detail, exc_info=True)
-            # error 字段：英文技术详情（日志/排查）；response 字段：用户可见友好文案
-            return {
-                "response": f"「{agent_name}」服务暂时不可用，请稍后重试。",
-                "status": "failed",
-                "error": detail,
-            }
+        # L&F 首轮仅执行读取或生成确认摘要，不会直接写数据库；连接瞬断时可安全重试一次。
+        # confirmed=True 可能创建报告/认领，绝不自动重试，避免响应丢失后重复写入。
+        max_attempts = 2 if agent_name == "lost-found-agent" and not confirmed else 1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                raw = await self._call_mcp_tool(agent.mcp_url, "invoke", arguments, token)
+                return self._normalize_result(raw, agent_name)
+            except Exception as e:
+                if attempt < max_attempts and _is_retryable_mcp_failure(e):
+                    logger.warning(
+                        "invoke_agent %s transport failure; retrying once: %s",
+                        agent_name,
+                        _root_cause(e),
+                    )
+                    await asyncio.sleep(0.2)
+                    continue
+                detail = _describe_mcp_failure(e, agent_name, agent.mcp_url or "")
+                logger.error("invoke_agent %s failed: %s", agent_name, detail, exc_info=True)
+                # error 字段：英文技术详情（日志/排查）；response 字段：用户可见友好文案
+                return {
+                    "response": f"「{agent_name}」服务暂时不可用，请稍后重试。",
+                    "status": "failed",
+                    "error": detail,
+                }
+
+        raise AssertionError("unreachable")
 
     async def invoke_utility(
         self,

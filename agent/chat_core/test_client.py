@@ -29,6 +29,12 @@ def make_registry(token_service_url: str | None = "http://backend:8080") -> Serv
     reg.token_service_url = token_service_url
     # 测试默认联调模式：Token Service 不可用时允许回退本地 HS256
     reg.agents["mail-agent"] = AgentConfig(name="mail-agent", url="http://agent:8081", timeout_ms=30000)
+    reg.agents["lost-found-agent"] = AgentConfig(
+        name="lost-found-agent",
+        url="http://lost-found-agent:8083",
+        mcp_url="http://lost-found-mcp:8085/mcp/",
+        timeout_ms=30000,
+    )
     reg.agents["utility-tools"] = AgentConfig(name="utility-tools", url="http://util:8090", timeout_ms=5000)
     reg.utility_url = "http://util:8090"
     reg.utility_mcp_url = "http://util:8090/mcp/"
@@ -222,6 +228,70 @@ def test_invoke_utility_mcp_unreachable_error(monkeypatch):
     assert result["status"] == "failed"
     assert "is unreachable" in result["error"]
     assert "utility-tools" in result["error"]
+
+
+def test_lost_found_initial_invoke_retries_one_transport_failure(monkeypatch):
+    """确认前的 L&F 调用遇到连接瞬断时重试一次并返回成功结果。"""
+
+    async def scenario():
+        client = AgentClient(registry=make_registry())
+        calls = 0
+
+        async def flaky(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.RemoteProtocolError("peer closed connection")
+            return {"response": "请确认报失信息", "status": "needs_confirmation"}
+
+        monkeypatch.setattr(client, "_call_mcp_tool", flaky)
+        try:
+            result = await client.invoke_agent(
+                "lost-found-agent",
+                "I lost black shoes",
+                "1",
+                "STUDENT",
+                delegation_token="test-token",
+            )
+            return calls, result
+        finally:
+            await client.close()
+
+    calls, result = asyncio.run(scenario())
+    assert calls == 2
+    assert result["status"] == "needs_confirmation"
+
+
+def test_lost_found_confirmed_invoke_does_not_retry_transport_failure(monkeypatch):
+    """确认后的写操作发生连接异常时不重试，防止重复创建记录。"""
+
+    async def scenario():
+        client = AgentClient(registry=make_registry())
+        calls = 0
+
+        async def broken(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise httpx.RemoteProtocolError("peer closed connection")
+
+        monkeypatch.setattr(client, "_call_mcp_tool", broken)
+        try:
+            result = await client.invoke_agent(
+                "lost-found-agent",
+                "confirm",
+                "1",
+                "STUDENT",
+                delegation_token="test-token",
+                confirmed=True,
+                confirmation_id="confirmation-1",
+            )
+            return calls, result
+        finally:
+            await client.close()
+
+    calls, result = asyncio.run(scenario())
+    assert calls == 1
+    assert result["status"] == "failed"
 
 
 def test_parse_mcp_result_text_json():

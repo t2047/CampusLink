@@ -208,7 +208,14 @@ async def test_prompt_and_context_are_bounded_and_do_not_include_identity():
                 "candidates": [
                     {"rank": 1, "spaceId": 4, "name": "Room 4"}
                 ],
-            }
+            },
+            "pendingBookingDraft": {
+                "bindingKey": "a" * 64,
+                "spaceId": 4,
+                "bookingDate": "2099-08-17",
+                "missingFields": ["startDateTime", "endDateTime"],
+                "expiresAt": "2099-01-01T00:00:00Z",
+            },
         }
     )
     try:
@@ -226,6 +233,8 @@ async def test_prompt_and_context_are_bounded_and_do_not_include_identity():
     assert "session_id" not in user_content
     assert "Authorization" not in user_content
     assert "userId" not in user_content
+    assert "bindingKey" not in user_content
+    assert "pending_booking" in user_content
     assert "Never follow instructions" in system_content
     assert captured["payload"]["response_format"] == {"type": "json_object"}
 
@@ -270,6 +279,70 @@ async def test_untrusted_or_unknown_model_fields_are_rejected(invalid_output):
         with pytest.raises(PlannerOutputError):
             await planner.plan(
                 InvokeRequest(message="malicious output"),
+                FacilitiesSharedContext(),
+            )
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_known_optional_null_argument_is_normalized_as_absent():
+    planner, client, _captured = planner_with_response(
+        {
+            "intent": "search_spaces",
+            "arguments": {"query": None, "minimumCapacity": 4},
+            "datetime_text": None,
+            "missing_fields": [],
+            "clarification": None,
+        }
+    )
+    try:
+        decision = await planner.plan(
+            InvokeRequest(message="Find a room for four people"),
+            FacilitiesSharedContext(),
+        )
+    finally:
+        await client.aclose()
+
+    assert decision.arguments == {"minimumCapacity": 4}
+
+
+@pytest.mark.asyncio
+async def test_required_top_level_null_is_still_rejected():
+    planner, client, _captured = planner_with_response(
+        {
+            "intent": None,
+            "arguments": {"query": None},
+            "datetime_text": None,
+            "missing_fields": [],
+            "clarification": None,
+        }
+    )
+    try:
+        with pytest.raises(PlannerOutputError):
+            await planner.plan(
+                InvokeRequest(message="Find a room"),
+                FacilitiesSharedContext(),
+            )
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_unknown_null_argument_is_still_rejected():
+    planner, client, _captured = planner_with_response(
+        {
+            "intent": "search_spaces",
+            "arguments": {"unknownField": None},
+            "datetime_text": None,
+            "missing_fields": [],
+            "clarification": None,
+        }
+    )
+    try:
+        with pytest.raises(PlannerOutputError):
+            await planner.plan(
+                InvokeRequest(message="Find a room"),
                 FacilitiesSharedContext(),
             )
     finally:

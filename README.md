@@ -21,6 +21,7 @@ Pretrained model boundaries and evaluation are documented in the [Chinese multim
 | Orchestration (core) | Python 3.12, FastAPI, LangGraph, MCP SDK |
 | Backend | Java 21, Spring Boot 4.1, Spring Security, JWT |
 | Web | React 19, TypeScript, Vite, MUI, Axios |
+| Android | Kotlin, Jetpack Compose, Room/SQLCipher, OkHttp SSE |
 | Data | MySQL 8 |
 | Images | Private MinIO bucket with 15-minute presigned URLs |
 | Testing | JUnit 5, Mockito, H2, Vitest, Testing Library, pytest |
@@ -64,6 +65,15 @@ docker compose --profile agent --profile multimodal up -d --build
 
 Model files live in a Docker named volume. Normal startup does not load them, and report creation plus matching automatically fall back to the existing baseline when the model service is unavailable.
 
+The **Policy & Regulation RAG** (`search_policy` utility tool) reuses the same multimodal embedding service and stores vectors in Qdrant (started with the default stack). To (re)build the index from `docs/nus_docs/`:
+
+```bash
+docker compose --profile multimodal up -d lost-found-embedding
+docker compose --profile multimodal run --rm policy-index-builder
+```
+
+See [docs/policy_rag.md](docs/policy_rag.md) for details.
+
 `LOST_FOUND_LLM_API_KEY` may remain empty; `auto` mode then uses the rule engine. The normal `docker compose up -d` starts the platform base stack but does not expose the optional REST Agent on port 8083.
 
 For non-Docker development, start the backend in a second terminal:
@@ -91,6 +101,15 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). MinIO Console is available at [http://localhost:9001](http://localhost:9001). The legacy administrator test page is preserved at [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html).
 
+Build the native Android Core Chat demo with:
+
+```bash
+cd frontend_mobile
+./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
+```
+
+`demoDebug` connects only to `https://campuslink.tokeninf.xyz/`. See the [Android README](frontend_mobile/README.md).
+
 Stop the infrastructure without deleting its data with `docker compose stop`. Use `docker compose down` to remove the containers while retaining the named volumes.
 
 ## Agent Platform (Core)
@@ -98,7 +117,8 @@ Stop the infrastructure without deleting its data with `docker compose stop`. Us
 The platform core is a campus **AI assistant** (natural-language chat + multi-domain Agent orchestration):
 
 - **Orchestration**: `agent/chat_core` (FastAPI + LangGraph; intent routing, agent invocation, HITL human approval, LLM fallback)
-- **Agents**: MCP servers under `agent/mcp_servers/` (mail / facility / lost-found / utility-tools),
+- **Agents**: MCP servers under `agent/mcp_servers/` (mail / facility / lost-found / utility-tools —
+  calculator, current time, unit conversion, web search, and **policy/regulation RAG** via `search_policy`),
   exposed over streamable HTTP and registered via capability declarations in `agent/schemas/*.json`
 - **Frontend**: chat entry at the React app home page (typing/SSE streaming, intent display, HITL confirmations — confirming resumes the suspended graph via `POST /api/chat/resume` and re-invokes the sub-agent with `confirmed=true` so the write actually happens; lost-report / claim confirmation flows are live)
 - **Security**: RS256 Delegation Token chain — see [docs/communication-security.md](docs/communication-security.md)
@@ -119,6 +139,18 @@ Web workflow of the L&F sub-module (Agent integration is covered in “Agent Pla
 - Let authenticated users try the real Lost & Found Agent from the main page with multi-turn lost/found reporting, write confirmation, search, and candidate links. Agent secrets remain server-side.
 
 Lost & Found now supports Multilingual-E5 text semantics, CLIP image-to-image similarity, optional multilingual text-to-image similarity, structured-field fusion, and automatic baseline fallback. Notifications and the mobile UI remain outside this iteration.
+
+## Policy & Regulation RAG
+
+`search_policy` answers questions about NUS policies and regulations (student code of conduct, examination rules, assessment guidelines) by retrieving from the 29 PDFs in `docs/nus_docs/`:
+
+- **Pipeline**: LlamaIndex 0.14 (PDF → chunking → embedding) → Qdrant vector store (`nus_policy`, 384-dim COSINE) → Top-K retrieval at query time
+- **Embedding reuse**: calls the shared `lost-found-embedding` service (`intfloat/multilingual-e5-small`) over HTTP — no model is loaded in the utility container
+- **Offline-ready**: `llama-index-core` wheels bundle tiktoken/nltk caches; chunking uses a regex sentence splitter to avoid network downloads
+- **Index lifecycle**: `policy-index-builder` one-shot service rebuilds the index (idempotent full rebuild); CD runs it on every deploy
+- **Fallback**: service outages return `status=failed` instead of failing the chat
+
+See [docs/policy_rag.md](docs/policy_rag.md).
 
 ## API Reference
 
@@ -184,7 +216,7 @@ uv run mypy lost_found_embedding tests
 uv run pytest
 ```
 
-PR CI runs backend and frontend tests, lint, production builds, CodeQL, blocking high-severity SpotBugs checks, npm vulnerability auditing, and dependency-change review. The nightly workflow adds deeper SpotBugs analysis, OWASP dependency checking, and ZAP scanning. A CD workflow (`cd-deploy.yml`) deploys to a single DigitalOcean Droplet via SSH on `main` push — see `DEPLOYMENT.md` for setup.
+PR CI runs backend, frontend, and Android tests, lint, builds, CodeQL, and dependency review. Android CI publishes an installable demo APK and the nightly workflow runs emulator tests. The CD workflow deploys the server stack to AWS EC2 via SSH on `main` pushes — see `DEPLOYMENT.md`.
 
 ## Project Structure
 
@@ -193,6 +225,7 @@ project/
 ├── agent/                   Agent system (platform core)
 │   ├── chat_core/           Orchestration (FastAPI + LangGraph; intent routing / HITL / LLM fallback)
 │   ├── mcp_servers/         MCP server adapters (mail/facility/lost-found/utility)
+│   │   └── policy_rag/      Policy RAG: config/embedding/retriever/indexer (LlamaIndex + Qdrant)
 │   ├── lost_found_agent/    L&F business engine (rules + LLM intent parsing)
 │   └── schemas/             Agent capability declarations (JSON Schema)
 ├── backend/
@@ -202,7 +235,7 @@ project/
 ├── frontend_web/            React Web app (chat + L&F pages) and public/admin-test.html
 ├── services/
 │   └── lost_found_embedding/ Standalone pretrained E5/CLIP service
-├── frontend_mobile/         Future mobile client
-├── docker-compose.yml       MySQL, MinIO, and optional model profile
+├── frontend_mobile/         Kotlin + Compose Core Chat Android client
+├── docker-compose.yml       MySQL, MinIO, Qdrant, and optional model profile
 └── docs/
 ```

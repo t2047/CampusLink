@@ -5,14 +5,17 @@
 
 ## 当前部署状态（2026-08）
 
-- **地址**：http://13.212.202.232/（HTTP；HTTPS 证书待配置，见第 6 节）
+- **当前可访问地址**：https://campuslink.tokeninf.xyz/（DNS 指向 `13.212.202.232`）
+- **HTTPS 状态**：已启用 Let’s Encrypt 可信证书，HTTP 自动 301 跳转 HTTPS；当前证书覆盖
+  `campuslink.tokeninf.xyz`，有效期为 2026-08-15 至 2026-11-13。
 - **实例**：AWS EC2 `m7i-flex.large`（2 vCPU / 8 GiB，Free tier，12 个月 $0）
 - **服务**：mysql / minio / chat-backend / orchestration / 5×MCP / lost-found / web（nginx）全部运行
 - **已知事项**：
-  - RSA 密钥卷权限：已手动 `chown 1001:1001` 修复（代码修复见 backend Dockerfile，合入后新部署自动生效）
-  - 前端 HTTP 下可用（randomUUID fallback 已合入 feature 分支，待合并 main 后由 CD 重建镜像）
-  - CD `deploy` job 待配置 GitHub Secrets（`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）后自动部署
-  - `feature/admin-dashboard-claim-review`（PR #22）已重新合并
+  - 正式域名、维护邮箱和 VM SSH 配置保存在 GitHub Secrets，由 CD 同步到服务器，真实值不提交 Git；
+  - Certbot 每 12 小时检查续期，Web 容器检测证书变化后平滑 reload；
+  - 可信证书签发、HTTP 301、容器健康检查和 CD 部署已经通过；
+  - `certbot renew --dry-run` 续期演练仍需由云端负责人执行并记录；
+  - 旧环境若存在 RSA 密钥卷属主问题，按第 8b 节执行一次性迁移。
 
 ## 1. 创建 AWS EC2（m7i-flex.large，Free tier eligible）
 
@@ -115,31 +118,50 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml \
 curl http://localhost/api/chat/stream 2>/dev/null || true   # 或直接访问 http://<vm-ip>
 ```
 
+> 政策/规章制度 RAG（`search_policy`）的 Qdrant 向量库随默认栈启动；索引由 CD 部署
+> 自动构建（见第 9 节）。手动重建：
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal up -d --pull always lost-found-embedding
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile multimodal run --rm policy-index-builder
+> ```
+
 > 本地开发仍用 `docker compose up -d --build`（compose 默认本地构建）。
 > `multimodal` profile 会启动预训练 Embedding 服务，首次启动需下载模型并可能耗时数分钟。
 > 完整全栈建议使用至少 8 GB RAM 的 VM，并为模型缓存保留足够磁盘空间。
 
-## 6. 域名 + HTTPS（certbot webroot 容器）
+## 6. 域名 + HTTPS（Certbot Webroot）
 
-web 容器已映射 80/443 并挂载 certbot 卷。把域名 A 记录指向 VM 公共 IP 后：
+DNS 已将 `campuslink.tokeninf.xyz` 指向当前 EC2。首次签发时只需在服务器 `.env` 配置：
 
-```bash
-# 1. 首次签发证书（一次性命令；.env 已设 CERT_DOMAIN=your-domain.com）
-docker compose up -d web          # nginx 起来（无证书时用自签占位，80 提供 acme 挑战）
-# 清掉占位自签证书，避免 certbot 报"证书已存在"
-docker compose run --rm certbot sh -c 'rm -rf "/etc/letsencrypt/live/$CERT_DOMAIN" "/etc/letsencrypt/archive/$CERT_DOMAIN"'
-docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
-    -d your-domain.com --email you@example.com --agree-tos --no-eff-email
-
-# 2. 重新加载 nginx 使 443 用真实证书（证书挂载为只读卷，重启 web 即可）
-docker compose restart web
-
-# 3. 证书续期由 certbot 容器自动处理（每 12h renew；web 的 443 server 直接读卷）
+```dotenv
+CERT_DOMAIN=campuslink.tokeninf.xyz
+CERT_EMAIL=<项目证书维护邮箱>
+# 可选；EC2 Metadata 不可用时填写
+SERVER_PUBLIC_IP=13.212.202.232
 ```
 
-> 说明：`certbot` 服务是常驻续期容器（compose 默认启动）；首次需手动签发。
-> `.env` 记得设 `CERT_DOMAIN=your-domain.com`（nginx 模板用它拼证书路径）。
-> 未签发证书前 443 访问会失败（nginx 报错），80 不受影响。
+然后在仓库根目录执行幂等脚本：
+
+```bash
+set -a && . ./.env && set +a
+./deploy/bootstrap_https.sh
+```
+
+脚本会验证 DNS 确实指向当前服务器，仅删除该域名的自签占位证书，使用 Webroot 申请或复用 Let's Encrypt
+证书，重启 Nginx，并验证 HTTPS 与 HTTP 301 跳转。Certbot 容器每 12 小时检查续期；
+Web 容器每小时检测证书摘要，变化后执行无中断 `nginx -s reload`。
+
+CD 会在重启容器前检查 `CERT_DOMAIN` 与 `CERT_EMAIL`。配置缺失时部署会停止，旧容器保持运行，
+避免把现有 HTTP 网站错误跳转到自签名 HTTPS。
+
+严禁在客户端关闭证书校验或信任自签名证书。验证命令：
+
+```bash
+curl -I http://campuslink.tokeninf.xyz/
+curl -I https://campuslink.tokeninf.xyz/
+openssl s_client -connect campuslink.tokeninf.xyz:443 -servername campuslink.tokeninf.xyz </dev/null
+```
 
 ## 7. 更新部署
 
@@ -156,7 +178,7 @@ REGISTRY=ghcr.io/<owner> docker compose \
 
 ## 8. 备份
 
-- 数据全在命名卷（`mysql_data` / `minio_data` / `delegation_keys`）
+- 数据全在命名卷（`mysql_data` / `minio_data` / `delegation_keys` / `lost_found_model_cache` / `qdrant_data`）
 - 推荐 **EBS 快照**（AWS 控制台手动/定时）或定时导出：
   ```bash
   docker compose exec -T mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_PASSWORD" campusLink_db' > backup.sql
@@ -182,8 +204,8 @@ docker compose start chat-backend
 
 见 `.github/workflows/cd-deploy.yml`，流程：
 1. 推 `main` → GitHub Actions 构建 7 个镜像（backend/orchestration/mcp-servers/mail-agent/lost-found-agent/lost-found-embedding/web）推 **GHCR**（`ghcr.io/<owner>/campuslink-*`）
-2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ `git pull` + 启用 `agent`/`multimodal` profiles 拉取并重启完整服务
-3. CD 最多等待 15 分钟，直到服务达到 `running` 或 `healthy`；Embedding readiness 失败会让部署任务失败
+2. SSH 到 VM（Secrets：`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）→ 校验 `.env` 与 `CERT_DOMAIN`/`CERT_EMAIL` 配置 → `git pull` + 以 `agent`/`multimodal` profiles 拉取重启（`--wait` 最长 15 分钟）→ `deploy/bootstrap_https.sh`
+3. 构建/刷新政策 RAG 索引（`policy-index-builder`，失败仅 WARN 不阻塞部署）
 
 **首次启用需两步**：
 - GitHub 仓库 Settings → Packages → 把 `campuslink-*` 包设为 **public**（VM 免登录拉取）

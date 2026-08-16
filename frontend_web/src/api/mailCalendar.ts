@@ -36,10 +36,14 @@ export async function deleteCalendarEvent(id: string): Promise<void> {
 /**
  * Scan recent emails for date/time mentions and return proposed schedules.
  * `days` = how many past days to scan (0 = today only). Nothing is imported yet.
+ *
+ * This can take a while (Gmail fetches + optional LLM extraction), so it needs
+ * a much longer timeout than the 20s apiClient default.
  */
 export async function extractCalendarSchedules(days: number): Promise<ExtractResponse> {
   const response = await apiClient.post<ExtractResponse>('/mail/calendar/extract', null, {
     params: { days },
+    timeout: 180_000,
   })
   return response.data
 }

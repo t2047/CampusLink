@@ -26,6 +26,7 @@ export function MyMaintenancePage() {
         <Box>
           <Typography component="h2" variant="h5" fontWeight={700}>My Maintenance Requests</Typography>
           <Typography color="text.secondary">Track problems you have reported to Facilities.</Typography>
+          {!loading && !error && <Typography variant="body2" color="primary" sx={{ mt: 1 }}>{requests.length} {requests.length === 1 ? 'request' : 'requests'} total</Typography>}
         </Box>
         <Button component={RouterLink} to="/facilities/maintenance/new" variant="contained">Report Maintenance</Button>
       </Stack>

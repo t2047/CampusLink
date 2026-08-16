@@ -112,6 +112,7 @@ export function SpacesPage() {
       </Paper>
 
       {error && <Alert severity="error">{error}</Alert>}
+      {!loading && !error && <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography color="text.secondary">{spaces.length} {spaces.length === 1 ? 'space' : 'spaces'} found</Typography>{searchParams.toString() && <Button size="small" onClick={reset}>Clear filters</Button>}</Stack>}
       {loading ? <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress /></Box> : spaces.length ? (
         <Grid container spacing={3}>
           {spaces.map((space) => (

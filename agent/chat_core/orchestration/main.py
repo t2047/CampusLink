@@ -134,6 +134,9 @@ def _build_initial_state(payload: ChatRequest, trace_id: str, session_id: str) -
     """
     return {
         "messages": [HumanMessage(content=payload.message)],
+        # A checkpoint keeps invocation history for audit/context, while this ID
+        # provides a hard boundary for current-turn progress and response output.
+        "turn_id": str(uuid.uuid4()),
         "intent_type": None,
         "targets": [],
         "agent_plan": [],

@@ -84,6 +84,18 @@ class FacilitiesDateTimeParserTest(unittest.TestCase):
         self.assertIsNone(parsed.start)
         self.assertIn("future", parsed.clarification)
 
+    def test_yearless_dot_date_uses_next_occurrence(self):
+        parsed = self.parser.parse("8.17 from 10am to 12pm")
+        self.assertEqual("2026-08-17T10:00:00", parsed.start_local_iso)
+        self.assertEqual("2026-08-17T12:00:00", parsed.end_local_iso)
+
+    def test_yearless_dot_date_rolls_to_next_year_after_date_passes(self):
+        late_now = datetime(2026, 8, 18, 9, 0, tzinfo=CAMPUS_TIMEZONE)
+        parser = FacilitiesDateTimeParser(lambda: late_now)
+        parsed = parser.parse("8.17 from 10am to 12pm")
+        self.assertEqual("2027-08-17T10:00:00", parsed.start_local_iso)
+        self.assertEqual("2027-08-17T12:00:00", parsed.end_local_iso)
+
     def test_end_before_start_is_rejected(self):
         parsed = self.parser.parse("tomorrow 4-2 pm")
         self.assertTrue(parsed.needs_clarification)

@@ -32,6 +32,7 @@ function toReportCard(report: AgentMatchResult): LostFoundReport {
     status: report.status as ReportStatus,
     images: report.image_urls.map((url) => ({ id: 0, url, contentType: '', fileSize: 0, sortOrder: 0 })),
     createdByMe: false,
+    adminHidden: false,
     createdAt: report.event_date,
     updatedAt: report.event_date,
   }

@@ -79,6 +79,41 @@ class FacilitiesContextTest(unittest.TestCase):
             10, self.manager.resolve_booking_reference("that booking").booking_id
         )
 
+    def test_pending_booking_is_user_and_session_bound_and_expires(self):
+        self.manager.set_pending_booking(
+            user_id="42",
+            session_id="session-1",
+            space_id=4,
+            booking_date="2026-08-17",
+            start_date_time=None,
+            end_date_time=None,
+            missing_fields=["startDateTime", "endDateTime"],
+            ttl_seconds=10,
+        )
+        self.assertIsNotNone(
+            self.manager.get_pending_booking("42", "session-1")
+        )
+        self.assertIsNone(
+            self.manager.get_pending_booking("43", "session-1")
+        )
+        self.assertIsNone(self.manager.context.pending_booking_draft)
+
+        self.manager.set_pending_booking(
+            user_id="42",
+            session_id="session-1",
+            space_id=4,
+            booking_date="2026-08-17",
+            start_date_time=None,
+            end_date_time=None,
+            missing_fields=["startDateTime", "endDateTime"],
+            ttl_seconds=10,
+        )
+        self.clock.value += timedelta(seconds=11)
+        self.assertIsNone(
+            self.manager.get_pending_booking("42", "session-1")
+        )
+        self.assertIsNone(self.manager.context.pending_booking_draft)
+
     def test_untrusted_identity_and_token_fields_are_not_returned(self):
         manager = FacilitiesContextManager.from_shared_data(
             {
