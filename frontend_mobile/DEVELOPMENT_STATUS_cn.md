@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/facilities-mobile`
+> 当前基线分支：`main`
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat 第一版和 Facilities Mobile Phase 1 已完成
+> 当前阶段：Core Chat 第一版及 Facilities Mobile Phase 1、Phase 2 已完成
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -280,7 +280,7 @@ Maintenance 原生页面尚未实现。Facilities 原生确认属于 REST 页面
 
 - Nginx 使用正式域名 `campuslink.tokeninf.xyz`；
 - 保留 `/.well-known/acme-challenge/`；
-- 正式启用后 HTTP 301 跳转 HTTPS；
+- 当前 HTTP 已 301 跳转 HTTPS；
 - TLS 仅允许 1.2/1.3；
 - 已配置 HSTS；
 - `deploy/bootstrap_https.sh` 会验证 DNS 指向当前服务器；
@@ -290,30 +290,22 @@ Maintenance 原生页面尚未实现。Facilities 原生确认属于 REST 页面
 - Web 容器每小时检查证书摘要，更新后执行 Nginx 平滑 reload；
 - CD 在证书环境变量缺失时会在重启容器前失败，避免把现有网站跳转到自签 HTTPS。
 
-### 5.2 当前外部阻塞
+### 5.2 当前线上状态与剩余验收
 
-状态：**待处理**
+状态：**可信 HTTPS 基础部署已完成，专项联调待完成**
 
-截至本文档更新时间，线上 HTTPS 仍使用自签占位证书，HTTP 也还没有跳转。Android `demoDebug` 和 `prodRelease` 不会信任该证书，因此暂时不能完成真实云端登录测试。
+截至 2026-08-16，线上基础验收结果如下：
 
-服务器 `.env` 需要补充：
+- `campuslink.tokeninf.xyz` 已解析到当前 AWS EC2；
+- HTTPS 首页返回 `200`；
+- HTTP 自动返回 `301` 并跳转到 HTTPS；
+- 证书由 Let’s Encrypt 签发，证书域名为 `campuslink.tokeninf.xyz`；
+- 当前证书有效期为 2026-08-15 至 2026-11-13；
+- 正式域名和证书维护邮箱保存在 GitHub Secrets，由 CD 安全同步到服务器 `.env`，仓库不保存真实邮箱；
+- CD 已完成镜像拉取、容器健康检查、证书复用和 Nginx 重启后的就绪检查；
+- 浏览器访问无证书警告，Android Demo/Prod 继续使用系统证书链校验，不包含自签名信任或 TLS 绕过。
 
-```dotenv
-CERT_DOMAIN=campuslink.tokeninf.xyz
-CERT_EMAIL=<项目证书维护邮箱>
-SERVER_PUBLIC_IP=13.212.202.232
-```
-
-然后执行：
-
-```bash
-set -a && . ./.env && set +a
-./deploy/bootstrap_https.sh
-```
-
-或者在配置完成后触发 `main` 的 CD。
-
-验收必须包含：
+可重复执行以下命令检查公开端点和证书：
 
 ```bash
 curl -I http://campuslink.tokeninf.xyz/
@@ -323,6 +315,12 @@ openssl s_client -connect campuslink.tokeninf.xyz:443 \
 ```
 
 预期 HTTP 返回 301，HTTPS 证书域名正确、浏览器无警告、证书发行者不是域名自身。
+
+以下专项验收仍需完成并记录结果：
+
+- 在真实 Android 设备上完成登录、Core Chat 和至少一个 Agent 的完整云端链路；
+- 对经过 Nginx 的 SSE 连接执行长时间稳定性、断网和重连测试；
+- 在服务器执行并记录 `certbot renew --dry-run` 续期演练。
 
 ## 6. 构建与测试
 
@@ -380,22 +378,21 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 ### P0：必须先完成
 
-#### 7.1 签发可信 HTTPS 并做真实云端联调
+#### 7.1 可信 HTTPS 与真实云端专项验收
 
-- 状态：**未开始，受维护邮箱和服务器权限阻塞**
-- 依赖：AWS EC2、DNS、80/443 Security Group、项目维护邮箱
+- 状态：**基础部署已完成，专项验收进行中**
+- 已完成：AWS EC2、DNS、80/443、Let’s Encrypt 可信证书、HTTP 301、GitHub Secrets、自动 CD 和浏览器验证
+- 依赖：真实 Android 设备、可用测试账号、云端 Chat Core、服务器续期演练权限
 - 建议负责人：DevOps / 云端负责人
-- 验收标准：
-  - Let’s Encrypt 完整证书链可信；
-  - HTTP 自动 301 到 HTTPS；
-  - 浏览器和 Android 均无证书警告；
-  - SSE 长连接经过 Nginx 不缓冲、不提前断开；
-  - 证书续期演练成功。
+- 剩余验收标准：
+  - 真实 Android 设备通过系统证书链完成云端登录和 Chat 请求；
+  - SSE 长连接经过 Nginx 不缓冲、不提前断开，并完成断网场景验证；
+  - `certbot renew --dry-run` 续期演练成功并保存结果。
 
 #### 7.2 使用真实 Android 设备完成 Core Chat 验收
 
-- 状态：**本地模拟器已完成主要 Chat/Facilities 链路验证，真实物理设备与云端 HTTPS 仍待完成**
-- 依赖：7.1、可用测试账号、云端 Chat Core 和至少一个 Agent
+- 状态：**云端可信 HTTPS 已可用；本地模拟器已完成主要 Chat/Facilities 链路验证，真实物理设备端到端验收待完成**
+- 依赖：真实 Android 设备、可用测试账号、云端 Chat Core 和至少一个 Agent
 - 建议负责人：Android 开发者 + Chat Core 开发者
 - 验收标准：
   - 登录、注册、退出和 401 流程正常；
@@ -407,12 +404,11 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
   - 停止、重试和网络中断恢复可用；
   - App 重启后历史和待确认状态可恢复。
 
-#### 7.3 将当前分支推送并通过 PR CI
+#### 7.3 将移动端功能通过 PR 合并到 `main`
 
-- 状态：**未开始**
-- 依赖：远程仓库权限
-- 建议负责人：当前功能负责人
-- 验收标准：所有 GitHub 检查通过，提交、PR 标题、描述和备注使用中文；禁止绕过失败检查直接合并。
+- 状态：**已完成**
+- 已完成：Core Chat 第一版、HTTPS/CD、Facilities Phase 1 和 Phase 2 已通过独立提交或 PR 进入 `main`
+- 持续要求：后续移动端功能仍需通过功能分支和 PR；所有 GitHub 检查通过后再合并，提交、PR 标题、描述和协作备注使用中文。
 
 ### P1：Core Chat 第二阶段
 
