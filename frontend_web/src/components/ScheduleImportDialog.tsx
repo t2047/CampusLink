@@ -159,7 +159,23 @@ export function ScheduleImportDialog({ open, onClose, onImported }: ScheduleImpo
 
   return (
     <Dialog open={open} onClose={close} fullWidth maxWidth="sm">
-      <DialogTitle>Import schedules from mail</DialogTitle>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box
+          sx={{
+            width: 34,
+            height: 34,
+            borderRadius: 2,
+            display: 'grid',
+            placeItems: 'center',
+            color: '#fff',
+            background: 'linear-gradient(135deg, #3366b8 0%, #1d4f9e 100%)',
+            boxShadow: '0 2px 8px rgba(35, 86, 168, 0.3)',
+          }}
+        >
+          <EventAvailableIcon fontSize="small" />
+        </Box>
+        Import schedules from mail
+      </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
@@ -183,8 +199,9 @@ export function ScheduleImportDialog({ open, onClose, onImported }: ScheduleImpo
           </FormControl>
 
           <Button
-            variant="outlined"
-            startIcon={extracting ? <CircularProgress size={18} /> : <EventAvailableIcon />}
+            variant="contained"
+            color="secondary"
+            startIcon={extracting ? <CircularProgress size={18} color="inherit" /> : <EventAvailableIcon />}
             onClick={() => void runExtract()}
             disabled={extracting || importing}
             sx={{ alignSelf: 'flex-start' }}
@@ -272,7 +289,7 @@ export function ScheduleImportDialog({ open, onClose, onImported }: ScheduleImpo
           )}
         </Stack>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={close} disabled={extracting || importing}>Close</Button>
         {proposals.length > 0 && !done && (
           <Button

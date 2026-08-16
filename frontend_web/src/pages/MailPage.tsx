@@ -1,5 +1,7 @@
 import ArchiveIcon from '@mui/icons-material/Archive'
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EventAvailableIcon from '@mui/icons-material/EventAvailable'
@@ -7,6 +9,7 @@ import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import MarkEmailReadIcon from '@mui/icons-material/MarkEmailRead'
 import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import SearchIcon from '@mui/icons-material/Search'
 import SendIcon from '@mui/icons-material/Send'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
@@ -273,10 +276,27 @@ export function MailPage() {
   return (
     <Stack spacing={2} sx={{ height: 'calc(100vh - 3rem)', overflow: 'hidden' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}>
-        <Box>
-          <Typography variant="h4" fontWeight={700}>Mail</Typography>
-          <Typography color="text.secondary">Read, search, send, and organize campus mail.</Typography>
-        </Box>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Box
+            sx={{
+              width: 46,
+              height: 46,
+              borderRadius: 3,
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+              color: '#fff',
+              background: 'linear-gradient(135deg, #3366b8 0%, #1d4f9e 100%)',
+              boxShadow: '0 4px 12px rgba(35, 86, 168, 0.3)',
+            }}
+          >
+            <MailOutlineIcon />
+          </Box>
+          <Box>
+            <Typography variant="h4" fontWeight={700}>Mail</Typography>
+            <Typography color="text.secondary">Read, search, send, and organize campus mail.</Typography>
+          </Box>
+        </Stack>
         <Stack direction="row" spacing={1}>
           {connected === true && (
             <Button variant="outlined" color="error" onClick={disconnectGmail}>
@@ -318,7 +338,18 @@ export function MailPage() {
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
-      <Paper sx={{ minHeight: 0, flex: 1, overflow: 'hidden' }}>
+      <Paper
+        elevation={0}
+        sx={{
+          minHeight: 0,
+          flex: 1,
+          overflow: 'hidden',
+          border: 1,
+          borderColor: '#e2e8f0',
+          borderRadius: 3,
+          boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
+        }}
+      >
         <Stack direction={{ xs: 'column', md: 'row' }} sx={{ height: '100%', minHeight: '100%' }}>
           <Box sx={{ display: 'flex', width: { xs: '100%', md: 380 }, flexDirection: 'column', borderRight: { md: 1 }, borderColor: 'divider' }}>
             <Tabs
@@ -337,47 +368,100 @@ export function MailPage() {
                 label="Search mail"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <SearchIcon fontSize="small" sx={{ color: 'text.secondary', mr: 1 }} />
+                    ),
+                  },
+                }}
               />
             </Box>
             <Divider />
             {loading ? (
               <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>
             ) : messages.length ? (
-              <List disablePadding>
-                {messages.map((message) => (
-                  <ListItemButton
-                    key={message.id}
-                    selected={selected?.id === message.id}
-                    onClick={() => openMessage(message)}
-                    sx={{ alignItems: 'flex-start', gap: 1, py: 1.5 }}
-                  >
-                    <MailOutlineIcon color={message.read ? 'disabled' : 'primary'} sx={{ mt: 0.4 }} />
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Stack direction="row" alignItems="center" gap={1}>
-                        <Typography noWrap fontWeight={message.read ? 500 : 800} sx={{ flex: 1 }}>
-                          {message.subject}
+              <List disablePadding sx={{ px: 1, py: 1 }}>
+                {messages.map((message) => {
+                  const unread = !message.read
+                  return (
+                    <ListItemButton
+                      key={message.id}
+                      selected={selected?.id === message.id}
+                      onClick={() => openMessage(message)}
+                      sx={{
+                        alignItems: 'flex-start',
+                        gap: 1.25,
+                        py: 1.5,
+                        px: 1.75,
+                        mb: 0.5,
+                        borderRadius: 2,
+                        border: 1,
+                        borderColor: 'transparent',
+                        transition: 'background-color .15s ease, border-color .15s ease',
+                        '&:hover': { bgcolor: 'action.hover' },
+                        '&.Mui-selected': {
+                          bgcolor: 'rgba(35, 86, 168, 0.08)',
+                          borderColor: 'rgba(35, 86, 168, 0.25)',
+                        },
+                      }}
+                    >
+                      <MailOutlineIcon color={unread ? 'primary' : 'disabled'} sx={{ mt: 0.4 }} />
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Stack direction="row" alignItems="center" gap={1}>
+                          {unread && (
+                            <Box
+                              sx={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                bgcolor: 'primary.main',
+                                flexShrink: 0,
+                                boxShadow: '0 0 0 2px rgba(35, 86, 168, 0.15)',
+                              }}
+                            />
+                          )}
+                          <Typography noWrap fontWeight={unread ? 800 : 500} sx={{ flex: 1 }}>
+                            {message.subject}
+                          </Typography>
+                          {message.starred && <StarIcon color="warning" fontSize="small" />}
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color={categoryMeta[message.category].color}
+                            label={categoryMeta[message.category].label}
+                          />
+                        </Stack>
+                        <Typography noWrap variant="body2" color="text.secondary" fontWeight={unread ? 600 : 400}>
+                          {message.sender}
                         </Typography>
-                        {message.starred && <StarIcon color="warning" fontSize="small" />}
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color={categoryMeta[message.category].color}
-                          label={categoryMeta[message.category].label}
-                        />
-                      </Stack>
-                      <Typography noWrap variant="body2" color="text.secondary">{message.sender}</Typography>
-                      <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-                        <Typography noWrap variant="body2">{message.preview}</Typography>
-                        <Typography noWrap variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                          {formatMailDate(message.created_at)}
-                        </Typography>
-                      </Stack>
-                    </Box>
-                  </ListItemButton>
-                ))}
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                          <Typography noWrap variant="body2">{message.preview}</Typography>
+                          <Typography noWrap variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                            {formatMailDate(message.created_at)}
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    </ListItemButton>
+                  )
+                })}
               </List>
             ) : (
               <Box sx={{ display: 'grid', flex: 1, placeItems: 'center', p: 4, textAlign: 'center' }}>
+                <Box
+                  sx={{
+                    width: 84,
+                    height: 84,
+                    borderRadius: '50%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    bgcolor: 'rgba(35, 86, 168, 0.08)',
+                    mx: 'auto',
+                    mb: 1.5,
+                  }}
+                >
+                  <MailOutlineIcon color="disabled" sx={{ fontSize: 40 }} />
+                </Box>
                 <Typography variant="h6">No messages</Typography>
                 <Typography color="text.secondary">Try another folder or search term.</Typography>
               </Box>
@@ -390,13 +474,13 @@ export function MailPage() {
                 spacing={1}
                 sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}
               >
-                <Button size="small" disabled={page <= 0} onClick={goToPreviousPage}>
+                <Button size="small" disabled={page <= 0} onClick={goToPreviousPage} startIcon={<ChevronLeftIcon />}>
                   Prev
                 </Button>
                 <Typography variant="body2" sx={{ minWidth: 90, textAlign: 'center' }}>
                   Page {page + 1} / {totalPages}
                 </Typography>
-                <Button size="small" disabled={page + 1 >= totalPages} onClick={goToNextPage}>
+                <Button size="small" disabled={page + 1 >= totalPages} onClick={goToNextPage} endIcon={<ChevronRightIcon />}>
                   Next
                 </Button>
               </Stack>
@@ -425,7 +509,19 @@ export function MailPage() {
                     />
                   </Stack>
                 </Stack>
-                <Stack direction="row" spacing={1}>
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  alignItems="center"
+                  sx={{
+                    alignSelf: 'flex-start',
+                    borderRadius: 2,
+                    border: 1,
+                    borderColor: 'divider',
+                    p: 0.5,
+                    bgcolor: 'grey.50',
+                  }}
+                >
                   <Tooltip title={selected.starred ? 'Unstar' : 'Star'}>
                     <IconButton onClick={() => patchSelected({ starred: !selected.starred })}>
                       {selected.starred ? <StarIcon color="warning" /> : <StarBorderIcon />}
@@ -453,8 +549,9 @@ export function MailPage() {
                     sx={{
                       border: 1,
                       borderColor: 'divider',
-                      borderRadius: 1,
+                      borderRadius: 2,
                       overflow: 'hidden',
+                      boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
                     }}
                   >
                     <iframe
@@ -473,7 +570,20 @@ export function MailPage() {
             ) : (
               <Box sx={{ display: 'grid', minHeight: 0, flex: 1, placeItems: 'center', p: 4, textAlign: 'center' }}>
                 <Box>
-                  <MailOutlineIcon color="disabled" sx={{ fontSize: 56 }} />
+                  <Box
+                    sx={{
+                      width: 96,
+                      height: 96,
+                      borderRadius: '50%',
+                      display: 'grid',
+                      placeItems: 'center',
+                      bgcolor: 'rgba(35, 86, 168, 0.08)',
+                      mx: 'auto',
+                      mb: 2,
+                    }}
+                  >
+                    <MailOutlineIcon color="disabled" sx={{ fontSize: 52 }} />
+                  </Box>
                   <Typography variant="h6">Select a message</Typography>
                   <Typography color="text.secondary">Choose an email from the list to read it here.</Typography>
                 </Box>
@@ -484,7 +594,23 @@ export function MailPage() {
       </Paper>
 
       <Dialog open={composeOpen} onClose={() => !sending && setComposeOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Compose mail</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: 2,
+              display: 'grid',
+              placeItems: 'center',
+              color: '#fff',
+              background: 'linear-gradient(135deg, #3366b8 0%, #1d4f9e 100%)',
+              boxShadow: '0 2px 8px rgba(35, 86, 168, 0.3)',
+            }}
+          >
+            <SendIcon fontSize="small" />
+          </Box>
+          Compose mail
+        </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
@@ -507,7 +633,7 @@ export function MailPage() {
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setComposeOpen(false)} disabled={sending}>Cancel</Button>
           <Button variant="contained" startIcon={<SendIcon />} onClick={submitDraft} disabled={sending}>Send</Button>
         </DialogActions>
