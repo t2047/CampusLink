@@ -89,7 +89,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void adminCanQueryMaintenanceAcrossUsersAndNullableSpaceFields() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(3))
@@ -108,27 +108,27 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void superAdminCanAccessMaintenance() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .with(authentication(authFor(superAdmin))))
                 .andExpect(status().isOk());
     }
 
     @Test
     void studentReceivesForbidden() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .with(authentication(authFor(firstStudent))))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void anonymousUserReceivesUnauthorized() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance"))
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search"))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void supportsMultipleStatusValues() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("status", "SUBMITTED")
                         .param("status", "IN_PROGRESS")
                         .with(authentication(authFor(admin))))
@@ -138,7 +138,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void filtersByPriority() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("priority", "HIGH")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -148,14 +148,14 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void filtersBySpaceAndUserId() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("spaceId", firstSpace.getId().toString())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].ticketId").value(firstTicket.getId()));
 
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("userId", secondStudent.getId().toString())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -164,7 +164,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void filtersByTrimmedUserEmail() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("userEmail", "  " + firstStudent.getEmail() + "  ")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -174,7 +174,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void missingUserEmailReturnsEmptyPage() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("userEmail", "missing-maintenance@nus.edu.sg")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -184,7 +184,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void buildingFilterIsCaseInsensitiveContainsMatch() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("building", "  com9  ")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -194,7 +194,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void filtersByCreatedDateRange() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("createdFrom", LocalDateTime.now().minusMinutes(1).toString())
                         .param("createdTo", LocalDateTime.now().plusMinutes(1).toString())
                         .with(authentication(authFor(admin))))
@@ -204,7 +204,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void rejectsReversedCreatedDateRange() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("createdFrom", "2026-08-12T00:00:00")
                         .param("createdTo", "2026-08-11T00:00:00")
                         .with(authentication(authFor(admin))))
@@ -213,15 +213,15 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void validatesPaginationAndSortWhitelist() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("page", "-1")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("size", "101")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("sort", "space.name,asc")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isBadRequest());
@@ -229,12 +229,12 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void defaultsToCreatedAtDescendingAndSupportsPageSize() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].ticketId").value(noSpaceTicket.getId()));
 
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .param("page", "0")
                         .param("size", "1")
                         .param("sort", "id,asc")
@@ -246,7 +246,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void adminCanReadAnotherUsersDetail() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance/{ticketId}", secondTicket.getId())
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search/{ticketId}", secondTicket.getId())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ticketId").value(secondTicket.getId()))
@@ -263,7 +263,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
 
     @Test
     void detailMissingTicketReturnsNotFound() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/maintenance/{ticketId}", Long.MAX_VALUE)
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search/{ticketId}", Long.MAX_VALUE)
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isNotFound());
     }
@@ -272,10 +272,10 @@ class AdminFacilitiesMaintenanceIntegrationTest {
     void listAndDetailDoNotModifyData() throws Exception {
         long before = maintenanceTicketRepository.count();
 
-        mockMvc.perform(get("/api/admin/facilities/maintenance")
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/api/admin/facilities/maintenance/{ticketId}", firstTicket.getId())
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search/{ticketId}", firstTicket.getId())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk());
 
@@ -312,7 +312,7 @@ class AdminFacilitiesMaintenanceIntegrationTest {
                 Long.MAX_VALUE, firstSpace, firstSpace.getBuilding(), firstSpace.getRoomNumber(),
                 "monitor", "Monitor has no signal", MaintenancePriority.LOW));
 
-        mockMvc.perform(get("/api/admin/facilities/maintenance/{ticketId}", orphaned.getId())
+        mockMvc.perform(get("/api/admin/facilities/maintenance/search/{ticketId}", orphaned.getId())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userEmail").value(nullValue()));
