@@ -12,8 +12,8 @@ interface SessionUser {
 
 interface AuthContextValue {
   user: SessionUser | null
-  login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<SessionUser>
+  register: (email: string, password: string) => Promise<SessionUser>
   logout: () => void
   /** 个人中心编辑昵称/头像后同步全站（顶部导航、个人中心，个人中心需求 §10.3）。 */
   updateProfile: (profile: UserProfile) => void
@@ -38,7 +38,11 @@ function storedUser(): SessionUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(storedUser)
 
-  async function authenticate(action: typeof loginRequest, email: string, password: string) {
+  async function authenticate(
+    action: typeof loginRequest,
+    email: string,
+    password: string,
+  ): Promise<SessionUser> {
     const response = await action(email, password)
     const nextUser: SessionUser = {
       email: response.email,
@@ -49,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem(TOKEN_KEY, response.token)
     sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser))
     setUser(nextUser)
+    return nextUser
   }
 
   const updateProfile = useCallback((profile: UserProfile) => {

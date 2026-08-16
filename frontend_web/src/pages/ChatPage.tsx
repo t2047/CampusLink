@@ -184,6 +184,8 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
     if (saved) return saved === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+  // 是否手动设置过主题：未手动设置时跟随系统（main.tsx useThemeSync 全局同步）
+  const manualThemeRef = useRef(localStorage.getItem('theme') !== null);
   // ── 界面语言（en/zh）：localStorage 持久化，默认 en（优先英文）──
   const [lang, setLang] = useState<Lang>(() => {
     const saved = localStorage.getItem('lang');
@@ -246,10 +248,12 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
   // 用 ref 做同步守卫（防重复 resume 导致写操作重复执行）
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
 
-  // ── 深色模式：class 策略 + localStorage 持久化 ──
+  // ── 深色模式：class 策略 + localStorage 持久化（仅手动设置时写入，未设置则跟随系统）──
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
+    if (manualThemeRef.current) {
+      localStorage.setItem('theme', dark ? 'dark' : 'light');
+    }
   }, [dark]);
 
   // ── 自动滚动到底部 ──
@@ -748,7 +752,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
           {/* 深色模式切换 */}
           <button
             type="button"
-            onClick={() => setDark((d) => !d)}
+            onClick={() => { manualThemeRef.current = true; setDark((d) => !d); }}
             title={dark ? '切换到浅色模式' : '切换到深色模式'}
              className="flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50/50 text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
           >

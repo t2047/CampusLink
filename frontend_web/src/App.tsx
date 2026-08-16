@@ -20,7 +20,7 @@ const AdminClaimDetailPage = lazy(() => import('./admin/lostFound/AdminClaimDeta
 const AdminNotFoundPage = lazy(() => import('./admin/shared/AdminNotFoundPage').then((module) => ({ default: module.AdminNotFoundPage })))
 const AdminUserManagementPage = lazy(() => import('./admin/users/AdminUserManagementPage').then((module) => ({ default: module.AdminUserManagementPage })))
 const AdminForbiddenPage = lazy(() => import('./admin/shared/AdminForbiddenPage').then((module) => ({ default: module.AdminForbiddenPage })))
-const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then((module) => ({ default: module.CalendarPage })))
 const ClaimsPage = lazy(() => import('./pages/ClaimsPage').then((module) => ({ default: module.ClaimsPage })))
 const CreateReportPage = lazy(() => import('./pages/CreateReportPage').then((module) => ({ default: module.CreateReportPage })))
@@ -43,7 +43,7 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => 
 
 /**
  * 融合路由（Sprint 4 merge 决议，2026-08-09）：
- * - 认证统一：组员 AuthProvider（sessionStorage）+ /login /register AuthPage
+ * - 认证统一：组员 AuthProvider（sessionStorage）+ /login /register LoginPage（Tailwind）
  * - Chat：/chat（我们的聊天入口，登录后可用；根路径重定向到 /chat）
  * - Admin：/admin/*（组员，AdminRoute 角色保护）
  * - Lost & Found：/lost-found/* /claims/*（组员业务页）
@@ -52,8 +52,8 @@ export default function App() {
   return (
     <Suspense fallback={<Box sx={{ minHeight: '60vh', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}>
       <Routes>
-      <Route path="/login" element={<AuthPage mode="login" />} />
-      <Route path="/register" element={<AuthPage mode="register" />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<LoginPage />} />
       <Route path="/forbidden" element={<AdminForbiddenPage />} />
       <Route element={<AdminRoute />}>
         <Route element={<AdminLayout />}>
