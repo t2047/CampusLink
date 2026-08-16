@@ -71,7 +71,8 @@ jobs:
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: 编译 Android
         working-directory: frontend_mobile
-        run: ./gradlew assembleDemoDebug
+        # CodeQL 必须观察到真实的 Java/Kotlin 编译过程，不能直接复用 Gradle 构建缓存。
+        run: ./gradlew assembleDemoDebug --no-build-cache --rerun-tasks --stacktrace
       - uses: github/codeql-action/analyze@v4
 
   dependency-review:

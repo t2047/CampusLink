@@ -6,15 +6,16 @@
 ## 当前部署状态（2026-08）
 
 - **当前可访问地址**：https://campuslink.tokeninf.xyz/（DNS 指向 `13.212.202.232`）
-- **HTTPS 状态**：仓库已具备自动签发与续期能力；云端仍为自签占位证书，需先配置
-  `CERT_EMAIL`，再执行本节脚本或触发 CD，才能供 Android Demo/Prod 使用。
+- **HTTPS 状态**：已启用 Let’s Encrypt 可信证书，HTTP 自动 301 跳转 HTTPS；当前证书覆盖
+  `campuslink.tokeninf.xyz`，有效期为 2026-08-15 至 2026-11-13。
 - **实例**：AWS EC2 `m7i-flex.large`（2 vCPU / 8 GiB，Free tier，12 个月 $0）
 - **服务**：mysql / minio / chat-backend / orchestration / 5×MCP / lost-found / web（nginx）全部运行
 - **已知事项**：
-  - RSA 密钥卷权限：已手动 `chown 1001:1001` 修复（代码修复见 backend Dockerfile，合入后新部署自动生效）
-  - 前端 HTTP 下可用（randomUUID fallback 已合入 feature 分支，待合并 main 后由 CD 重建镜像）
-  - CD `deploy` job 待配置 GitHub Secrets（`VM_HOST`/`VM_USER`/`VM_SSH_KEY`）后自动部署
-  - `feature/admin-dashboard-claim-review`（PR #22）已重新合并
+  - 正式域名、维护邮箱和 VM SSH 配置保存在 GitHub Secrets，由 CD 同步到服务器，真实值不提交 Git；
+  - Certbot 每 12 小时检查续期，Web 容器检测证书变化后平滑 reload；
+  - 可信证书签发、HTTP 301、容器健康检查和 CD 部署已经通过；
+  - `certbot renew --dry-run` 续期演练仍需由云端负责人执行并记录；
+  - 旧环境若存在 RSA 密钥卷属主问题，按第 8b 节执行一次性迁移。
 
 ## 1. 创建 AWS EC2（m7i-flex.large，Free tier eligible）
 
