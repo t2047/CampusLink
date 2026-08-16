@@ -1,29 +1,6 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  CircularProgress,
-  Divider,
-  MenuItem,
-  Select,
-  Stack,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TablePagination,
-  TableRow,
-  Tabs,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { Link as RouterLink, useLocation, useParams } from 'react-router-dom'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, MenuItem, Select, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
 import { apiErrorMessage } from '../../api/client'
 import { AdminBooking, facilitiesApi, FacilitiesDashboard, MaintenanceRequest } from '../../api/facilities'
 
@@ -43,58 +20,6 @@ function SortButton({ label, active, ascending, onClick }: { label: string; acti
 function nextStatuses(status: string) { if (status === 'SUBMITTED') return ['SUBMITTED', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED']; if (status === 'IN_PROGRESS') return ['IN_PROGRESS', 'RESOLVED', 'CANCELLED']; return [status] }
 function reservationLabel(start: string, end: string) { return `${new Date(start).toLocaleDateString()} ${new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` }
 function recentReservationCount(reservations: { startDateTime: string; status: string }[]) { const from = new Date(); from.setDate(from.getDate() - 30); const to = new Date(); to.setDate(to.getDate() + 30); return reservations.filter((reservation) => reservation.status !== 'CANCELLED' && new Date(reservation.startDateTime) >= from && new Date(reservation.startDateTime) <= to).length }
-
-interface FacilitiesAnalyticsData {
-  overview: AdminFacilitiesOverview
-  bookings: AdminFacilityBooking[]
-  window: SingaporeAnalyticsWindow
-}
-
-const MAX_ANALYTICS_PAGES = 10_000
-
-function validateAnalyticsPage(
-  response: PageResponse<AdminFacilityBooking>,
-  requestedPage: number,
-  expectedTotalPages?: number,
-) {
-  if (response.page !== requestedPage || !Number.isInteger(response.totalPages)
-    || response.totalPages < 0 || response.totalPages > MAX_ANALYTICS_PAGES) {
-    throw new Error('Invalid Facilities booking pagination contract.')
-  }
-  if (expectedTotalPages !== undefined && response.totalPages !== expectedTotalPages) {
-    throw new Error('Facilities booking pagination changed while loading analytics.')
-  }
-  if (response.totalPages === 0 && response.content.length > 0) {
-    throw new Error('Invalid Facilities booking pagination contract.')
-  }
-}
-
-async function loadAllAnalyticsBookings(window: SingaporeAnalyticsWindow) {
-  const fetchPage = (page: number) => searchAdminFacilityBookings({
-    startFrom: window.startFrom,
-    startTo: window.startTo,
-    page,
-    size: 100,
-    sort: 'startDateTime,asc',
-  })
-  const firstPage = await fetchPage(0)
-  validateAnalyticsPage(firstPage, 0)
-  if (firstPage.totalPages === 0) return []
-
-  const bookings = [...firstPage.content]
-  for (let page = 1; page < firstPage.totalPages; page += 1) {
-    const response = await fetchPage(page)
-    validateAnalyticsPage(response, page, firstPage.totalPages)
-    bookings.push(...response.content)
-  }
-  return bookings
-}
-
-const SPACE_STATUS_LABELS: Record<string, string> = {
-  AVAILABLE: 'Available',
-  OUT_OF_SERVICE: 'Out of Service',
-  INACTIVE: 'Inactive',
-}
 
 export function FacilitiesDashboardPage() {
   const [data, setData] = useState<FacilitiesDashboard | null>(null); const [error, setError] = useState(''); const [query, setQuery] = useState(''); const [status, setStatus] = useState('All'); const [sort, setSort] = useState('name'); const [ascending, setAscending] = useState(true)
