@@ -9,25 +9,6 @@
 // - 部署：可通过 VITE_API_BASE 指向独立后端域名（此时需后端 CORS 放行该 origin）
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
-// ── Types ────────────────────────────────────
-
-export interface AuthResponse {
-  token: string;
-  email: string;
-  role: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface RegisterRequest {
-  email: string;
-  password: string;
-  name?: string;
-}
-
 // ── Auth helpers ─────────────────────────────
 // 登录态统一由 AuthProvider（组员认证体系）管理：token 存 sessionStorage
 // （key: campuslink.token）。兼容旧的 localStorage 'jwt'（历史会话）。
@@ -36,46 +17,10 @@ function getToken(): string | null {
   return sessionStorage.getItem('campuslink.token') ?? localStorage.getItem('jwt');
 }
 
-export function setToken(token: string): void {
-  sessionStorage.setItem('campuslink.token', token);
-}
-
 export function clearToken(): void {
   sessionStorage.removeItem('campuslink.token');
   sessionStorage.removeItem('campuslink.user');
   localStorage.removeItem('jwt');
-}
-
-export function isLoggedIn(): boolean {
-  return getToken() !== null;
-}
-
-// ── Auth API ─────────────────────────────────
-
-export async function login(req: LoginRequest): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => 'Login failed');
-    throw new Error(text);
-  }
-  return res.json() as Promise<AuthResponse>;
-}
-
-export async function register(req: RegisterRequest): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => 'Registration failed');
-    throw new Error(text);
-  }
-  return res.json() as Promise<AuthResponse>;
 }
 
 // ── SSE Chat Stream ──────────────────────────

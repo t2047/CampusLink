@@ -12,7 +12,7 @@ export function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', bgcolor: 'grey.50' }}>
+    <Box sx={{ minHeight: '100vh', display: 'flex', bgcolor: (theme) => (theme.palette.mode === 'dark' ? '#0f172a' : 'grey.50') }}>
       {isDesktop ? (
         <Drawer
           variant="permanent"

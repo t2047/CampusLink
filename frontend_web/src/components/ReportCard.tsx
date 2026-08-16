@@ -15,7 +15,7 @@ export function ReportCard({ report, showAdminHidden = false }: { report: LostFo
           {report.images[0] ? (
             <CardMedia component="img" height="180" image={report.images[0].url} alt={report.itemName} sx={{ objectFit: 'cover' }} />
           ) : (
-            <Box sx={{ height: 180, bgcolor: 'grey.200', display: 'grid', placeItems: 'center' }}><Typography color="text.secondary">No image</Typography></Box>
+            <Box sx={{ height: 180, bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'), display: 'grid', placeItems: 'center' }}><Typography color="text.secondary">No image</Typography></Box>
           )}
           {showAdminHidden && report.adminHidden && (
             <Chip size="small" label="Removed by admin" color="error" sx={{ position: 'absolute', top: 8, left: 8 }} />

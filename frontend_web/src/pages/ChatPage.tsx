@@ -99,6 +99,11 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     micStart: 'Voice input',
     micStop: 'Stop voice input',
     micUnsupported: 'Voice input requires Chrome or Edge',
+    micError: 'Voice recognition failed',
+    micErrNoSpeech: 'No speech detected',
+    micErrNotAllowed: 'Microphone permission denied',
+    micErrAudioCapture: 'Cannot access the microphone',
+    micErrNetwork: 'Network error',
     needConfirm: 'needs confirmation:',
     confirm: 'Confirm',
     cancel: 'Cancel',
@@ -132,6 +137,11 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     micStart: '语音输入',
     micStop: '停止语音输入',
     micUnsupported: '语音输入需要 Chrome 或 Edge 浏览器',
+    micError: '语音识别失败',
+    micErrNoSpeech: '未检测到语音',
+    micErrNotAllowed: '麦克风权限被拒绝',
+    micErrAudioCapture: '无法访问麦克风',
+    micErrNetwork: '网络错误',
     needConfirm: '需要确认：',
     confirm: '确认',
     cancel: '取消',
@@ -174,6 +184,8 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
     if (saved) return saved === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+  // 是否手动设置过主题：未手动设置时跟随系统（main.tsx useThemeSync 全局同步）
+  const manualThemeRef = useRef(localStorage.getItem('theme') !== null);
   // ── 界面语言（en/zh）：localStorage 持久化，默认 en（优先英文）──
   const [lang, setLang] = useState<Lang>(() => {
     const saved = localStorage.getItem('lang');
@@ -186,6 +198,18 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
 
   // 语音输入（STT）：浏览器 Web Speech API，识别结果填入输入框
   const speech = useSpeechRecognition(lang === 'zh' ? 'zh-CN' : 'en-US');
+  const micErrorText = useCallback(
+    (code: string) => {
+      const map: Record<string, string> = {
+        'no-speech': t('micErrNoSpeech'),
+        'not-allowed': t('micErrNotAllowed'),
+        'audio-capture': t('micErrAudioCapture'),
+        network: t('micErrNetwork'),
+      };
+      return map[code] ?? code;
+    },
+    [t],
+  );
   const toggleMic = useCallback(() => {
     if (speech.listening) {
       speech.stop();
@@ -224,10 +248,12 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
   // 用 ref 做同步守卫（防重复 resume 导致写操作重复执行）
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
 
-  // ── 深色模式：class 策略 + localStorage 持久化 ──
+  // ── 深色模式：class 策略 + localStorage 持久化（仅手动设置时写入，未设置则跟随系统）──
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
+    if (manualThemeRef.current) {
+      localStorage.setItem('theme', dark ? 'dark' : 'light');
+    }
   }, [dark]);
 
   // ── 自动滚动到底部 ──
@@ -726,7 +752,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
           {/* 深色模式切换 */}
           <button
             type="button"
-            onClick={() => setDark((d) => !d)}
+            onClick={() => { manualThemeRef.current = true; setDark((d) => !d); }}
             title={dark ? '切换到浅色模式' : '切换到深色模式'}
              className="flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50/50 text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
           >
@@ -941,37 +967,73 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
 
       {/* ── 输入区 ── */}
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+        {/* 语音输入实时反馈：中间结果 + 错误提示 */}
+        {(speech.listening && speech.interim) || speech.error ? (
+          <div className="mx-auto mb-1.5 w-full max-w-3xl">
+            {speech.listening && speech.interim && (
+              <p
+                aria-live="polite"
+                className="truncate text-xs text-indigo-500 dark:text-indigo-400"
+              >
+                🎤 {speech.interim}
+              </p>
+            )}
+            {speech.error && (
+              <p role="alert" className="text-xs text-red-500">
+                {t('micError')}：{micErrorText(speech.error)}
+              </p>
+            )}
+          </div>
+        ) : null}
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
           {speech.supported && (
-            <button
-              type="button"
-              onClick={toggleMic}
-              title={speech.listening ? t('micStop') : t('micStart')}
-              aria-label={speech.listening ? t('micStop') : t('micStart')}
-              className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl transition-colors ${
-                speech.listening
-                  ? 'animate-pulse bg-red-500 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
-              }`}
-            >
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                viewBox="0 0 24 24"
+            <div className="flex shrink-0 flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleMic}
+                title={speech.listening ? t('micStop') : t('micStart')}
+                aria-label={speech.listening ? t('micStop') : t('micStart')}
+                className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl transition-colors ${
+                  speech.listening
+                    ? 'animate-pulse bg-red-500 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+                }`}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z"
-                />
-                <path
-                  strokeLinecap="round"
-                  d="M19 11a7 7 0 0 1-14 0M12 18v3"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    d="M19 11a7 7 0 0 1-14 0M12 18v3"
+                  />
+                </svg>
+              </button>
+              {/* 实时输入音量条（getUserMedia 不可用时恒 0，不显示激活格） */}
+              {speech.listening && (
+                <div className="flex h-4 items-end gap-[3px]" aria-hidden>
+                  {[0, 1, 2, 3, 4].map((bar) => (
+                    <span
+                      key={bar}
+                      className={`w-[3px] rounded-full transition-colors ${
+                        speech.volume * 5 > bar
+                          ? 'bg-red-500'
+                          : 'bg-slate-200 dark:bg-slate-600'
+                      }`}
+                      style={{ height: `${8 + bar * 2}px` }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <textarea
             ref={taRef}
@@ -1019,7 +1081,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
           )}
         </div>
         <p className="mx-auto mt-1.5 w-full max-w-3xl text-center text-[11px] text-slate-400 dark:text-slate-600">
-          AI 生成内容仅供参考 · Campus Link
+          AI-generated content is for reference only · Campus Link
         </p>
       </footer>
     </div>

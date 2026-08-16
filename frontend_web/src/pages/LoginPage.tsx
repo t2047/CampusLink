@@ -1,30 +1,34 @@
 // ──────────────────────────────────────────────
 //  Login / Register Page — Tailwind + Dark mode
+//  统一登录/注册页（MUI AuthPage 已被本页取代）
 // ──────────────────────────────────────────────
 
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
-import {
-  login,
-  register,
-  setToken,
-  isLoggedIn,
-  type LoginRequest,
-  type RegisterRequest,
-} from '../services/api';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { apiErrorMessage } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const location = useLocation();
+  const { user, login, register } = useAuth();
+  // 初始模式跟随路由：/register 显示注册表单（旧 AuthPage 靠 mode prop 区分）
+  const [mode, setMode] = useState<'login' | 'register'>(() =>
+    location.pathname === '/register' ? 'register' : 'login',
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // 已登录访问登录页 → 直接进聊天
-  if (isLoggedIn()) {
-    return <Navigate to="/chat" replace />;
+  const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+
+  // 已登录访问登录页 → 按角色跳转（admin 进管理台，其余进聊天）
+  if (user) {
+    const next =
+      destination ??
+      (['ADMIN', 'SUPER_ADMIN'].includes(user.role) ? '/admin/dashboard' : '/chat');
+    return <Navigate to={next} replace />;
   }
 
   const toggleMode = () => {
@@ -38,18 +42,14 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      let result: { token: string };
-      if (mode === 'login') {
-        const req: LoginRequest = { email, password };
-        result = await login(req);
-      } else {
-        const req: RegisterRequest = { email, password, name: name || undefined };
-        result = await register(req);
-      }
-      setToken(result.token);
-      navigate('/chat', { replace: true });
+      const nextUser = await (mode === 'login' ? login(email, password) : register(email, password));
+      // 跳转优先级与已登录分支一致：destination（原请求路径）> 角色默认页
+      const next =
+        destination ??
+        (['ADMIN', 'SUPER_ADMIN'].includes(nextUser.role) ? '/admin/dashboard' : '/chat');
+      navigate(next, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
+      setError(apiErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -69,7 +69,7 @@ export default function LoginPage() {
               Campus Link
             </h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              校园智能服务平台 · 校园 AI 助手
+              Smart Campus Platform · Campus AI Assistant
             </p>
           </div>
 
@@ -84,7 +84,7 @@ export default function LoginPage() {
                   : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >
-              登录
+              Log in
             </button>
             <button
               type="button"
@@ -95,45 +95,25 @@ export default function LoginPage() {
                   : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >
-              注册
+              Register
             </button>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === 'register' && (
-              <div>
-                <label
-                  htmlFor="name"
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  姓名 <span className="text-gray-400">（选填）</span>
-                </label>
-                <input
-                  id="name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="你的姓名"
-                  autoComplete="name"
-                  className="w-full rounded-xl border border-gray-300 bg-gray-50 px-3.5 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-brand-500 dark:focus:bg-gray-800"
-                />
-              </div>
-            )}
-
             <div>
               <label
                 htmlFor="email"
                 className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                邮箱
+                Email
               </label>
               <input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@campus.edu"
+                placeholder="you@campus.edu"
                 required
                 autoComplete="email"
                 className="w-full rounded-xl border border-gray-300 bg-gray-50 px-3.5 py-2.5 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-brand-500 focus:bg-white focus:ring-4 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-brand-500 dark:focus:bg-gray-800"
@@ -145,7 +125,7 @@ export default function LoginPage() {
                 htmlFor="password"
                 className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                密码
+                Password
               </label>
               <input
                 id="password"
@@ -161,7 +141,10 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+              <div
+                role="alert"
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+              >
                 {error}
               </div>
             )}
@@ -171,25 +154,25 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full rounded-xl bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? '处理中…' : mode === 'login' ? '登录' : '创建账号'}
+              {loading ? 'Processing…' : mode === 'login' ? 'Log in' : 'Create account'}
             </button>
           </form>
 
           {/* Switch */}
           <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
-            {mode === 'login' ? '还没有账号？' : '已有账号？'}
+            {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
             <button
               type="button"
               onClick={toggleMode}
               className="ml-1 font-medium text-brand-600 hover:underline dark:text-brand-400"
             >
-              {mode === 'login' ? '立即注册' : '去登录'}
+              {mode === 'login' ? 'Sign up' : 'Log in'}
             </button>
           </p>
         </div>
 
         <footer className="mt-6 text-center text-xs text-gray-400 dark:text-gray-600">
-          Campus Link · 校园智能服务平台
+          Campus Link · Smart Campus Platform
         </footer>
       </div>
     </div>

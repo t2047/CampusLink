@@ -1,16 +1,23 @@
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import { StrictMode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css' // Tailwind base（Chat 页面样式）
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 
-const theme = createTheme({
-  palette: {
-    primary: { main: '#2356a8', light: '#3f6fc4', dark: '#1b4385' },
-    secondary: { main: '#0f766e', light: '#14958b', dark: '#0b5d57' },
-  },
+function buildTheme(dark: boolean) {
+  return createTheme({
+    palette: {
+      // 跟随 html.dark（Tailwind darkMode: class 由 ChatPage 切换）
+      mode: dark ? 'dark' : 'light',
+      primary: { main: '#2356a8', light: '#3f6fc4', dark: '#1b4385' },
+      secondary: { main: '#0f766e', light: '#14958b', dark: '#0b5d57' },
+      ...(dark
+        ? { background: { default: '#0f172a', paper: '#1e293b' } }
+        : {}),
+    },
   typography: {
     fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     button: { textTransform: 'none', fontWeight: 600, letterSpacing: '0.01em' },
@@ -70,7 +77,7 @@ const theme = createTheme({
         },
         outlined: {
           borderColor: '#d6deea',
-          backgroundColor: 'rgba(255, 255, 255, 0.6)',
+          backgroundColor: dark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.6)',
           '&:hover': {
             borderColor: '#b9c8dd',
             backgroundColor: 'rgba(35, 86, 168, 0.06)',
@@ -159,15 +166,59 @@ const theme = createTheme({
       },
     },
   },
-})
+  })
+}
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
+function useMuiTheme() {
+  // 跟随 html.dark class（Tailwind darkMode: class，由 ChatPage 主题切换驱动）
+  const [dark, setDark] = useState<boolean>(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+  )
+  useEffect(() => {
+    const el = document.documentElement
+    const observer = new MutationObserver(() =>
+      setDark(el.classList.contains('dark')),
+    )
+    observer.observe(el, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+  return useMemo(() => buildTheme(dark), [dark])
+}
+
+function useThemeSync() {
+  // 全局深色主题：用户未手动设置（localStorage 无 theme）时跟随系统
+  // prefers-color-scheme；手动设置由 ChatPage 主题切换写入 localStorage。
+  useEffect(() => {
+    const apply = () => {
+      if (!localStorage.getItem('theme')) {
+        document.documentElement.classList.toggle(
+          'dark',
+          window.matchMedia('(prefers-color-scheme: dark)').matches,
+        )
+      }
+    }
+    apply()
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+}
+
+function Root() {
+  useThemeSync()
+  const theme = useMuiTheme()
+  return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
         <AuthProvider><App /></AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
+  )
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Root />
   </StrictMode>,
 )

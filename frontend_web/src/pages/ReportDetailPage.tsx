@@ -97,7 +97,7 @@ export function ReportDetailPage() {
       {success && <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>}
       <Grid container spacing={4}>
         <Grid size={{ xs: 12, md: 6 }}>
-          {report.images.length ? <Grid container spacing={1}>{report.images.map((image, index) => <Grid key={image.id} size={index === 0 ? 12 : 6}><CardMedia component="img" image={image.url} alt={`${report.itemName} ${index + 1}`} sx={{ borderRadius: 2, width: '100%', height: index === 0 ? 360 : 180, objectFit: 'cover' }} /></Grid>)}</Grid> : <Box sx={{ height: 360, bgcolor: 'grey.200', borderRadius: 2, display: 'grid', placeItems: 'center' }}><Typography color="text.secondary">No images provided</Typography></Box>}
+          {report.images.length ? <Grid container spacing={1}>{report.images.map((image, index) => <Grid key={image.id} size={index === 0 ? 12 : 6}><CardMedia component="img" image={image.url} alt={`${report.itemName} ${index + 1}`} sx={{ borderRadius: 2, width: '100%', height: index === 0 ? 360 : 180, objectFit: 'cover' }} /></Grid>)}</Grid> : <Box sx={{ height: 360, bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200'), borderRadius: 2, display: 'grid', placeItems: 'center' }}><Typography color="text.secondary">No images provided</Typography></Box>}
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
           <Card sx={{ p: 3 }}>

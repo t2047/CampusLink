@@ -307,7 +307,7 @@ export function AdminClaimDetailPage() {
             {claim.report.images.map((image, index) => (
               <Paper key={image.id} variant="outlined" sx={{ minHeight: 220, overflow: 'hidden' }}>
                 {brokenImages.has(image.id) ? (
-                  <Box sx={{ minHeight: 220, display: 'grid', placeItems: 'center', bgcolor: 'grey.100' }}>
+                  <Box sx={{ minHeight: 220, display: 'grid', placeItems: 'center', bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.100') }}>
                     <Typography color="text.secondary">Image unavailable.</Typography>
                   </Box>
                 ) : (

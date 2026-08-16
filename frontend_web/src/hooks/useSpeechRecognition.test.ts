@@ -112,4 +112,31 @@ describe('useSpeechRecognition', () => {
     unmount()
     expect(rec.abort).toHaveBeenCalled()
   })
+
+  it('stale onend from an aborted session does not clobber the new session', () => {
+    const ctor = vi.fn(function () { return new FakeRecognition() })
+    ;win.SpeechRecognition = ctor as never
+
+    const onFinal = vi.fn()
+    const { result } = renderHook(() => useSpeechRecognition('en-US'))
+
+    act(() => result.current.start({ onFinal }))
+    const first = ctor.mock.results[0].value as FakeRecognition
+    act(() => result.current.start({ onFinal })) // 第二次 start（会 abort 第一次）
+    const second = ctor.mock.results[1].value as FakeRecognition
+    expect(result.current.listening).toBe(true)
+
+    // 第一次（已 abort）的 onend 迟到触发：不得清理新会话状态
+    act(() => first.onend?.())
+    expect(result.current.listening).toBe(true)
+    expect(onFinal).not.toHaveBeenCalled()
+
+    // 新会话产生 final 后正常结束才提交并复位状态
+    act(() => {
+      fireResult(second, [{ final: true, text: 'hello' }])
+      second.onend?.()
+    })
+    expect(result.current.listening).toBe(false)
+    expect(onFinal).toHaveBeenCalledWith('hello')
+  })
 })
