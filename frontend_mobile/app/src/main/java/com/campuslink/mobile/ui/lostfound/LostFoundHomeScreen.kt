@@ -37,7 +37,7 @@ fun LostFoundHomeScreen(
                 title = { Text("Lost & Found") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Services")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Home")
                     }
                 },
             )

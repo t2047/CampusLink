@@ -7,11 +7,13 @@ import org.junit.Test
 
 class NavigationStateTest {
     @Test
-    fun `root delegates system back while core screens return to conversations`() {
-        assertNull(NavigationState(Screen.Conversations).goBack())
+    fun `home delegates system back while other tab roots return home`() {
+        assertNull(NavigationState(Screen.Home).goBack())
+        assertBack(Screen.Conversations, Screen.Home)
+        assertBack(Screen.Profile, Screen.Home)
         assertBack(Screen.Chat("conversation-7"), Screen.Conversations)
-        assertBack(Screen.Settings, Screen.Conversations)
-        assertBack(Screen.Services, Screen.Conversations)
+        assertBack(Screen.Settings, Screen.Profile)
+        assertBack(Screen.Services, Screen.Home)
         assertEquals(
             Screen.Chat("conversation-7"),
             NavigationState().openServices(Screen.Chat("conversation-7")).backTarget(),
@@ -20,7 +22,7 @@ class NavigationStateTest {
 
     @Test
     fun `facilities back tree matches top app bar behavior`() {
-        assertBack(Screen.FacilitiesHome, Screen.Services)
+        assertBack(Screen.FacilitiesHome, Screen.Home)
         assertBack(Screen.FacilitiesSearch, Screen.FacilitiesHome)
         assertBack(Screen.SpaceDetails(42), Screen.FacilitiesSearch)
         assertBack(Screen.MyBookings, Screen.FacilitiesHome)
@@ -49,7 +51,7 @@ class NavigationStateTest {
 
     @Test
     fun `lost found details preserve browse and claims origins`() {
-        assertBack(Screen.LostFoundHome, Screen.Services)
+        assertBack(Screen.LostFoundHome, Screen.Home)
         assertBack(Screen.LostFoundBrowse, Screen.LostFoundHome)
         assertBack(Screen.LostFoundDetails(8), Screen.LostFoundBrowse)
         assertBack(Screen.LostFoundDetails(8, returnToClaims = true), Screen.LostFoundClaims)
@@ -60,8 +62,10 @@ class NavigationStateTest {
     @Test
     fun `every screen round trips through its stable saved route`() {
         val screens = listOf(
+            Screen.Home,
             Screen.Conversations,
             Screen.Chat("conversation-7"),
+            Screen.Profile,
             Screen.Settings,
             Screen.Services,
             Screen.FacilitiesHome,
@@ -82,8 +86,8 @@ class NavigationStateTest {
         )
 
         screens.forEach { screen -> assertEquals(screen, screenFromRouteKey(screen.routeKey())) }
-        assertEquals(Screen.Conversations, screenFromRouteKey("space-details|not-a-number"))
-        assertEquals(Screen.Conversations, screenFromRouteKey("unknown"))
+        assertEquals(Screen.Home, screenFromRouteKey("space-details|not-a-number"))
+        assertEquals(Screen.Home, screenFromRouteKey("unknown"))
     }
 
     private fun assertBack(from: Screen, expected: Screen) {

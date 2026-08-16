@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -54,7 +53,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit, onServices: () -> Unit) {
+fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
@@ -93,7 +92,6 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit, on
         TopAppBar(
             title = { Text("CampusLink AI") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
-            actions = { IconButton(onClick = onServices) { Icon(Icons.Default.Apps, "Services") } },
         )
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {

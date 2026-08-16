@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/facilities-mobile-maintenance`（已同步 `origin/main` 提交 `d893dfb`）
+> 当前开发分支：`feature/mobile-app-shell`
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat 第一版、Facilities Mobile Phase 1/2/3 已完成；Lost & Found Native Phase 1 已完成开发和本地自动化验证
+> 当前阶段：Core Chat、Facilities Mobile Phase 1/2/3、Lost & Found Native Phase 1 与 Mobile App Shell 已完成开发和本地自动化验证
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -333,6 +333,18 @@ API 与分层：
 - 日期选择器、本地化文案和无障碍专项优化；
 - 真机和云端 HTTPS 环境的完整人工验收。
 
+### 3.13 Mobile App Shell
+
+状态：**已完成开发、自动化验证和 Pixel 7 模拟器 smoke**
+
+- 登录后一级信息架构统一为 Home、Agent Core、Profile 三个 Material 3 底部导航项；
+- Home 聚合 CampusAgent、Facilities、Lost & Found、由 Agent 管理的 Mail，以及 My Bookings、My Maintenance、My Claims 快捷入口；
+- Agent Core 继续使用原 Conversation List → Chat 架构，未改动 Chat SSE、Room、HITL、ViewModel 或 Repository；
+- Profile 复用现有语言、深色模式、清聊天记录和退出登录逻辑，并展示 SessionStore 中真实存在的邮箱和角色；
+- `NavigationState`、route key、System Back 和 recreation 保存已扩展到三个一级 tab；Chat 和业务深层页面不显示底部导航；
+- 原 Services/Settings route 暂时保留用于旧保存状态兼容，新入口不再依赖它们；
+- 主题增加统一的 CampusLink mint/green 明暗配色，保留现有 dark mode。
+
 ## 4. 本地数据与安全
 
 ### 4.1 已完成的安全措施
@@ -429,14 +441,17 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
 | JVM 单元测试 | 81 个通过 |
-| 模拟器测试 | 17 个通过 |
+| 模拟器测试 | 23 个通过 |
 | `assembleLocalDebug` | 通过 |
+| `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
 | Nginx `nginx -t` | 通过 |
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及 Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、Home/Profile/底部导航回调、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
+
+Pixel 7 API 36 模拟器已使用 `demoDebug` 保留真实登录态完成运行时 smoke：Home → Agent Core → Profile → Home、Facilities/Lost & Found → Back → Home、Mail → Agent Core、三个 Quick Access、Conversation → Chat → Back，以及 Home/Profile/Agent Core 横竖屏状态恢复均通过。为避免删除现有模拟器聊天与凭据，Clear Chat History 和 Log Out 使用 Compose 回调测试验证，未在 smoke 中实际执行破坏性操作。
 
 ### 6.3 CI/CD
 

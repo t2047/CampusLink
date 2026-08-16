@@ -1,8 +1,5 @@
 package com.campuslink.mobile.ui
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,6 +9,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.campuslink.mobile.AppContainer
+import com.campuslink.mobile.BuildConfig
+import com.campuslink.mobile.core.model.AuthSession
 import com.campuslink.mobile.core.model.ReportType
 import com.campuslink.mobile.core.settings.AppLanguage
 import com.campuslink.mobile.ui.facilities.FacilitiesHomeScreen
@@ -46,9 +45,8 @@ fun CampusLinkApp(container: AppContainer) {
     val language by container.settings.language.collectAsStateWithLifecycle()
     val dark by container.settings.dark.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    val palette = if (dark) darkColorScheme() else lightColorScheme()
 
-    MaterialTheme(colorScheme = palette) {
+    CampusLinkTheme(darkTheme = dark) {
         if (session == null) {
             AuthRoute(container, language)
         } else {
@@ -62,25 +60,23 @@ fun CampusLinkApp(container: AppContainer) {
             val goBack: () -> Unit = { navigation.goBack()?.let { navigation = it } }
             NavigationBackHandler(navigation) { navigation = it }
             when (val active = navigation.screen) {
-                Screen.Conversations ->
-                    ConversationListRoute(
-                        container = container,
-                        email = session!!.email,
-                        text = strings(language),
+                Screen.Home, Screen.Conversations, Screen.Profile -> RootTabRoute(
+                    active = active,
+                    container = container,
+                    state = RootTabUiState(session!!, language, dark),
+                    actions = RootTabActions(
                         navigate = navigate,
-                        onServices = {
-                            navigation = navigation.openServices(Screen.Conversations)
+                        clearHistory = {
+                            scope.launch { container.chatRepository.clearForUser(session!!.email) }
                         },
-                    )
+                    ),
+                )
                 is Screen.Chat ->
                     ChatRoute(
                         container = container,
                         conversationId = active.id,
                         text = strings(language),
                         onBack = goBack,
-                        onServices = {
-                            navigation = navigation.openServices(active)
-                        },
                     )
                 Screen.Settings -> SettingsScreen(
                     container = container,
@@ -133,13 +129,74 @@ fun CampusLinkApp(container: AppContainer) {
     }
 }
 
+private data class RootTabUiState(
+    val session: AuthSession,
+    val language: AppLanguage,
+    val dark: Boolean,
+)
+
+private data class RootTabActions(
+    val navigate: (Screen) -> Unit,
+    val clearHistory: () -> Unit,
+)
+
+@Composable
+private fun RootTabRoute(
+    active: Screen,
+    container: AppContainer,
+    state: RootTabUiState,
+    actions: RootTabActions,
+) {
+    val tab = when (active) {
+        Screen.Home -> AppTab.HOME
+        Screen.Conversations -> AppTab.AGENT_CORE
+        Screen.Profile -> AppTab.PROFILE
+        else -> return
+    }
+    CampusLinkShell(selectedTab = tab, onTabSelected = { actions.navigate(it.screen()) }) {
+        when (active) {
+            Screen.Home -> HomeScreen(
+                HomeActions(
+                    openAgentCore = { actions.navigate(Screen.Conversations) },
+                    openFacilities = { actions.navigate(Screen.FacilitiesHome) },
+                    openLostFound = { actions.navigate(Screen.LostFoundHome) },
+                    openMyBookings = { actions.navigate(Screen.MyBookings) },
+                    openMyMaintenance = { actions.navigate(Screen.MyMaintenance) },
+                    openMyClaims = { actions.navigate(Screen.LostFoundClaims) },
+                ),
+            )
+            Screen.Conversations -> ConversationListRoute(
+                container = container,
+                email = state.session.email,
+                text = strings(state.language),
+                navigate = actions.navigate,
+            )
+            Screen.Profile -> ProfileScreen(
+                state = ProfileUiState(
+                    state.session.email,
+                    state.session.role,
+                    BuildConfig.VERSION_NAME,
+                    state.language,
+                    state.dark,
+                ),
+                actions = ProfileActions(
+                    changeLanguage = container.settings::setLanguage,
+                    changeDark = container.settings::setDark,
+                    clearHistory = actions.clearHistory,
+                    logout = container.sessionStore::clear,
+                ),
+            )
+            else -> Unit
+        }
+    }
+}
+
 @Composable
 private fun ConversationListRoute(
     container: AppContainer,
     email: String,
     text: UiStrings,
     navigate: (Screen) -> Unit,
-    onServices: () -> Unit,
 ) {
     val viewModel: ConversationListViewModel = viewModel(
         key = "conversations-$email",
@@ -149,8 +206,6 @@ private fun ConversationListRoute(
         viewModel,
         text,
         onOpen = { navigate(Screen.Chat(it)) },
-        onSettings = { navigate(Screen.Settings) },
-        onServices = onServices,
     )
 }
 
@@ -160,13 +215,12 @@ private fun ChatRoute(
     conversationId: String,
     text: UiStrings,
     onBack: () -> Unit,
-    onServices: () -> Unit,
 ) {
     val viewModel: ChatViewModel = viewModel(
         key = "chat-$conversationId",
         factory = ContainerViewModelFactory { ChatViewModel(container, conversationId) },
     )
-    ChatScreen(viewModel, text, onBack, onServices)
+    ChatScreen(viewModel, text, onBack)
 }
 
 @Composable
