@@ -228,6 +228,7 @@ class AppShellUiTest {
                         openMyBookings = {},
                         openMyMaintenance = {},
                         openMyClaims = {},
+                        openMail = onAgentCore,
                     ),
                     text = text.home,
                 )

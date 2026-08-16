@@ -2,6 +2,7 @@ package com.campuslink.mobile.ui.lostfound
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,22 +10,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +29,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campuslink.mobile.core.model.ClaimStatus
 import com.campuslink.mobile.core.model.LostFoundClaim
+import com.campuslink.mobile.ui.CampusEmptyState
+import com.campuslink.mobile.ui.CampusErrorState
+import com.campuslink.mobile.ui.CampusLoadingState
+import com.campuslink.mobile.ui.CampusPageHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusStatusChip
+import com.campuslink.mobile.ui.CampusStatusTone
+import com.campuslink.mobile.ui.CampusSurfaceCard
+import com.campuslink.mobile.ui.CampusTopAppBar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LostFoundClaimsScreen(
     viewModel: LostFoundClaimsViewModel,
@@ -49,23 +53,27 @@ fun LostFoundClaimsScreen(
     val decisionState by viewModel.decisionState.collectAsStateWithLifecycle()
     var decision by remember { mutableStateOf<PendingDecision?>(null) }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Lost & Found claims") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Lost & Found")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar("Lost & Found Claims", onBack, "Back to Lost & Found") },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(
+                start = CampusSpacing.ExtraLarge,
+                top = CampusSpacing.Small,
+                end = CampusSpacing.ExtraLarge,
+                bottom = CampusSpacing.Huge,
+            ),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
         ) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CampusPageHeader(
+                    title = "Claims",
+                    subtitle = "Track ownership requests and review claims on your found items.",
+                )
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
                     FilterChip(
                         selected = mode == ClaimsMode.MINE,
                         onClick = { viewModel.changeMode(ClaimsMode.MINE) },
@@ -74,20 +82,31 @@ fun LostFoundClaimsScreen(
                     FilterChip(
                         selected = mode == ClaimsMode.RECEIVED,
                         onClick = { viewModel.changeMode(ClaimsMode.RECEIVED) },
-                        label = { Text("Received") },
+                        label = { Text("Received claims") },
                     )
                 }
             }
             when (val current = state) {
-                ClaimsUiState.Loading -> item { LoadingRow() }
+                ClaimsUiState.Loading -> item { CampusLoadingState("Loading claims…") }
                 ClaimsUiState.Empty -> item {
-                    Text(
-                        if (mode == ClaimsMode.MINE) "You have not submitted any claims."
-                        else "No one has submitted a claim for your found items.",
-                        modifier = Modifier.padding(vertical = 24.dp),
+                    CampusEmptyState(
+                        title = if (mode == ClaimsMode.MINE) "No claims submitted" else "No claims received",
+                        message = if (mode == ClaimsMode.MINE) {
+                            "Claims you submit for found items will appear here."
+                        } else {
+                            "Claims on your found-item reports will appear here."
+                        },
+                        icon = Icons.Default.AssignmentTurnedIn,
                     )
                 }
-                is ClaimsUiState.Error -> item { ErrorBlock(current.message, viewModel::retry) }
+                is ClaimsUiState.Error -> item {
+                    CampusErrorState(
+                        title = "Unable to load claims",
+                        message = current.message,
+                        retryLabel = "Retry",
+                        onRetry = viewModel::retry,
+                    )
+                }
                 is ClaimsUiState.Success -> items(current.claims, key = LostFoundClaim::id) { claim ->
                     ClaimCard(
                         claim = claim,
@@ -107,7 +126,6 @@ fun LostFoundClaimsScreen(
                     DecisionFeedback(feedback.message, viewModel::clearDecisionFeedback, error = true)
                 }
             }
-            item { Text("") }
         }
     }
     decision?.let { pending ->
@@ -123,30 +141,60 @@ fun LostFoundClaimsScreen(
 }
 
 @Composable
-private fun ClaimCard(
+internal fun ClaimCard(
     claim: LostFoundClaim,
     received: Boolean,
     submitting: Boolean,
     onOpenReport: () -> Unit,
     onDecision: (Boolean) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(claim.report.itemName, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text(claim.status.name, color = claim.status.statusColour())
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+            ) {
+                Text(
+                    claim.report.itemName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                CampusStatusChip(claim.status.name, claimStatusTone(claim.status))
             }
-            Text("${claim.report.category.displayName()} · ${claim.report.location}")
-            Text("Proof: ${claim.proofDescription}")
-            claim.decisionNote?.takeIf(String::isNotBlank)?.let { Text("Decision note: $it") }
+            Text(
+                "${claim.report.category.displayName()} · ${claim.report.location}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (received) "Received claim" else "Submitted by you",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text("Ownership proof", style = MaterialTheme.typography.labelMedium)
+            Text(claim.proofDescription)
+            claim.decisionNote?.takeIf(String::isNotBlank)?.let {
+                Text("Decision note · $it", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                "Submitted ${claim.createdAt.replace('T', ' ')}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             OutlinedButton(onClick = onOpenReport) { Text("View report") }
             if (received && claim.status == ClaimStatus.SUBMITTED) {
                 if (submitting) {
                     CircularProgressIndicator()
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
                         Button(onClick = { onDecision(true) }) { Text("Approve") }
-                        OutlinedButton(onClick = { onDecision(false) }) { Text("Reject") }
+                        OutlinedButton(
+                            onClick = { onDecision(false) },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Reject") }
                     }
                 }
             }
@@ -161,39 +209,61 @@ private fun ClaimDecisionDialog(approve: Boolean, onDismiss: () -> Unit, onConfi
         onDismissRequest = onDismiss,
         title = { Text(if (approve) "Approve this claim?" else "Reject this claim?") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
                 Text(
-                    if (approve) "The report will become CLAIMED and other pending claims will be rejected."
-                    else "The claimant will see your decision note.",
+                    if (approve) {
+                        "The report will become CLAIMED and other pending claims will be rejected."
+                    } else {
+                        "The claimant will see your decision note."
+                    },
                 )
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
                     label = { Text("Decision note (optional)") },
+                    supportingText = { Text("${note.length}/500") },
+                    isError = note.length > 500,
                     minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(note) }) { Text(if (approve) "Approve" else "Reject") }
+            Button(
+                onClick = { onConfirm(note) },
+                enabled = note.length <= 500,
+                colors = if (approve) {
+                    ButtonDefaults.buttonColors()
+                } else {
+                    ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                },
+            ) { Text(if (approve) "Approve" else "Reject") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
 @Composable
-private fun DecisionFeedback(message: String, dismiss: () -> Unit, error: Boolean = false) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(message, color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-        OutlinedButton(onClick = dismiss) { Text("Dismiss") }
+private fun DecisionFeedback(message: String, onDismiss: () -> Unit, error: Boolean = false) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+        ) {
+            CampusStatusChip(
+                if (error) "NOT COMPLETED" else "UPDATED",
+                if (error) CampusStatusTone.ERROR else CampusStatusTone.SUCCESS,
+            )
+            Text(message)
+            OutlinedButton(onClick = onDismiss) { Text("Dismiss") }
+        }
     }
 }
 
-private data class PendingDecision(val claimId: Long, val approve: Boolean)
-
-@Composable
-private fun ClaimStatus.statusColour() = when (this) {
-    ClaimStatus.APPROVED -> MaterialTheme.colorScheme.primary
-    ClaimStatus.REJECTED -> MaterialTheme.colorScheme.error
-    ClaimStatus.SUBMITTED -> MaterialTheme.colorScheme.tertiary
+private fun claimStatusTone(status: ClaimStatus): CampusStatusTone = when (status) {
+    ClaimStatus.SUBMITTED -> CampusStatusTone.INFO
+    ClaimStatus.APPROVED -> CampusStatusTone.SUCCESS
+    ClaimStatus.REJECTED -> CampusStatusTone.ERROR
 }
+
+private data class PendingDecision(val claimId: Long, val approve: Boolean)

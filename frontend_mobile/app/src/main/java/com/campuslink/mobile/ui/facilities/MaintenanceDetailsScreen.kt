@@ -8,59 +8,46 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campuslink.mobile.core.model.MaintenanceResponse
+import com.campuslink.mobile.ui.CampusErrorState
+import com.campuslink.mobile.ui.CampusInfoRow
+import com.campuslink.mobile.ui.CampusLoadingState
+import com.campuslink.mobile.ui.CampusSectionHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusStatusChip
+import com.campuslink.mobile.ui.CampusSurfaceCard
+import com.campuslink.mobile.ui.CampusTopAppBar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MaintenanceDetailsScreen(viewModel: MaintenanceDetailsViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Maintenance Details") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar("Maintenance Details", onBack, "Back to My Maintenance") },
     ) { padding ->
         when (val current = state) {
-            MaintenanceDetailsUiState.Loading -> Column(
-                Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
+            MaintenanceDetailsUiState.Loading -> CampusLoadingState("Loading request…", Modifier.padding(padding))
             is MaintenanceDetailsUiState.Error -> Column(
-                Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.fillMaxSize().padding(padding).padding(CampusSpacing.ExtraLarge),
             ) {
-                Text(
-                    if (current.notFound) "Maintenance request not found" else "Unable to load request",
-                    fontWeight = FontWeight.Bold,
+                CampusErrorState(
+                    title = if (current.notFound) {
+                        "Maintenance request not found"
+                    } else {
+                        "Unable to load request"
+                    },
+                    message = current.message,
+                    retryLabel = "Retry",
+                    onRetry = viewModel::retry,
                 )
-                Text(current.message)
-                OutlinedButton(onClick = viewModel::retry) { Text("Retry") }
             }
             is MaintenanceDetailsUiState.Success -> MaintenanceDetails(
                 current.maintenance,
@@ -73,38 +60,58 @@ fun MaintenanceDetailsScreen(viewModel: MaintenanceDetailsViewModel, onBack: () 
 @Composable
 private fun MaintenanceDetails(request: MaintenanceResponse, modifier: Modifier) {
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(CampusSpacing.ExtraLarge),
+        verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Ticket #${request.ticketId}", style = MaterialTheme.typography.headlineSmall)
-            MaintenanceStatusLabel(request.status)
-        }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                DetailRow("Space", request.spaceName ?: "Not linked")
-                DetailRow("Building", request.building)
-                DetailRow("Room", request.roomNumber)
-                DetailRow("Facility Type", request.facilityType)
-                DetailRow("Priority", request.priority.displayName())
-                DetailRow("Status", request.status.displayName())
-                DetailRow("Created", formatMaintenanceDateTime(request.createdAt))
-                DetailRow("Updated", formatMaintenanceDateTime(request.updatedAt))
+        CampusSurfaceCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().padding(CampusSpacing.ExtraLarge),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+            ) {
+                CampusStatusChip(request.status.displayName(), maintenanceStatusTone(request.status))
+                Text(request.facilityType, style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    request.spaceName ?: "${request.building} · ${request.roomNumber}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Ticket #${request.ticketId}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
-        Text("Description", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text(request.description)
+        CampusSectionHeader("Issue")
+        CampusSurfaceCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
+            ) {
+                CampusInfoRow("Description", request.description)
+                Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Large)) {
+                    CampusInfoRow("Priority", request.priority.displayName(), Modifier.weight(1f))
+                    CampusInfoRow("Room", request.roomNumber, Modifier.weight(1f))
+                }
+                CampusInfoRow("Building", request.building)
+            }
+        }
+        CampusSectionHeader("Timeline")
+        CampusSurfaceCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
+            ) {
+                CampusInfoRow("Created", formatMaintenanceDateTime(request.createdAt))
+                CampusInfoRow("Updated", formatMaintenanceDateTime(request.updatedAt))
+            }
+        }
         Text(
             "Status updates are managed by Facilities staff.",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun DetailRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, modifier = Modifier.padding(start = 16.dp))
     }
 }
