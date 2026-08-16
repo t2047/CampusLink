@@ -236,17 +236,35 @@ export function CalendarPage() {
 
   const monthLabel = cursor.toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
   const todayKey = toDateKey(today)
+  const isCurrentMonth = cursor.getFullYear() === today.getFullYear() && cursor.getMonth() === today.getMonth()
   const hasEvents = events.length > 0
 
   return (
-    <Stack spacing={2} sx={{ minHeight: 'calc(100vh - 3rem)', justifyContent: 'center' }}>
+    <Stack spacing={2} sx={{ minHeight: 'calc(100vh - 3rem)' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}>
-        <Box>
-          <Typography variant="h4" fontWeight={700}>Calendar</Typography>
-          <Typography color="text.secondary">
-            Manage your schedules and import events found in your mail.
-          </Typography>
-        </Box>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Box
+            sx={{
+              width: 46,
+              height: 46,
+              borderRadius: 3,
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+              color: '#fff',
+              background: 'linear-gradient(135deg, #14958b 0%, #0f766e 100%)',
+              boxShadow: '0 4px 12px rgba(15, 118, 110, 0.3)',
+            }}
+          >
+            <EventNoteIcon />
+          </Box>
+          <Box>
+            <Typography variant="h4" fontWeight={700}>Calendar</Typography>
+            <Typography color="text.secondary">
+              Manage your schedules and import events found in your mail.
+            </Typography>
+          </Box>
+        </Stack>
         <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button
             variant="outlined"
@@ -268,7 +286,20 @@ export function CalendarPage() {
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
-      <Paper sx={{ display: 'flex', height: 'calc(100vh - 320px)', minHeight: 520, flexDirection: 'column' }}>
+      <Paper
+        elevation={0}
+        sx={{
+          display: 'flex',
+          height: 'calc(100vh - 320px)',
+          minHeight: 520,
+          flexDirection: 'column',
+          border: 1,
+          borderColor: '#e2e8f0',
+          borderRadius: 3,
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
+        }}
+      >
         <Stack
           direction="row"
           alignItems="center"
@@ -288,6 +319,7 @@ export function CalendarPage() {
             </Tooltip>
             <Button
               size="small"
+              variant={isCurrentMonth ? 'contained' : 'outlined'}
               startIcon={<TodayIcon />}
               onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))}
             >
@@ -299,7 +331,7 @@ export function CalendarPage() {
         </Stack>
 
         <Box sx={{ display: 'grid', flex: 1, gridTemplateColumns: 'repeat(7, 1fr)', gridAutoRows: 'minmax(0, 1fr)' }}>
-          {WEEKDAY_LABELS.map((label) => (
+          {WEEKDAY_LABELS.map((label, index) => (
             <Box
               key={label}
               sx={{
@@ -310,13 +342,16 @@ export function CalendarPage() {
                 color: 'text.secondary',
                 borderBottom: 1,
                 borderColor: 'divider',
+                bgcolor: index === 0 || index === 6 ? 'rgba(35, 86, 168, 0.04)' : 'transparent',
               }}
             >
               {label}
             </Box>
           ))}
-          {cells.map((cell) => {
+          {cells.map((cell, index) => {
             const key = toDateKey(cell)
+            const column = index % 7
+            const isWeekend = column === 0 || column === 6
             const inMonth = cell.getMonth() === cursor.getMonth()
             const isToday = key === todayKey
             const dayEvents = eventsByDay.get(key) ?? []
@@ -326,13 +361,16 @@ export function CalendarPage() {
                 onClick={() => openCreate(cell)}
                 sx={{
                   minHeight: { xs: 84, md: 0 },
-                  p: 0.5,
+                  p: 0.75,
                   borderRight: 1,
                   borderBottom: 1,
                   borderColor: 'divider',
-                  bgcolor: inMonth ? 'background.paper' : 'action.hover',
+                  bgcolor: inMonth
+                    ? isWeekend ? 'rgba(35, 86, 168, 0.03)' : 'background.paper'
+                    : 'action.hover',
                   cursor: 'pointer',
-                  '&:hover': { bgcolor: 'action.selected' },
+                  transition: 'background-color .15s ease',
+                  '&:hover': { bgcolor: 'rgba(35, 86, 168, 0.08)' },
                   overflow: 'hidden',
                 }}
               >
@@ -348,6 +386,7 @@ export function CalendarPage() {
                       fontWeight: isToday ? 800 : inMonth ? 600 : 400,
                       color: isToday ? 'primary.contrastText' : inMonth ? 'text.primary' : 'text.disabled',
                       bgcolor: isToday ? 'primary.main' : 'transparent',
+                      boxShadow: isToday ? '0 2px 8px rgba(35, 86, 168, 0.45)' : 'none',
                     }}
                   >
                     {cell.getDate()}
@@ -356,7 +395,7 @@ export function CalendarPage() {
                     <Chip
                       key={event.id}
                       size="small"
-                      color={event.source === 'mail' ? 'primary' : 'default'}
+                      color={event.source === 'mail' ? 'primary' : 'secondary'}
                       variant={event.source === 'mail' ? 'filled' : 'outlined'}
                       icon={event.source === 'mail' ? <MailOutlineIcon /> : <EventNoteIcon />}
                       label={event.all_day ? event.title : `${event.start_time.slice(11, 16)} ${event.title}`}
@@ -367,12 +406,14 @@ export function CalendarPage() {
                       sx={{
                         justifyContent: 'flex-start',
                         width: '100%',
+                        fontWeight: 600,
+                        boxShadow: event.source === 'mail' ? '0 2px 6px rgba(35, 86, 168, 0.25)' : 'none',
                         '& .MuiChip-label': { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' },
                       }}
                     />
                   ))}
                   {dayEvents.length > 3 && (
-                    <Typography variant="caption" color="text.secondary" sx={{ px: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 600 }}>
                       +{dayEvents.length - 3} more
                     </Typography>
                   )}
@@ -384,7 +425,21 @@ export function CalendarPage() {
       </Paper>
 
       <Dialog open={Boolean(dialog?.open)} onClose={() => !saving && setDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: 2,
+              display: 'grid',
+              placeItems: 'center',
+              color: '#fff',
+              background: 'linear-gradient(135deg, #14958b 0%, #0f766e 100%)',
+              boxShadow: '0 2px 8px rgba(15, 118, 110, 0.3)',
+            }}
+          >
+            <EventNoteIcon fontSize="small" />
+          </Box>
           {dialog?.editing ? 'Edit event' : 'New event'}
         </DialogTitle>
         <DialogContent>
@@ -462,10 +517,11 @@ export function CalendarPage() {
             )}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
           {dialog?.editing && (
             <Button
               color="error"
+              variant="outlined"
               startIcon={<DeleteOutlineIcon />}
               onClick={() => void removeEvent()}
               disabled={saving}

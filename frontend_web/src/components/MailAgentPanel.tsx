@@ -120,9 +120,19 @@ export function MailAgentPanel() {
             <Chip
               key={suggestion}
               label={suggestion}
+              color="secondary"
               variant="outlined"
               onClick={() => void send(suggestion)}
-              sx={{ justifyContent: 'flex-start', width: 'fit-content' }}
+              sx={{
+                justifyContent: 'flex-start',
+                width: 'fit-content',
+                transition: 'all .15s ease',
+                '&:hover': {
+                  borderColor: 'secondary.main',
+                  bgcolor: 'rgba(15, 118, 110, 0.08)',
+                  transform: 'translateX(2px)',
+                },
+              }}
             />
           ))}
         </Stack>
@@ -143,9 +153,12 @@ export function MailAgentPanel() {
             sx={{
               alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
               maxWidth: { xs: '100%', md: '88%' },
-              bgcolor: message.role === 'user' ? 'primary.main' : 'grey.100',
+              background: message.role === 'user'
+                ? 'linear-gradient(135deg, #3366b8 0%, #1d4f9e 100%)'
+                : '#eef2f7',
               color: message.role === 'user' ? 'primary.contrastText' : 'text.primary',
               borderRadius: 2,
+              boxShadow: message.role === 'user' ? '0 2px 8px rgba(35, 86, 168, 0.25)' : 'none',
               px: 2,
               py: 1.25,
               whiteSpace: 'pre-wrap',
