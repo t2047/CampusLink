@@ -18,8 +18,11 @@ from mail_agent.calendar_service import (
 from mail_agent.main import app
 from mail_agent.models import MailFolder, MailMessage
 
+from . import helpers
+
 client = TestClient(app)
-AUTH = {"Authorization": "Bearer user-1"}
+AUTH = helpers.auth_header(helpers.user_jwt("user-1@campuslink.test"))
+AUTH2 = helpers.auth_header(helpers.user_jwt("user-2@campuslink.test"))
 
 
 @pytest.fixture(autouse=True)
@@ -172,7 +175,7 @@ class TestCalendarCrud:
         ).json()
         other = client.post(
             "/api/mail/calendar/events",
-            headers={"Authorization": "Bearer user-2"},
+            headers=AUTH2,
             json={
                 "title": "Theirs",
                 "start_time": "2026-08-11T10:00:00",
@@ -182,7 +185,7 @@ class TestCalendarCrud:
         assert client.get("/api/mail/calendar/events", headers=AUTH).json() == [first]
         assert (
             client.get(
-                "/api/mail/calendar/events", headers={"Authorization": "Bearer user-2"}
+                "/api/mail/calendar/events", headers=AUTH2
             ).json()
             == [other]
         )
@@ -214,7 +217,7 @@ class TestCalendarCrud:
     def test_delete_other_users_event_404(self):
         created = client.post(
             "/api/mail/calendar/events",
-            headers={"Authorization": "Bearer user-2"},
+            headers=AUTH2,
             json={
                 "title": "Private",
                 "start_time": "2026-08-10T10:00:00",
@@ -281,7 +284,7 @@ class TestImport:
         monkeypatch.setattr(
             gmail_service,
             "list_recent_messages",
-            lambda days, max_results=20: [message],
+            lambda user_id, days, max_results=20: [message],
         )
         response = client.post(
             "/api/mail/calendar/extract",
@@ -536,7 +539,7 @@ class TestLlmExtraction:
         monkeypatch.setattr(
             gmail_service,
             "list_recent_messages",
-            lambda days, max_results=20: [message],
+            lambda user_id, days, max_results=20: [message],
         )
         response = client.post("/api/mail/calendar/extract", headers=AUTH, params={"days": 1})
         assert response.status_code == 200

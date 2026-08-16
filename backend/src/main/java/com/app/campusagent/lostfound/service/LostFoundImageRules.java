@@ -25,6 +25,11 @@ public final class LostFoundImageRules {
     public static final int MAX_IMAGES = 5;
     public static final long MAX_IMAGE_SIZE = 10L * 1024L * 1024L;
     public static final int MAX_IMAGE_DIMENSION = 8192;
+
+    /** 头像：≤2MB、单边 ≤512px（个人中心需求 §11.2）。 */
+    public static final long MAX_AVATAR_SIZE = 2L * 1024L * 1024L;
+    public static final int MAX_AVATAR_DIMENSION = 512;
+
     private static final List<String> ALLOWED_TYPES = List.of(
             "image/jpeg", "image/png", "image/webp");
 
@@ -67,7 +72,31 @@ public final class LostFoundImageRules {
                     "UNSUPPORTED_IMAGE_TYPE",
                     "Only valid JPEG, PNG and WebP images are accepted");
         }
-        validateImageDimensions(image);
+        validateImageDimensions(image, MAX_IMAGE_DIMENSION, "IMAGE_DIMENSION_TOO_LARGE");
+    }
+
+    /** 头像校验：类型白名单同报告图片，但大小 ≤2MB、单边 ≤512px（个人中心需求 §11.2）。 */
+    public static void validateAvatar(MultipartFile image) {
+        if (image == null || image.isEmpty()) {
+            throw new LostFoundApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "EMPTY_IMAGE",
+                    "Uploaded images cannot be empty");
+        }
+        if (image.getSize() > MAX_AVATAR_SIZE) {
+            throw new LostFoundApiException(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "AVATAR_TOO_LARGE",
+                    "Avatar must be 2 MB or smaller");
+        }
+        String contentType = image.getContentType();
+        if (!ALLOWED_TYPES.contains(contentType) || !matchesMagicBytes(image, contentType)) {
+            throw new LostFoundApiException(
+                    HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                    "UNSUPPORTED_IMAGE_TYPE",
+                    "Only valid JPEG, PNG and WebP images are accepted");
+        }
+        validateImageDimensions(image, MAX_AVATAR_DIMENSION, "AVATAR_DIMENSION_TOO_LARGE");
     }
 
     /**
@@ -75,7 +104,7 @@ public final class LostFoundImageRules {
      * 仅当 ImageIO 能识别格式时才检查；WebP 等无法识别的格式在指纹
      * 提取时走 SHA-256 回退、不触发解码，无解压炸弹风险，直接跳过。
      */
-    private static void validateImageDimensions(MultipartFile image) {
+    private static void validateImageDimensions(MultipartFile image, int maxDimension, String errorCode) {
         try (InputStream input = image.getInputStream()) {
             try (ImageInputStream imageInput = ImageIO.createImageInputStream(input)) {
                 if (imageInput == null) {
@@ -90,11 +119,11 @@ public final class LostFoundImageRules {
                     reader.setInput(imageInput, true, true);
                     int width = reader.getWidth(0);
                     int height = reader.getHeight(0);
-                    if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+                    if (width > maxDimension || height > maxDimension) {
                         throw new LostFoundApiException(
                                 HttpStatus.UNPROCESSABLE_ENTITY,
-                                "IMAGE_DIMENSION_TOO_LARGE",
-                                "Each image must be at most " + MAX_IMAGE_DIMENSION
+                                errorCode,
+                                "Each image must be at most " + maxDimension
                                         + " pixels per side");
                     }
                 } finally {

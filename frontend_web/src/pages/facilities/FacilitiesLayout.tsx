@@ -1,4 +1,4 @@
-import { Box, Tab, Tabs, Typography } from '@mui/material'
+import { Box, Paper, Tab, Tabs, Typography } from '@mui/material'
 import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom'
 
 export function FacilitiesLayout() {
@@ -13,16 +13,17 @@ export function FacilitiesLayout() {
 
   return (
     <Box sx={{ display: 'grid', gap: 3 }}>
-      <Box>
+      <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper' }}>
         <Typography component="h1" variant="h4" fontWeight={700}>Facilities</Typography>
-        <Typography color="text.secondary">Find campus spaces that fit your needs.</Typography>
-      </Box>
-      <Tabs value={activeSection} aria-label="Facilities sections" variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
+        <Typography color="text.secondary">Find a space, manage bookings, or report a facility issue.</Typography>
+        </Paper>
+      <Paper variant="outlined" sx={{ px: 1 }}>
+        <Tabs value={activeSection} aria-label="Facilities sections" variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
         <Tab label="Search Spaces" value="spaces" component={RouterLink} to="/facilities" />
         <Tab label="My Bookings" value="bookings" component={RouterLink} to="/facilities/bookings" />
-        <Tab label="Report Maintenance" value="maintenance-new" component={RouterLink} to="/facilities/maintenance/new" />
         <Tab label="My Maintenance Requests" value="maintenance" component={RouterLink} to="/facilities/maintenance" />
-      </Tabs>
+        </Tabs>
+      </Paper>
       <Outlet />
     </Box>
   )

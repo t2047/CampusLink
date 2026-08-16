@@ -12,6 +12,16 @@ import {
   type ReactNode,
 } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
+import LanguageOutlinedIcon from '@mui/icons-material/LanguageOutlined';
+import AddCommentOutlinedIcon from '@mui/icons-material/AddCommentOutlined';
+import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
+import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import { useAuth } from '../auth/AuthContext';
 import type { AgentMatchResult } from '../api/lostFoundAgent';
 import {
@@ -141,7 +151,7 @@ const SUGGESTIONS: Record<Lang, string[]> = {
   zh: ['帮我找一下最近的邮件', '明天下午有没有空的研讨室', '现在几点'],
 };
 
-export default function ChatPage() {
+export default function ChatPage({ compact = false }: { compact?: boolean }) {
   const navigate = useNavigate();
   const { user, logout: authLogout } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -164,7 +174,6 @@ export default function ChatPage() {
     if (saved) return saved === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
-
   // ── 界面语言（en/zh）：localStorage 持久化，默认 en（优先英文）──
   const [lang, setLang] = useState<Lang>(() => {
     const saved = localStorage.getItem('lang');
@@ -223,7 +232,10 @@ export default function ChatPage() {
 
   // ── 自动滚动到底部 ──
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const element = messagesEndRef.current;
+    if (element && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   // ── 状态工具 ────────────────────────────────
@@ -592,12 +604,12 @@ export default function ChatPage() {
   // ── Render ──────────────────────────────────
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100 text-slate-800 transition-colors dark:bg-slate-900 dark:text-slate-100">
+    <div className={`${compact ? 'h-full min-h-0' : 'h-screen'} flex flex-col bg-slate-100 text-slate-800 transition-colors dark:bg-slate-900 dark:text-slate-100`}>
       {/* ── Header ── */}
       <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 text-lg font-bold text-white shadow-sm">
-            C
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-lg font-bold text-white shadow-sm">
+             <ForumOutlinedIcon sx={{ fontSize: 22 }} />
           </div>
           <div>
             <h1 className="text-base font-bold leading-tight">Campus Link</h1>
@@ -625,14 +637,15 @@ export default function ChatPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className={`${compact ? 'hidden' : 'flex'} items-center gap-2`}>
           {/* 语言切换（en/zh） */}
           <button
             type="button"
             onClick={() => setLang((l) => (l === 'zh' ? 'en' : 'zh'))}
             title="Switch language / 切换语言"
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+             className="flex h-9 items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 text-sm font-medium text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 [&>span:nth-child(2)]:hidden [&>span:last-child]:hidden"
           >
+            <span className="grid h-5 w-5 place-items-center rounded-md bg-white/80 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><LanguageOutlinedIcon sx={{ fontSize: 16 }} /></span>
             <span className="text-base leading-none">🌐</span>
             {t('langToggle')}
           </button>
@@ -642,62 +655,68 @@ export default function ChatPage() {
             type="button"
             onClick={handleNewChat}
             title={t('newChatTitle')}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+             className="flex h-9 items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 text-sm font-medium text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 [&>span:nth-child(2)]:hidden"
           >
+            <span className="grid h-5 w-5 place-items-center rounded-md bg-white/80 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><AddCommentOutlinedIcon sx={{ fontSize: 16 }} /></span>
             <span className="text-base leading-none">✨</span>
             {t('newChat')}
           </button>
 
           {/* 前往各子系统入口（折叠为下拉，避免顶部拥挤） */}
-          <div className="relative" ref={submenuRef}>
+          <div className="relative hidden" ref={submenuRef}>
             <button
               type="button"
               onClick={() => setSubmenuOpen((o) => !o)}
               title={t('servicesTitle')}
-              className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+             className="flex h-9 items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 text-sm font-medium text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 [&>span:nth-child(2)]:hidden"
             >
+              <span className="grid h-5 w-5 place-items-center rounded-md bg-white/80 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><AppsOutlinedIcon sx={{ fontSize: 16 }} /></span>
               <span className="text-base leading-none">🧩</span>
               {t('services')}
-              <span className={`text-xs leading-none transition-transform ${submenuOpen ? 'rotate-180' : ''}`}>▾</span>
+              <ExpandMoreIcon className={`text-indigo-500 transition-transform ${submenuOpen ? 'rotate-180' : ''}`} sx={{ fontSize: 18 }} />
             </button>
             {submenuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
+              <div className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-800">
                 <Link
                   to="/mail"
                   onClick={() => setSubmenuOpen(false)}
-                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-700 transition-colors hover:bg-indigo-50 dark:text-slate-200 dark:hover:bg-indigo-500/10 [&>span:nth-child(2)]:hidden"
                 >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-50 text-violet-600 group-hover:bg-violet-100 dark:bg-violet-500/10 dark:text-violet-300"><MailOutlineIcon sx={{ fontSize: 20 }} /></span>
                   <span className="text-base leading-none">✉️</span>
-                  <span className="flex-1">{t('mail')}</span>
-                  <span className="text-xs text-slate-400">/mail</span>
+                  <span className="flex-1 font-medium">{t('mail')}</span>
+                  <span className="text-xs text-slate-400 transition-colors group-hover:text-indigo-500">/mail</span>
                 </Link>
                 <Link
                   to="/lost-found"
                   onClick={() => setSubmenuOpen(false)}
-                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-700 transition-colors hover:bg-indigo-50 dark:text-slate-200 dark:hover:bg-indigo-500/10 [&>span:nth-child(2)]:hidden"
                 >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600 group-hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300"><SearchOutlinedIcon sx={{ fontSize: 20 }} /></span>
                   <span className="text-base leading-none">🧭</span>
-                  <span className="flex-1">{t('lostFound')}</span>
-                  <span className="text-xs text-slate-400">/lost-found</span>
+                  <span className="flex-1 font-medium">{t('lostFound')}</span>
+                  <span className="text-xs text-slate-400 transition-colors group-hover:text-indigo-500">/lost-found</span>
                 </Link>
                 <Link
                   to="/facilities"
                   onClick={() => setSubmenuOpen(false)}
-                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-700 transition-colors hover:bg-indigo-50 dark:text-slate-200 dark:hover:bg-indigo-500/10 [&>span:nth-child(2)]:hidden"
                 >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-600 group-hover:bg-sky-100 dark:bg-sky-500/10 dark:text-sky-300"><MeetingRoomOutlinedIcon sx={{ fontSize: 20 }} /></span>
                   <span className="text-base leading-none">🏢</span>
-                  <span className="flex-1">{t('facilities')}</span>
-                  <span className="text-xs text-slate-400">/facilities</span>
+                  <span className="flex-1 font-medium">{t('facilities')}</span>
+                  <span className="text-xs text-slate-400 transition-colors group-hover:text-indigo-500">/facilities</span>
                 </Link>
                 {user?.role && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && (
                   <Link
                     to="/admin/dashboard"
                     onClick={() => setSubmenuOpen(false)}
-                    className="flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                  >
+                     className="group flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-700 transition-colors hover:bg-indigo-50 dark:text-slate-200 dark:hover:bg-indigo-500/10 [&>span:nth-child(2)]:hidden"
+                   >
+                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600 group-hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-300"><AdminPanelSettingsOutlinedIcon sx={{ fontSize: 20 }} /></span>
                     <span className="text-base leading-none">🛠</span>
-                    <span className="flex-1">{t('admin')}</span>
-                    <span className="text-xs text-slate-400">/admin</span>
+                   <span className="flex-1 font-medium">{t('admin')}</span>
+                   <span className="text-xs text-slate-400 transition-colors group-hover:text-indigo-500">/admin</span>
                   </Link>
                 )}
               </div>
@@ -709,14 +728,14 @@ export default function ChatPage() {
             type="button"
             onClick={() => setDark((d) => !d)}
             title={dark ? '切换到浅色模式' : '切换到深色模式'}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-base text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+             className="flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50/50 text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
           >
-            {dark ? '☀️' : '🌙'}
+            <DarkModeOutlinedIcon sx={{ fontSize: 18 }} />
           </button>
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+             className="hidden flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-indigo-500/10"
           >
             退出
           </button>
@@ -725,11 +744,15 @@ export default function ChatPage() {
 
       {/* ── 消息区 ── */}
       <main className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5">
           {messages.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
-              <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-500 text-4xl shadow-lg">
-                💬
+              <div className="relative flex h-24 w-24 items-center justify-center">
+                <span className="absolute inset-2 animate-ping rounded-[1.6rem] bg-blue-400/10 [animation-duration:2.8s]" />
+                <span className="absolute inset-3 animate-pulse rounded-[1.4rem] bg-indigo-400/10" />
+                <span className="relative flex h-20 w-20 animate-bounce items-center justify-center rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-indigo-700 text-white shadow-lg shadow-blue-500/25 [animation-duration:3s]">
+                  <ForumOutlinedIcon sx={{ fontSize: 42 }} />
+                </span>
               </div>
               <p className="text-lg font-medium text-slate-700 dark:text-slate-200">
                 {t('welcomeTitle')}
@@ -959,8 +982,8 @@ export default function ChatPage() {
               autoResize();
             }}
             onKeyDown={handleKeyDown}
-            placeholder={t('placeholder')}
-            className="max-h-40 min-h-[44px] flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
+            placeholder={compact ? 'Type a message' : t('placeholder')}
+            className="max-h-40 min-h-[44px] min-w-0 flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
           />
           {streaming ? (
             <button

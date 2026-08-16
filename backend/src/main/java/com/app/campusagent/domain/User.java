@@ -28,6 +28,16 @@ public class User {
     @Column(nullable = false)
     private Role role = Role.STUDENT;
 
+    /** 用户昵称，可空；展示时回退为 email 前缀（见个人中心需求 §6.1）。 */
+    @Setter
+    @Column(length = 30)
+    private String nickname;
+
+    /** 头像对象键（MinIO），可空；经 /api/users/avatar/{objectKey} 回显。 */
+    @Setter
+    @Column(name = "avatar_url", length = 512)
+    private String avatarUrl;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

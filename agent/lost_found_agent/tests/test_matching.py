@@ -2,7 +2,12 @@ import base64
 import struct
 
 from lost_found_agent.embeddings import embed_image, visual_fingerprint
-from lost_found_agent.matching import rank_candidates, score_candidate
+from lost_found_agent.matching import (
+    colour_codes,
+    colour_similarity,
+    rank_candidates,
+    score_candidate,
+)
 
 from .helpers import make_solid_png
 
@@ -240,3 +245,38 @@ def test_invalid_pretrained_vector_falls_back_to_rules() -> None:
 
     assert results[0].matching_mode == "baseline"
     assert results[0].score_breakdown["text"] > 0.0
+
+
+def test_colour_codes_cross_language_and_synonyms() -> None:
+    # 大小写、跨语言、同义词归到同一 canonical code
+    assert colour_codes("white") == {"WHITE"}
+    assert colour_codes("White") == {"WHITE"}
+    assert colour_codes("白色") == {"WHITE"}
+    assert colour_codes("ivory") == {"WHITE"}
+    assert colour_codes("cream") == {"WHITE"}
+    assert colour_codes("黑色") == {"BLACK"}
+    assert colour_codes("gray") == {"GREY"}
+    assert colour_codes("navy") == {"BLUE"}
+    assert colour_codes("golden") == {"GOLD"}
+    # 复合色 → 多个 code
+    assert colour_codes("blue lid black bottle") == {"BLUE", "BLACK"}
+    # 词边界避免误命中：backpack / redemption 都不是颜色
+    assert colour_codes("backpack") == frozenset()
+    assert colour_codes("redemption") == frozenset()
+    assert colour_codes("") == frozenset()
+
+
+def test_colour_similarity_maps_canonical_groups() -> None:
+    assert colour_similarity("white", "白色") == 1.0
+    assert colour_similarity("white", "White") == 1.0
+    assert colour_similarity("ivory", "白色") == 1.0
+    assert colour_similarity("white", "Black") == 0.0
+    assert colour_similarity("白色", "蓝色") == 0.0
+    assert colour_similarity("white", "") == 0.0
+
+
+def test_colour_similarity_falls_back_for_unknown_values() -> None:
+    # 未命中 canonical 表时回退 short_text_similarity（保留旧行为）
+    assert 0.0 < colour_similarity("white", "whitish") < 1.0
+    assert colour_similarity("midnight", "mid night") > 0.0
+    assert colour_similarity("", "") == 0.0

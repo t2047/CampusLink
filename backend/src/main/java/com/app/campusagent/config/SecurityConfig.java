@@ -81,6 +81,9 @@ public class SecurityConfig {
                         // 图片回显代理端点放行：<img> 标签不携带 JWT，物品照片敏感度低。
                         // 已知权衡：imageId 为自增主键可枚举，无登录可看图（见 IMAGE_MATCHING_DEVELOPMENT §6 开放决策）
                         .requestMatchers("/api/lost-found/images/**").permitAll()
+                        // 头像回显代理端点放行：对象键为随机 UUID（avatar-{uuid}.{ext}），
+                        // 不可枚举；同物品图片代理，允许无登录看图（个人中心需求 §9.3）
+                        .requestMatchers("/api/users/avatar/**").permitAll()
                         // Token Service 内嵌端点：JWKS（公钥，Agent 端验签用）与
                         // token exchange（仅编排层调用，controller 内做 HMAC 校验，无用户 JWT）
                         .requestMatchers("/.well-known/jwks.json", "/internal/token/exchange").permitAll()

@@ -112,9 +112,10 @@ services:
 
   # ─── Mail REST Service（Gmail + Calendar 后端）──────────────
   # agent/mail_agent：FastAPI 服务，提供 /api/mail/** 与 /api/mail/calendar/**。
-  # 5000 端口必须映射到宿主机 5000（Google Cloud Console 注册的回调
-  # http://localhost:5000/callback 要求浏览器经宿主机访问）。
-  # token.json（Gmail OAuth）与 calendar.db（SQLite 日历）持久化在 mail_data 卷。
+  # 5000 端口映射到宿主机仅用于本地开发（Console 注册的 localhost 回调）。
+  # GMAIL_REDIRECT_URI 留空时（生产默认）服务按请求的 Host / X-Forwarded-Proto
+  # 自动推导为 https://<CERT_DOMAIN>/callback；本地 .env 显式指定 localhost。
+  # 每个用户的 Gmail OAuth token（gmail_tokens/）与 calendar.db（SQLite 日历）持久化在 mail_data 卷。
   mail-service:
     build:
       context: ./agent/mail_agent
@@ -122,10 +123,10 @@ services:
     env_file:
       - .env
     environment:
-      - GMAIL_TOKEN_PATH=/data/token.json
+      - GMAIL_TOKEN_DIR=/data/gmail_tokens
       - MAIL_CALENDAR_DB=/data/calendar.db
-      - GMAIL_REDIRECT_URI=${GMAIL_REDIRECT_URI:-http://localhost:5000/callback}
-      - MAIL_FRONTEND_URL=${MAIL_FRONTEND_URL:-http://localhost:5173}
+      - GMAIL_REDIRECT_URI=${GMAIL_REDIRECT_URI:-}
+      - MAIL_FRONTEND_URL=${MAIL_FRONTEND_URL:-}
     ports:
       - "5000:5000"
     volumes:

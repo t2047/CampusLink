@@ -17,12 +17,13 @@ class SseParserTest {
 
         parser.feed("event: token\r")
         parser.feed("\ndata: {\"content\":\"你")
-        parser.feed("好\"}\r\n\r\n")
-        parser.finish()
+        parser.feed("好\"}\r\n\r\nevent: done\r\n\r\n")
+        val terminal = parser.finish()
 
         assertEquals("token", events[0].type)
         assertEquals("你好", events[0].data["content"]?.jsonPrimitive?.content)
         assertEquals("done", events.last().type)
+        assertTrue(terminal)
     }
 
     @Test
@@ -31,10 +32,11 @@ class SseParserTest {
         val parser = SseParser(json, events::add)
 
         parser.feed("event: future_event\ndata: not-json\n\n")
-        parser.finish()
+        val terminal = parser.finish()
 
         assertEquals("message", events.first().type)
         assertEquals("not-json", events.first().data["raw"]?.jsonPrimitive?.content)
+        assertTrue(!terminal)
     }
 
     @Test
@@ -46,6 +48,17 @@ class SseParserTest {
         parser.finish()
 
         assertEquals(listOf("done"), events.map { it.type })
+    }
+
+    @Test
+    fun `finish without explicit terminal event does not synthesize done`() {
+        val events = mutableListOf<SseEvent>()
+        val parser = SseParser(json, events::add)
+
+        parser.feed("event: token\ndata: {\"content\":\"partial\"}\n\n")
+
+        assertTrue(!parser.finish())
+        assertEquals(listOf("token"), events.map { it.type })
     }
 
     @Test

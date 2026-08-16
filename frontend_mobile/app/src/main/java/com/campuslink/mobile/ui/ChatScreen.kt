@@ -15,8 +15,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -31,6 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,7 +49,8 @@ import com.campuslink.mobile.BuildConfig
 import com.campuslink.mobile.core.model.ChatMessage
 import com.campuslink.mobile.core.model.MatchResult
 import com.campuslink.mobile.core.model.MessageRole
-import kotlinx.serialization.json.Json
+import com.campuslink.mobile.core.model.PendingConfirmation
+import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,34 +69,40 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
             onDismissRequest = {},
             title = { Text(text.confirmAction) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(pending.message ?: pending.agent, fontWeight = FontWeight.Bold)
-                    Text(Json { prettyPrint = true }.encodeToString(
-                        kotlinx.serialization.json.JsonObject.serializer(), pending.details,
-                    ))
-                }
+                Text(
+                    confirmationDisplayText(pending, text.confirmAction),
+                    fontWeight = FontWeight.Bold,
+                )
             },
             confirmButton = {
                 Button(
                     onClick = { viewModel.resolveConfirmation(true) },
-                    enabled = !state.resolvingConfirmation,
+                    enabled = !state.streaming,
                 ) { Text(text.approve) }
             },
             dismissButton = {
                 TextButton(
                     onClick = { viewModel.resolveConfirmation(false) },
-                    enabled = !state.resolvingConfirmation,
+                    enabled = !state.streaming,
                 ) { Text(text.cancel) }
             },
         )
     }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("CampusLink AI") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
-        )
-    }) { padding ->
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(text.home.agentName) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = text.back)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+            )
+        },
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             state.error?.let {
                 ErrorBanner(message = it, dismissLabel = text.dismiss, onDismiss = viewModel::clearError)
@@ -114,7 +122,7 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
                         text = text,
                         onRetry = retryContent
                             ?.takeIf { message.status.name == "FAILED" || message.status.name == "INTERRUPTED" }
-                            ?.let { content -> ({ viewModel.send(content) }) },
+                            ?.let { { viewModel.retry(message.id) } },
                     )
                 }
             }
@@ -133,6 +141,20 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
         }
     }
 }
+
+/**
+ * 确认详情中的 confirmation_id、action、expires_at 等字段仅供内部流程使用，
+ * 移动端只向用户展示 Agent 生成的可读说明或业务摘要。
+ */
+internal fun confirmationDisplayText(pending: PendingConfirmation, fallback: String): String =
+    pending.message
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?: listOf("message", "summary")
+            .asSequence()
+            .mapNotNull { key -> (pending.details[key] as? JsonPrimitive)?.content?.trim() }
+            .firstOrNull(String::isNotEmpty)
+        ?: fallback
 
 @Composable
 private fun ErrorBanner(message: String, dismissLabel: String, onDismiss: () -> Unit) {
@@ -157,7 +179,10 @@ private fun ChatComposer(
     onSend: (String) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(12.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -168,6 +193,7 @@ private fun ChatComposer(
             minLines = 1,
             maxLines = 5,
             enabled = !streaming && !confirmationPending,
+            shape = RoundedCornerShape(CampusCorners.ExtraLarge),
             modifier = Modifier.weight(1f),
         )
         if (streaming) {
@@ -177,7 +203,7 @@ private fun ChatComposer(
                 onClick = { onSend(input) },
                 enabled = input.isNotBlank() && !confirmationPending,
                 modifier = Modifier.height(56.dp),
-            ) { Icon(Icons.Default.Send, text.send) }
+            ) { Icon(Icons.AutoMirrored.Filled.Send, text.send) }
         }
     }
 }

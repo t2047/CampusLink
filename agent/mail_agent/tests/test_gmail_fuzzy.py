@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from mail_agent import gmail_service
+import pytest
+
+from mail_agent import classifier, gmail_service
 from mail_agent.models import MailFolder, MailMessage
+
+
+@pytest.fixture()
+def no_classify(monkeypatch):
+    """Keep classification out of gmail tests (no LLM/ML calls in unit tests)."""
+    monkeypatch.setattr(classifier, "classify_many", lambda records: {})
 
 
 def make_message(**overrides) -> MailMessage:
@@ -88,13 +96,13 @@ class TestFuzzySearch:
         def fake_candidate_ids(*args, **kwargs):
             return list(by_id)
 
-        def fake_fetch_metadata(service, ids):
+        def fake_fetch_metadata(service, ids, classify=True):
             return [by_id[mid] for mid in ids if mid in by_id]
 
         monkeypatch.setattr(gmail_service, "_fuzzy_candidate_ids", fake_candidate_ids)
         monkeypatch.setattr(gmail_service, "_fetch_metadata", fake_fetch_metadata)
 
-    def test_ranks_and_filters_by_score(self, monkeypatch):
+    def test_ranks_and_filters_by_score(self, monkeypatch, no_classify):
         messages = [
             make_message(id="old", subject="Exam Reminder", created_at=datetime(2026, 7, 1, tzinfo=timezone.utc)),
             make_message(
@@ -113,7 +121,7 @@ class TestFuzzySearch:
         assert [message.id for message in page] == ["new", "old"]
         assert has_next is False
 
-    def test_pagination(self, monkeypatch):
+    def test_pagination(self, monkeypatch, no_classify):
         messages = [
             make_message(id="m1", subject="Exam A", created_at=datetime(2026, 7, 2, tzinfo=timezone.utc)),
             make_message(id="m2", subject="Exam B", created_at=datetime(2026, 7, 1, tzinfo=timezone.utc)),
@@ -129,20 +137,20 @@ class TestFuzzySearch:
 
 class TestListMessagesRouting:
     def test_fuzzy_route_for_natural_query(self, monkeypatch):
-        monkeypatch.setattr(gmail_service, "_service", lambda: object())
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: object())
         monkeypatch.setattr(
             gmail_service,
             "_fuzzy_search",
             lambda *args, **kwargs: ([], 0, False),
         )
         messages, total, _has_next = gmail_service.list_messages(
-            MailFolder.inbox, q="exam"
+            "user-1", MailFolder.inbox, q="exam"
         )
         assert messages == []
         assert total == 0
 
     def test_exact_route_for_gmail_syntax(self, monkeypatch):
-        monkeypatch.setattr(gmail_service, "_service", lambda: object())
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: object())
 
         def fail_fuzzy(*args, **kwargs):  # pragma: no cover
             raise AssertionError("fuzzy search should not run for Gmail syntax")
@@ -159,7 +167,7 @@ class TestListMessagesRouting:
             lambda service, ids: [make_message(id="m1")],
         )
         messages, total, _has_next = gmail_service.list_messages(
-            MailFolder.inbox, q="from:prof@nus.edu.sg"
+            "user-1", MailFolder.inbox, q="from:prof@nus.edu.sg"
         )
         assert [message.id for message in messages] == ["m1"]
         assert total == 1
@@ -183,8 +191,8 @@ class TestDateRangeFilter:
         assert gmail_service._date_arg_to_utc_bound("") is None
         assert gmail_service._date_arg_to_utc_bound(None) is None
 
-    def test_date_range_filters_by_received_date(self, monkeypatch):
-        monkeypatch.setattr(gmail_service, "_service", lambda: object())
+    def test_date_range_filters_by_received_date(self, monkeypatch, no_classify):
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: object())
         # msg-1 received 2026-08-01 02:00 UTC; msg-2 received 2026-08-05 02:00 UTC.
         messages = [
             make_message(
@@ -206,18 +214,20 @@ class TestDateRangeFilter:
         monkeypatch.setattr(
             gmail_service,
             "_fetch_metadata",
-            lambda service, ids: [message for message in messages if message.id in ids],
+            lambda service, ids, classify=True: [
+                message for message in messages if message.id in ids
+            ],
         )
         # after=2026-08-01 (local day start) should include msg-1 (received 02:00 UTC).
         page, total, _has_next = gmail_service.list_messages(
-            MailFolder.inbox, after="2026-08-01", before="2026-08-02"
+            "user-1", MailFolder.inbox, after="2026-08-01", before="2026-08-02"
         )
         assert total == 1
         assert [message.id for message in page] == ["msg-1"]
 
-    def test_date_range_captures_forwarded_mail(self, monkeypatch):
+    def test_date_range_captures_forwarded_mail(self, monkeypatch, no_classify):
         """A message sent days earlier but received today must match 'today'."""
-        monkeypatch.setattr(gmail_service, "_service", lambda: object())
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: object())
         today = datetime.now().astimezone()
         sent_earlier = datetime(
             today.year, today.month, today.day, 2, 0
@@ -237,11 +247,13 @@ class TestDateRangeFilter:
         monkeypatch.setattr(
             gmail_service,
             "_fetch_metadata",
-            lambda service, ids: [message for message in messages if message.id in ids],
+            lambda service, ids, classify=True: [
+                message for message in messages if message.id in ids
+            ],
         )
         today_key = today.strftime("%Y-%m-%d")
         page, total, _has_next = gmail_service.list_messages(
-            MailFolder.inbox, after=today_key
+            "user-1", MailFolder.inbox, after=today_key
         )
         assert total == 1
         assert page[0].id == "fwd-1"
@@ -284,8 +296,8 @@ class TestSpamFolder:
                 self.batches.append([item for item in self.items])
 
         service = FakeService()
-        monkeypatch.setattr(gmail_service, "_service", lambda: service)
-        done = gmail_service.trash_messages([f"id-{i}" for i in range(25)])
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: service)
+        done = gmail_service.trash_messages("user-1", [f"id-{i}" for i in range(25)])
         assert done == 25
         assert len(service.batches) == 3  # 10 + 10 + 5 chunks
         assert sum(len(batch) for batch in service.batches) == 25

@@ -4,9 +4,10 @@ The mail service talks to Gmail directly via the Gmail API (v1) using a web
 OAuth2 flow. Credentials are read from environment variables, defaulting to the
 project's Google Cloud web client so the service works out of the box.
 
-A single shared Gmail account is authorised once (one-time ``/callback``
-exchange); the resulting refresh token is persisted to ``token.json`` and reused
-by every mail operation.
+Each CampusLink user authorises **their own** Gmail account: the resulting
+refresh token is persisted per user (keyed by the verified user identity, e.g.
+the email from the user JWT) under ``GMAIL_TOKEN_DIR`` and every mail operation
+uses the requesting user's own credentials.
 """
 
 from __future__ import annotations
@@ -40,9 +41,14 @@ GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "").strip() or (
     "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"
 )
 GMAIL_PROJECT_ID = os.environ.get("GMAIL_PROJECT_ID", "").strip() or "river-lantern-436006-s4"
-GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "").strip() or (
-    "http://localhost:5000/callback"
-)
+
+# Google 授权回调地址。留空时（生产默认）由 API 按请求的 Host /
+# X-Forwarded-Proto 动态推导为 ``https://<public-host>/callback``，部署到任意
+# 域名都无需改环境变量；本地开发 .env 显式设为 http://localhost:5000/callback。
+# 回调地址必须与 Google Cloud Console 中注册的 Authorized redirect URI 完全一致
+# （含协议/域名/路径），否则报 400 redirect_uri_mismatch。
+GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "").strip() or None
+DEFAULT_GMAIL_REDIRECT_URI = "http://localhost:5000/callback"
 
 # gmail.modify = read, send, modify labels, trash (everything we need, without
 # bypassing the trash bin).
@@ -50,13 +56,32 @@ GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 
+# ---- Identity / auth ---------------------------------------------------------
+# CampusLink 用户 JWT（HS256）的共享密钥，必须与后端 Java 的 ``JWT_SECRET``
+# 完全一致（Java 侧把 secret 截断/补零为 32 字节后做 HMAC-SHA256，本服务用
+# 相同派生方式验签）。未配置时用户 JWT 通道不可用（fail-closed，返回 401）。
+JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
+
+# 内部服务令牌（HS256）：供 mail MCP 网关等受信内部组件代用户调用本服务
+# （聊天路径的 delegation token 只携带数字 userId，无法直接当作用户 JWT）。
+# 显式配置 MAIL_INTERNAL_SECRET；未配置时回退到 AGENT_SHARED_SECRET
+# （与 LostFoundAgentGateway -> L&F agent 的 Java↔Python 共享密钥同一惯例）。
+MAIL_INTERNAL_SECRET = (
+    os.environ.get("MAIL_INTERNAL_SECRET", "").strip()
+    or os.environ.get("AGENT_SHARED_SECRET", "").strip()
+)
+
 # ---- Token persistence -------------------------------------------------------
-TOKEN_PATH = Path(
-    os.environ.get("GMAIL_TOKEN_PATH", str(SERVICE_DIR / "token.json"))
+# 每个用户一个 token 文件：``<GMAIL_TOKEN_DIR>/<sha256(user_id)>.json``。
+# user_id = 用户 JWT 的 sub（邮箱）；聊天/MCP 通道经内部令牌传入时为其 sub。
+GMAIL_TOKEN_DIR = Path(
+    os.environ.get("GMAIL_TOKEN_DIR", str(SERVICE_DIR / "gmail_tokens"))
 )
 
 # Frontend origin to bounce back to after the OAuth callback completes.
-FRONTEND_URL = os.environ.get("MAIL_FRONTEND_URL", "http://localhost:5173")
+# Empty (production default) -> derived from the callback request's public
+# origin, so the browser lands back on the same domain the user started from.
+FRONTEND_URL = os.environ.get("MAIL_FRONTEND_URL", "").strip() or None
 
 # ---- Mail Agent LLM (LangChain) ----------------------------------------------
 # 显式配置 MAIL_LLM_*（写入仓库根 .env）；未配置时回退到 DEEPSEEK_*，保证
@@ -86,6 +111,6 @@ def client_config() -> dict:
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": GMAIL_CLIENT_SECRET,
-            "redirect_uris": [GMAIL_REDIRECT_URI],
+            "redirect_uris": [GMAIL_REDIRECT_URI or DEFAULT_GMAIL_REDIRECT_URI],
         }
     }

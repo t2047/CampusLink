@@ -8,5 +8,6 @@ public record AdminLostFoundOverviewResponse(
         long lostReports,
         long foundReports,
         long submittedClaims,
+        long processedClaims,
         long hiddenReports) {
 }

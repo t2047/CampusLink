@@ -80,6 +80,42 @@ class LostFoundAdminSecurityIntegrationTest {
     }
 
     @Test
+    void overviewReturnsOnlyAggregateClaimCounts() throws Exception {
+        User owner = userRepository.save(new User("owner-overview@u.nus.edu", "encoded"));
+        User admin = userRepository.save(adminUser("admin-overview@campuslink.com"));
+        User claimant = userRepository.save(new User("claimant-overview@u.nus.edu", "encoded"));
+        LostFoundReport report = reportRepository.save(report(owner));
+
+        claimRepository.save(new LostFoundClaim(report, claimant, "submitted proof"));
+        LostFoundClaim approved = new LostFoundClaim(report, claimant, "approved proof");
+        approved.approve("approved note");
+        claimRepository.save(approved);
+        LostFoundClaim rejected = new LostFoundClaim(report, claimant, "rejected proof");
+        rejected.reject("rejected note");
+        claimRepository.save(rejected);
+        claimRepository.flush();
+
+        mockMvc.perform(get("/api/admin/lost-found/overview")
+                        .with(authentication(principal(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.submittedClaims").value(1))
+                .andExpect(jsonPath("$.processedClaims").value(2))
+                .andExpect(jsonPath("$.proofSummary").doesNotExist())
+                .andExpect(jsonPath("$.decisionNote").doesNotExist())
+                .andExpect(jsonPath("$.proofDescription").doesNotExist())
+                .andExpect(jsonPath("$.claimant").doesNotExist())
+                .andExpect(jsonPath("$.reportOwner").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    void allowsSuperAdministratorsToViewOverview() throws Exception {
+        mockMvc.perform(get("/api/admin/lost-found/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.submittedClaims").isNumber())
+                .andExpect(jsonPath("$.processedClaims").isNumber());
+    }
+    @Test
     void rejectsAnonymousUsersFromAdminWriteActions() throws Exception {
         mockMvc.perform(post("/api/admin/lost-found/reports/1/delist")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -21,16 +21,29 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 
-class ChatRepository(private val dao: ChatDao, private val json: Json) {
+data class RetryTurn(val message: String, val assistantId: String)
+
+interface ChatPersistence {
+    fun messages(conversationId: String): Flow<List<ChatMessage>>
+    suspend fun conversation(id: String): Conversation?
+    suspend fun beginTurn(conversationId: String, text: String): String
+    suspend fun beginAssistant(conversationId: String): String
+    suspend fun beginRetry(conversationId: String, failedAssistantId: String): RetryTurn
+    suspend fun applyEvent(conversationId: String, assistantId: String, event: SseEvent): PendingConfirmation?
+    suspend fun clearConfirmation(conversationId: String)
+    suspend fun interrupt(assistantId: String)
+}
+
+class ChatRepository(private val dao: ChatDao, private val json: Json) : ChatPersistence {
     fun conversations(email: String): Flow<List<Conversation>> = dao.conversations(email).map { rows ->
         rows.map(::conversationFromEntity)
     }
 
-    fun messages(conversationId: String): Flow<List<ChatMessage>> = dao.messages(conversationId).map { rows ->
+    override fun messages(conversationId: String): Flow<List<ChatMessage>> = dao.messages(conversationId).map { rows ->
         rows.map(::messageFromEntity)
     }
 
-    suspend fun conversation(id: String): Conversation? = dao.conversation(id)?.let(::conversationFromEntity)
+    override suspend fun conversation(id: String): Conversation? = dao.conversation(id)?.let(::conversationFromEntity)
 
     suspend fun createConversation(email: String): String {
         val now = System.currentTimeMillis()
@@ -43,7 +56,7 @@ class ChatRepository(private val dao: ChatDao, private val json: Json) {
 
     suspend fun clearForUser(email: String) = dao.clearForUser(email)
 
-    suspend fun beginTurn(conversationId: String, text: String): String {
+    override suspend fun beginTurn(conversationId: String, text: String): String {
         val now = System.currentTimeMillis()
         val conversation = requireNotNull(dao.conversation(conversationId))
         if (conversation.title == "New conversation") {
@@ -61,7 +74,7 @@ class ChatRepository(private val dao: ChatDao, private val json: Json) {
         return assistantId
     }
 
-    suspend fun beginAssistant(conversationId: String): String {
+    override suspend fun beginAssistant(conversationId: String): String {
         val id = UUID.randomUUID().toString()
         dao.upsertMessage(
             MessageEntity(id, conversationId, "ASSISTANT", "", "STREAMING", System.currentTimeMillis()),
@@ -69,7 +82,19 @@ class ChatRepository(private val dao: ChatDao, private val json: Json) {
         return id
     }
 
-    suspend fun applyEvent(conversationId: String, assistantId: String, event: SseEvent): PendingConfirmation? {
+    override suspend fun beginRetry(conversationId: String, failedAssistantId: String): RetryTurn {
+        val failed = requireNotNull(dao.message(failedAssistantId))
+        require(failed.conversationId == conversationId && failed.role == "ASSISTANT")
+        require(failed.status == "FAILED" || failed.status == "INTERRUPTED")
+        val original = requireNotNull(dao.precedingUserMessage(conversationId, failed.timestamp))
+        return RetryTurn(original.content, beginAssistant(conversationId))
+    }
+
+    override suspend fun applyEvent(
+        conversationId: String,
+        assistantId: String,
+        event: SseEvent,
+    ): PendingConfirmation? {
         val current = dao.message(assistantId) ?: return null
         var content = current.content
         var status = current.status
@@ -147,11 +172,11 @@ class ChatRepository(private val dao: ChatDao, private val json: Json) {
         return confirmation
     }
 
-    suspend fun clearConfirmation(conversationId: String) {
+    override suspend fun clearConfirmation(conversationId: String) {
         dao.updateConversationState(conversationId, System.currentTimeMillis(), null)
     }
 
-    suspend fun interrupt(assistantId: String) {
+    override suspend fun interrupt(assistantId: String) {
         val current = dao.message(assistantId) ?: return
         if (current.status == "STREAMING") dao.updateMessage(current.copy(status = "INTERRUPTED"))
     }

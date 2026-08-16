@@ -1,18 +1,18 @@
 # CampusLink Android Core Chat 开发状态与后续路线
 
-> 最后更新：2026-08-15
+> 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/mobile-core-chat-kotlin`
+> 当前开发分支：`main`（已合并移动端 Mail 第一阶段）
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat 第一版已完成，等待云端可信 HTTPS 和真实设备联调
+> 当前阶段：Core Chat、Facilities Mobile Phase 1/2/3、Lost & Found Native Phase 1、Mobile App Shell 与一级页面 UI Polish 已完成开发和本地自动化验证
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
 ## 1. 当前目标与范围
 
-当前移动端优先实现统一 Core Chat，而不是把 Web 端所有业务页面逐一改写成原生 Android 页面。
+移动端以统一 Core Chat 为基础，并按模块逐步补充高频业务的原生页面。Facilities 与 Lost & Found 使用同一套认证、网络和 Compose 导航基础，但各自保持独立的 API、Repository、ViewModel 和 UI 目录，方便多人并行开发。
 
 当前调用链：
 
@@ -25,7 +25,7 @@ Android Core Chat
 → Mail / Facilities / Lost & Found / Utility Agents
 ```
 
-当前版本只支持文字消息。图片、文件、语音、推送通知和各业务模块的完整原生页面不在第一阶段范围内。
+Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从设备选择图片。聊天图片/文件/语音和推送通知仍未实现。Mail 原生页面已完成第一轮 REST 对接，Gmail OAuth 和云端真实联调仍取决于环境配置。
 
 ## 2. 已完成的工程基础
 
@@ -41,6 +41,8 @@ Android Core Chat
 - Android Keystore 保护 JWT 和数据库密钥；
 - CommonMark 解析聊天 Markdown，不使用 WebView，也不渲染原始 HTML；
 - Coil 加载 Lost & Found 候选图片；
+- 单 Activity `Screen` 导航已统一接入 Android System Back；顶部 Back 与系统 Back 使用同一返回规则；
+- 当前 route、详情 ID、Chat conversation ID 和动态 return target 使用轻量 `rememberSaveable` 状态，configuration change 后可恢复；
 - `minSdk 26`；
 - `compileSdk/targetSdk 36`；
 - 构建基线为 JDK 17。
@@ -202,7 +204,7 @@ message
 - 分项分数；
 - 匹配模式。
 
-首版不会从卡片跳转到原生 Lost & Found 详情页，因为该业务页面尚未开发。候选数据由 Chat Core 和 Lost & Found Agent 提供，移动端不在本地重复执行匹配算法。
+Lost & Found 原生详情页已经开发，但 Chat 内匹配卡片尚未接入原生详情导航。候选数据仍由 Chat Core 和 Lost & Found Agent 提供，移动端不在本地重复执行匹配算法。
 
 ### 3.8 Markdown 与界面
 
@@ -216,7 +218,189 @@ message
 - 支持中文和英文；
 - 设置页支持退出登录和清理本地历史。
 
-当前 UI 以功能验证为主，尚未进行完整品牌设计、动画、无障碍和多尺寸视觉优化。
+Home、Agent Core、Profile 与 Bottom Navigation 已完成第一轮品牌视觉、明暗主题、动态字体和多尺寸优化；Facilities、Lost & Found 等业务内页仍以功能验证为主，尚未完成同等级的视觉一致性改造。
+
+### 3.9 Facilities Mobile Phase 1
+
+状态：**已完成**
+
+- Chat 和会话页提供统一 Services 入口，Facilities 作为首个原生服务模块；
+- Facilities 首页和 Search Spaces 入口沿用现有单 Activity、Compose 手动导航；
+- 空间搜索调用真实 `GET /api/facilities/spaces`，支持关键词、楼宇、空间类型、最小容量和多个设备条件；
+- 搜索页包含加载、空结果、错误、重试和重置状态；
+- 空间详情调用真实 `GET /api/facilities/spaces/{spaceId}`；
+- 可用性查询调用真实 `GET /api/facilities/spaces/{spaceId}/availability`；
+- 日期时间按 Spring `LocalDateTime` 契约发送 `yyyy-MM-dd'T'HH:mm:ss`，不附加 `Z` 或时区偏移；
+- 日期或时间变化会立即清除旧可用性结果，并防止较慢的旧请求覆盖新选择；
+- 新增共享认证 HTTP 客户端，自动附加现有 SessionStore JWT，并统一处理 JSON、401、网络错误和请求取消；
+- 已在 Android 模拟器使用 `localDebug` 对本地 Spring Backend 和 phpStudy MySQL 完成真实搜索、详情及可用性只读验证。
+- 本阶段开始前，Android Central Agent → Facilities Agent → MCP 的搜索及预约 HITL/Confirm 链路已完成人工验证；该链路继续由 Core Chat 复用，不在原生页面重复实现 Agent 业务逻辑。
+
+本阶段没有实现预约创建、我的预约、取消预约和维修请求，也没有在移动端复制后端冲突检测或权限规则。
+
+### 3.10 Facilities Mobile Phase 2
+
+状态：**已完成**
+
+- 空间可用时显示 `Book This Space`，用户必须先通过原生 Compose 确认对话框，确认后才调用 `POST /api/facilities/bookings`；
+- 创建过程提供提交锁定、成功摘要、Booking Details 和 My Bookings 入口；
+- Backend 返回 `BOOKING_CONFLICT` 时清除旧 availability，要求用户重新检查；
+- My Bookings 调用真实用户 ownership API，提供加载、空结果、错误、重试和业务排序；
+- Booking Details 展示空间、时间、状态和审计时间，404 不区分不存在或非 owner；
+- Cancel Booking 必须经过确认对话框，成功后详情和列表立即刷新为 `CANCELLED`，且取消按钮消失；
+- Android 不复制冲突检测、ownership、取消资格或持久化规则，Spring Backend 仍是最终 authority；
+- 已在 `localDebug` 模拟器通过真实 Spring Backend 和 phpStudy MySQL 验证 Create → List → Details → Cancel；
+- 重叠时段在真实运行中由 Availability preflight 返回 `BOOKING_CONFLICT` 并阻止 Book 按钮；测试创建的预约最终均已取消。
+
+Phase 2 当时未包含 Maintenance 原生页面；该部分现已在 Phase 3 完成。Facilities 原生确认属于 REST 页面误操作防护，不替代 Central Agent 的 HITL `/api/chat/resume`。
+
+### 3.11 Facilities Mobile Phase 3
+
+状态：**已完成**
+
+- Facilities 首页新增 Report Maintenance 和 My Maintenance Requests 两个入口；
+- Report Maintenance 复用真实 `GET /api/facilities/spaces` 加载空间，不使用硬编码房间或手工 ID；
+- Space Details 新增 `Report a facility issue`，进入表单时自动预选当前真实空间，同时仍可更改；
+- 提交严格使用用户端 `POST /api/facilities/maintenance`，只发送 `spaceId`、`facilityType`、`description` 和真实 `LOW / MEDIUM / HIGH` 优先级，不发送 `userId`；
+- 提交前显示原生确认对话框，提交期间锁定重复点击；成功后保留 Backend response，并提供详情和列表入口；
+- 表单覆盖必填、255/2000 字符上限、Backend 字段校验错误、401、空间 404、网络、超时、5xx 和解析失败；
+- My Maintenance Requests 使用真实 ownership API `GET /api/facilities/maintenance`，包含加载、空状态、错误、重试、活动请求优先及更新时间倒序；
+- Maintenance Details 使用 `GET /api/facilities/maintenance/{ticketId}`，不存在与非 owner 都按相同安全 404 展示；
+- 普通用户只查看 `SUBMITTED / IN_PROGRESS / RESOLVED / CANCELLED`，没有状态修改入口，也不调用 Admin-only status API；
+- Spring `LocalDateTime` 继续作为 Singapore wall-clock string 处理，不添加 `Z` 或时区偏移；
+- 已在 Pixel 7 Android Emulator（API 36）使用 `localDebug` 对本地 Spring Backend 和 phpStudy MySQL 完成 Submit → List → Details 真实运行时验证；创建并读回 Ticket #4：COM2-03-12、Projector、HIGH、SUBMITTED；
+- Space Details → Report Issue 的 COM2-03-12 自动预选联动也已完成真实模拟器验证；
+- Central Agent Facilities Search / Booking HITL 代码本阶段没有修改。
+
+### 3.12 Lost & Found Native Phase 1
+
+状态：**已完成开发和本地自动化验证，等待真实后端/设备联调与 PR 合并**
+
+已完成的用户流程：
+
+```text
+Services
+→ Lost & Found 首页
+→ 浏览 LOST / FOUND OPEN 记录
+→ 按关键词、类别、颜色、地点和日期筛选
+→ 查看记录详情和图片
+→ 发布 LOST / FOUND（0–5 张图片）
+→ 对 OPEN FOUND 提交认领证明
+→ 查看 My Claims / Received Claims
+→ FOUND 发布者批准或拒绝认领
+```
+
+页面与导航：
+
+- Services 新增 Lost & Found 入口，不改变 Facilities 的入口和返回路径；
+- 新增 Lost & Found 首页、浏览筛选、详情、发布和 Claims 页面；
+- Browse 默认显示 `FOUND + OPEN`，可切换 LOST，支持重置、错误重试和每页 20 条的继续加载；
+- 详情页展示名称、类型、类别、描述、颜色、地点、日期、时间和多图；
+- 只有 `FOUND + OPEN + 非本人发布` 的记录显示 Submit Claim；
+- Claims 页面支持 My Claims 与 Received 两种视图；
+- 收到的 `SUBMITTED` 申请可以批准或拒绝，批准前明确提示会把报告改为 `CLAIMED` 并拒绝其他待处理申请。
+
+API 与分层：
+
+- `GET /api/lost-found/reports`：浏览、组合筛选与分页；
+- `GET /api/lost-found/reports/{reportId}`：详情；
+- `POST /api/lost-found/reports`：multipart 发布报告；
+- `POST /api/lost-found/reports/{reportId}/claims`：提交认领；
+- `GET /api/lost-found/claims/mine`：我提交的认领；
+- `GET /api/lost-found/claims/received`：我收到的认领；
+- `POST /api/lost-found/claims/{claimId}/approve|reject`：审核认领；
+- 新增 `LostFoundApi`、`LostFoundRepository`、Lost & Found ViewModel 与 Compose UI 目录；
+- 复用共享 `AuthenticatedHttpClient`，仅增加 multipart RequestBody 支持；JWT、401 清理和后端结构化错误映射保持统一；
+- Facility API、Repository、ViewModel 和页面没有被 Lost & Found 代码依赖或改写。
+
+输入与安全校验：
+
+- 物品名 2–100 字符、描述 10–2000 字符、地点必填；
+- 日期使用 `YYYY-MM-DD` 且不能晚于当前日期；
+- 颜色最多 50 字符，时间描述最多 100 字符；
+- 图片最多 5 张，仅接受 JPEG、PNG、WebP，每张最大 10 MB；
+- 认领证明 10–1000 字符，审核意见最多 500 字符；
+- 移动端校验用于即时反馈，权限、重复认领、状态冲突和最终图片规则仍由 Spring Backend 决定；
+- 不把 JWT、认领证明、图片字节或完整请求 Header写入日志或本地数据库。
+
+本阶段明确未实现：
+
+- 编辑、关闭、删除本人报告；
+- “我的发布”独立列表和通知中心；
+- Chat 匹配卡片点击跳转原生详情；
+- 原生 Agent 自然语言输入与多模态匹配入口；
+- 上传进度百分比、图片压缩/裁剪、相机拍摄、断点续传；
+- 日期选择器、本地化文案和无障碍专项优化；
+- 真机和云端 HTTPS 环境的完整人工验收。
+
+### 3.13 Mail Mobile Phase 1
+
+状态：**已完成第一轮开发、自动化验证；Gmail OAuth 云端联调待完成**
+
+本阶段以 `docs/mail/MOBILE_DEVELOPMENT_cn.md` 为后端契约，新增独立的 Mail Repository、API、ViewModel 和 Compose 页面，未修改现有 Chat、Facilities、Lost & Found 业务规则。
+
+#### 已完成内容
+
+- Home、Services 和 Mail 页面入口已经接入统一导航；Mail 页面不会再把用户误导到 Agent Core；
+- Gmail 连接状态查询、授权链接获取和断开接口已接入；未连接时能够识别 409 `GMAIL_NOT_CONNECTED`，自动打开服务端返回的 `auth_url`；
+- 授权链接通过系统浏览器打开，回调由服务端完成，回到 App 后会自动轮询当前用户状态，超时后仍可使用 `Check again`；App 不保存 Google code/state；
+- 收件箱、已发送、归档、回收站和垃圾邮件文件夹；
+- 关键字搜索、未读筛选、加星筛选、0 起始页码分页和加载更多；
+- 邮件列表卡片、详情页、打开详情自动标记已读、标记已读/未读、加星/取消加星、归档和移入回收站；
+- 新建邮件：多个收件人、主题和正文校验，发送中按钮锁定，成功后返回上一页；
+- 日历事件列表、新建、编辑、删除；删除正确处理 HTTP 204 空响应；
+- 从邮件抽取日程建议，支持逐条勾选后再导入，避免服务端在用户确认前写入日历；抽取和导入使用长超时；
+- 邮件 API 使用独立 `MAIL_API_BASE_URL`：`localDebug` 直连 `http://10.0.2.2:5000/`，`demoDebug/prodRelease` 使用 `https://campuslink.tokeninf.xyz/`；登录、Chat、Facilities、Lost & Found 仍使用原 `API_BASE_URL`；
+- 网络层增加 DELETE、逐请求读写超时、204 空响应和 `auth_url` 错误字段解析；动态 ID 使用编码路径段，防止斜杠破坏路由；
+- 不渲染 `body_html` 原始 HTML，详情页只显示纯文本正文；不在 Logcat、本地数据库或 UI 中输出 JWT、OAuth code、密码或完整请求头；
+- 新增 Mail API 契约测试和 Mail ViewModel 测试，覆盖分页筛选、授权错误、204 删除、收件人校验、日历时间范围校验和状态刷新。
+
+#### 当前待完成内容
+
+- 使用真实 Gmail OAuth 配置完成 Android 模拟器和真机云端验收；
+- 授权浏览器返回 App 后已具备最多 60 次、每 2 秒一次的基础轮询；系统杀进程、跨设备回调和更完整的生命周期恢复仍待完成；
+- 日历月视图/周视图、日期时间选择器和时区显示，目前使用 ISO 文本输入和列表视图；
+- 邮件正文附件、图片、HTML 安全富文本和附件下载，目前只支持纯文本正文；
+- 批量操作、草稿、永久删除、邮件分类筛选和本地邮件缓存；
+- 断网重试队列、分页下拉刷新、后台同步与推送通知；
+- 邮件 Agent 自然语言操作仍通过现有 Core Chat SSE/MCP 链路，Mail 原生页不直接调用 `POST /api/mail/agent/chat`；
+- 真实账号隔离、OAuth 断开/重新授权、Gmail API 限流和超时场景的真机验收；
+- 完整中英文 UI 文案、TalkBack、动态字体、平板和横屏适配。
+
+#### 已执行验证
+
+- `compileDemoDebugKotlin`：通过；
+- `testDemoDebugUnitTest`：87 个测试通过（包含新增 Mail API/ViewModel 测试）；
+- `detekt`、`lintDemoDebug`、`assembleDemoDebug`：通过；具备 Gmail 配置的云端人工验收仍待完成。
+
+### 3.14 Mobile App Shell
+
+状态：**已完成开发、自动化验证和 Pixel 7 模拟器 smoke**
+
+- 登录后一级信息架构统一为 Home、Agent Core、Profile 三个 Material 3 底部导航项；
+- Home 聚合 CampusAgent、Facilities、Lost & Found、原生 Mail，以及 My Bookings、My Maintenance、My Claims 快捷入口；
+- Agent Core 继续使用原 Conversation List → Chat 架构，未改动 Chat SSE、Room、HITL、ViewModel 或 Repository；
+- Profile 复用现有语言、深色模式、清聊天记录和退出登录逻辑，并展示 SessionStore 中真实存在的邮箱和角色；
+- `NavigationState`、route key、System Back 和 recreation 保存已扩展到三个一级 tab；Chat 和业务深层页面不显示底部导航；
+- 原 Services/Settings route 暂时保留用于旧保存状态兼容，新入口不再依赖它们；
+- 主题增加统一的 CampusLink mint/green 明暗配色，保留现有 dark mode。
+
+### 3.14 Mobile UI Polish Phase 2（一级页面）
+
+状态：**已完成开发、自动化验证和 Pixel 7 模拟器视觉审计；业务内页尚未纳入本阶段**
+
+- 新增 `CampusSpacing`、`CampusCorners`、统一 Typography/Shapes、Section Header 与 Icon Container 等轻量 design tokens/components；
+- Home 使用本地时间问候、CampusAgent Hero、两列 Campus Services 与次级 Quick Access；只展示 Facilities、Lost & Found、Agent Mail 和三个已有真实快捷入口；
+- Agent Core 建立 Page Title → New Chat → Recent Conversations → List 的视觉层级，空状态提供明确说明和 Start New Chat；会话卡只展示真实 title 与更新时间；
+- Profile 使用真实 email/role、邮箱前缀 initials、统一 Settings Row、真实 BuildConfig 版本，并为本地聊天记录清理和退出登录增加确认；
+- Bottom Navigation 接入应用内中英文文案，统一选中 indicator、未选中颜色、icon/label 对齐及系统导航 inset；
+- Light/Dark color scheme 分别定义 background、surface、surface variant、outline 与 error 层级；状态栏和导航栏图标随应用主题切换；
+- Home、Agent Core、Profile、Bottom Navigation 新增文案已接入项目既有 `UiStrings + AppLanguage` 运行时中英文机制；历史业务内页尚未在本阶段全量本地化；
+- 可点击服务卡和设置行补充 button role/整行触控语义，交互 icon 补充 content description；Home/Profile 保持滚动，新增 320dp small phone Preview；
+- Pixel 7 API 36 已检查浅色、深色、横屏、滚动与 1.3× 动态字体；首屏、两列 grid、Hero、Quick Access 和底栏标签未发现裁切或遮挡；
+- Chat 仅统一背景、TopAppBar、返回语义和输入框圆角；SSE、HITL、Retry、Room、ViewModel、Repository 与业务契约均未修改。
+
+下一阶段视觉工作：Facilities / Lost & Found 业务内页视觉一致性，不应将当前状态描述为整个 Mobile UI 已全部 polish。
 
 ## 4. 本地数据与安全
 
@@ -246,7 +430,7 @@ message
 
 - Nginx 使用正式域名 `campuslink.tokeninf.xyz`；
 - 保留 `/.well-known/acme-challenge/`；
-- 正式启用后 HTTP 301 跳转 HTTPS；
+- 当前 HTTP 已 301 跳转 HTTPS；
 - TLS 仅允许 1.2/1.3；
 - 已配置 HSTS；
 - `deploy/bootstrap_https.sh` 会验证 DNS 指向当前服务器；
@@ -256,30 +440,22 @@ message
 - Web 容器每小时检查证书摘要，更新后执行 Nginx 平滑 reload；
 - CD 在证书环境变量缺失时会在重启容器前失败，避免把现有网站跳转到自签 HTTPS。
 
-### 5.2 当前外部阻塞
+### 5.2 当前线上状态与剩余验收
 
-状态：**待处理**
+状态：**可信 HTTPS 基础部署已完成，专项联调待完成**
 
-截至本文档更新时间，线上 HTTPS 仍使用自签占位证书，HTTP 也还没有跳转。Android `demoDebug` 和 `prodRelease` 不会信任该证书，因此暂时不能完成真实云端登录测试。
+截至 2026-08-16，线上基础验收结果如下：
 
-服务器 `.env` 需要补充：
+- `campuslink.tokeninf.xyz` 已解析到当前 AWS EC2；
+- HTTPS 首页返回 `200`；
+- HTTP 自动返回 `301` 并跳转到 HTTPS；
+- 证书由 Let’s Encrypt 签发，证书域名为 `campuslink.tokeninf.xyz`；
+- 当前证书有效期为 2026-08-15 至 2026-11-13；
+- 正式域名和证书维护邮箱保存在 GitHub Secrets，由 CD 安全同步到服务器 `.env`，仓库不保存真实邮箱；
+- CD 已完成镜像拉取、容器健康检查、证书复用和 Nginx 重启后的就绪检查；
+- 浏览器访问无证书警告，Android Demo/Prod 继续使用系统证书链校验，不包含自签名信任或 TLS 绕过。
 
-```dotenv
-CERT_DOMAIN=campuslink.tokeninf.xyz
-CERT_EMAIL=<项目证书维护邮箱>
-SERVER_PUBLIC_IP=13.212.202.232
-```
-
-然后执行：
-
-```bash
-set -a && . ./.env && set +a
-./deploy/bootstrap_https.sh
-```
-
-或者在配置完成后触发 `main` 的 CD。
-
-验收必须包含：
+可重复执行以下命令检查公开端点和证书：
 
 ```bash
 curl -I http://campuslink.tokeninf.xyz/
@@ -289,6 +465,12 @@ openssl s_client -connect campuslink.tokeninf.xyz:443 \
 ```
 
 预期 HTTP 返回 301，HTTPS 证书域名正确、浏览器无警告、证书发行者不是域名自身。
+
+以下专项验收仍需完成并记录结果：
+
+- 在真实 Android 设备上完成登录、Core Chat 和至少一个 Agent 的完整云端链路；
+- 对经过 Nginx 的 SSE 连接执行长时间稳定性、断网和重连测试；
+- 在服务器执行并记录 `certbot renew --dry-run` 续期演练。
 
 ## 6. 构建与测试
 
@@ -315,15 +497,18 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 7 个通过 |
-| 模拟器测试 | 2 个通过 |
+| JVM 单元测试 | 84 个通过 |
+| 模拟器测试 | 28 个通过 |
+| `assembleLocalDebug` | 通过 |
 | `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
 | Nginx `nginx -t` | 通过 |
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API 和 Room Repository。设备测试覆盖登录页启动及 Room v1 架构创建。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态；新增覆盖 Home 时间问候、Profile initials 与一级页面中英文关键文案。设备测试覆盖登录页启动、Room v1 架构创建、Home Hero/Services/Agent Mail/Quick Access 与回调、Agent Core 空/列表状态、Profile identity/preferences/危险操作确认、Bottom Navigation 选中行为、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
+
+Pixel 7 API 36 模拟器已使用 `demoDebug` 保留真实登录态完成运行时 smoke：Home → Agent Core → Profile → Home、Facilities/Lost & Found → Back → Home、Mail 入口 → 原生 Mail 页面、三个 Quick Access、Conversation → Chat → Back，以及 Home/Profile/Agent Core 横竖屏状态恢复均通过。由于该 smoke 账号未配置 Gmail OAuth，邮件真实列表、发信和日历云端操作仍需单独授权验收。为避免删除现有模拟器聊天与凭据，Clear Chat History 和 Log Out 使用 Compose 回调测试验证，未在 smoke 中实际执行破坏性操作。
 
 ### 6.3 CI/CD
 
@@ -346,22 +531,21 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 ### P0：必须先完成
 
-#### 7.1 签发可信 HTTPS 并做真实云端联调
+#### 7.1 可信 HTTPS 与真实云端专项验收
 
-- 状态：**未开始，受维护邮箱和服务器权限阻塞**
-- 依赖：AWS EC2、DNS、80/443 Security Group、项目维护邮箱
+- 状态：**基础部署已完成，专项验收进行中**
+- 已完成：AWS EC2、DNS、80/443、Let’s Encrypt 可信证书、HTTP 301、GitHub Secrets、自动 CD 和浏览器验证
+- 依赖：真实 Android 设备、可用测试账号、云端 Chat Core、服务器续期演练权限
 - 建议负责人：DevOps / 云端负责人
-- 验收标准：
-  - Let’s Encrypt 完整证书链可信；
-  - HTTP 自动 301 到 HTTPS；
-  - 浏览器和 Android 均无证书警告；
-  - SSE 长连接经过 Nginx 不缓冲、不提前断开；
-  - 证书续期演练成功。
+- 剩余验收标准：
+  - 真实 Android 设备通过系统证书链完成云端登录和 Chat 请求；
+  - SSE 长连接经过 Nginx 不缓冲、不提前断开，并完成断网场景验证；
+  - `certbot renew --dry-run` 续期演练成功并保存结果。
 
 #### 7.2 使用真实 Android 设备完成 Core Chat 验收
 
-- 状态：**未开始**
-- 依赖：7.1、可用测试账号、云端 Chat Core 和至少一个 Agent
+- 状态：**云端可信 HTTPS 已可用；本地模拟器已完成主要 Chat/Facilities 链路验证，真实物理设备端到端验收待完成**
+- 依赖：真实 Android 设备、可用测试账号、云端 Chat Core 和至少一个 Agent
 - 建议负责人：Android 开发者 + Chat Core 开发者
 - 验收标准：
   - 登录、注册、退出和 401 流程正常；
@@ -373,12 +557,12 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
   - 停止、重试和网络中断恢复可用；
   - App 重启后历史和待确认状态可恢复。
 
-#### 7.3 将当前分支推送并通过 PR CI
+#### 7.3 将移动端功能通过 PR 合并到 `main`
 
-- 状态：**未开始**
-- 依赖：远程仓库权限
-- 建议负责人：当前功能负责人
-- 验收标准：所有 GitHub 检查通过，提交、PR 标题、描述和备注使用中文；禁止绕过失败检查直接合并。
+- 状态：**已完成**
+- 已完成：Core Chat 第一版、HTTPS/CD、Facilities Phase 1 和 Phase 2 已通过独立提交或 PR 进入 `main`
+- 开发中：Lost & Found Native Phase 1 已在 `feature/mobile-lost-found` 完成开发和本地验证，尚未合并
+- 持续要求：后续移动端功能仍需通过功能分支和 PR；所有 GitHub 检查通过后再合并，提交、PR 标题、描述和协作备注使用中文。
 
 ### P1：Core Chat 第二阶段
 
@@ -424,20 +608,22 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.9 Lost & Found 原生页面
 
-- 状态：**未开始**
-- 可复用：现有认证、OkHttp、图片加载、数据模型和后端 API。
-- 需要开发：浏览筛选、发布 LOST/FOUND、多图上传、详情、认领申请、收到的认领和审核状态。
+- 状态：**Phase 1 已完成开发和本地自动化验证；真机/云端联调和 PR 合并待完成**
+- 已完成：Services 入口、浏览筛选、分页、详情、多图发布 LOST/FOUND、认领申请、My Claims、Received Claims 和批准/拒绝。
+- 下一阶段：我的发布、编辑/关闭/删除、通知、Chat 卡片跳转、日期选择器、图片压缩/拍摄、完整中英文文案、更完整的 Compose UI 覆盖与真机验收。
 
 #### 7.10 Facilities 原生页面
 
-- 状态：**未开始**
-- 需要开发：设施搜索、空间详情、预约、我的预约、维修请求和状态跟踪。
+- 状态：**Phase 1、Phase 2 和 Phase 3 已完成**
+- 已完成：Services 入口、设施搜索、空间详情、可用性查询、预约创建、我的预约、预约详情、取消预约、维修请求、我的维修请求、维修详情和状态跟踪，并已连接真实 Spring Backend。
+- 当前用户端 Facilities 范围无缺失项；Admin Facilities 与维修状态更新不属于普通用户 Android 范围。
 
 #### 7.11 Mail 原生页面
 
-- 状态：**未开始**
-- 依赖：云端 Gmail OAuth 稳定配置和移动端授权边界确认。
-- 需要开发：邮件列表、搜索、详情、分类和管理操作。
+- 状态：**第一轮原生页面已完成，云端 OAuth 和产品化功能进行中**
+- 已完成：Gmail 连接入口、邮件文件夹、搜索、未读/加星筛选、分页、详情、已读/未读、加星、归档、回收站、发信、日历 CRUD、邮件日程抽取与确认导入。
+- 依赖：云端 Gmail OAuth、正式设备验收和邮件服务稳定性。
+- 下一阶段：OAuth 回调自动轮询、日历月/周视图、附件、草稿、批量操作、离线缓存、推送通知和完整无障碍适配。
 
 ### P3：产品化与发布
 

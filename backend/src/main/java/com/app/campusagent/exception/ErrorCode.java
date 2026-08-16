@@ -20,7 +20,13 @@ public enum ErrorCode {
     ACCESS_DENIED("ACCESS_DENIED", "无权访问"),
 
     /** 参数校验失败。 */
-    VALIDATION_ERROR("VALIDATION_ERROR", "参数校验失败");
+    VALIDATION_ERROR("VALIDATION_ERROR", "参数校验失败"),
+
+    /** 昵称缺失（个人中心需求 §11.2）。 */
+    NICKNAME_REQUIRED("NICKNAME_REQUIRED", "昵称不能为空"),
+
+    /** 昵称长度超限（个人中心需求 §11.2：去除首尾空白后 1-30 字符）。 */
+    NICKNAME_INVALID_LENGTH("NICKNAME_INVALID_LENGTH", "昵称长度须为 1-30 个字符");
 
     private final String code;
     private final String defaultMessage;

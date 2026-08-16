@@ -1,14 +1,20 @@
-"""LangChain mail agent -- 6 tools over the shared Gmail service.
+"""LangChain mail agent -- 7 tools over the per-user Gmail service.
 
 The agent wraps the existing ``gmail_service`` operations in LangChain tools
 and runs them through a ReAct-style agent (``create_react_agent``). The model
 is OpenAI-compatible (DeepSeek by default) and configured from the repository
 root ``.env`` (``MAIL_LLM_*``, falling back to ``DEEPSEEK_*``).
 
+Tools are **bound to the requesting user**: ``make_tools(user_id)`` returns a
+fresh tool set that calls ``gmail_service`` with that user's id, and the agent
+cache is keyed by user so each user's conversation operates on their own
+mailbox (the same per-user Gmail binding as the REST endpoints).
+
 Tools:
   * ``search_mail``  -- search/list messages
   * ``read_mail``    -- fetch the full body of one message (marks it read)
   * ``delete_mail``  -- move a message to trash
+  * ``delete_mail_batch`` -- move ALL matching messages to trash
   * ``star_mail``    -- star / unstar a message
   * ``archive_mail`` -- remove a message from the inbox
   * ``send_mail``    -- compose and send a new message
@@ -41,24 +47,25 @@ MAX_LIST_SIZE = gmail_service.MAX_PAGE_SIZE
 
 # Idempotency guard for deletions: LLMs sometimes re-issue a tool call for an
 # action that already succeeded (especially delete), so remember recently
-# trashed message ids and skip duplicates within a short window.
+# trashed message ids and skip duplicates within a short window. Keyed by
+# (user_id, message_id) so one user's deletions never suppress another's.
 _TRASHED_TTL_SECONDS = 300  # 5 minutes
-_recently_trashed: dict[str, float] = {}
+_recently_trashed: dict[tuple[str, str], float] = {}
 
 
-def _is_recently_trashed(message_id: str) -> bool:
+def _is_recently_trashed(user_id: str, message_id: str) -> bool:
     now = time.monotonic()
-    trashed_at = _recently_trashed.get(message_id)
+    trashed_at = _recently_trashed.get((user_id, message_id))
     if trashed_at is None:
         return False
     if now - trashed_at > _TRASHED_TTL_SECONDS:
-        _recently_trashed.pop(message_id, None)
+        _recently_trashed.pop((user_id, message_id), None)
         return False
     return True
 
 
-def _mark_trashed(message_id: str) -> None:
-    _recently_trashed[message_id] = time.monotonic()
+def _mark_trashed(user_id: str, message_id: str) -> None:
+    _recently_trashed[(user_id, message_id)] = time.monotonic()
     if len(_recently_trashed) > 500:
         now = time.monotonic()
         for stale in [
@@ -66,6 +73,7 @@ def _mark_trashed(message_id: str) -> None:
             if now - at > _TRASHED_TTL_SECONDS
         ]:
             _recently_trashed.pop(stale, None)
+
 
 SYSTEM_PROMPT = """You are the CampusLink Mail Assistant. You help users manage their
 campus Gmail account by calling the tools you have been given.
@@ -121,6 +129,7 @@ def _safe_folder(folder: str) -> MailFolder:
 
 
 def _resolve_message_id(
+    user_id: str,
     message_id: str,
     query: str,
     folder: str = "inbox",
@@ -132,7 +141,7 @@ def _resolve_message_id(
         return None
     try:
         messages, _total, _has_next = gmail_service.list_messages(
-            _safe_folder(folder), q=query.strip(), page=0, size=5
+            user_id, _safe_folder(folder), q=query.strip(), page=0, size=5
         )
     except Exception as exc:  # noqa: BLE001 - surfaced to the model as text
         logger.warning("resolve message failed: %s", exc)
@@ -156,235 +165,241 @@ def _fmt_message(message: Any) -> str:
     )
 
 
-@tool
-def search_mail(
-    query: str = "",
-    folder: str = "inbox",
-    unread: bool | None = None,
-    starred: bool | None = None,
-    after: str = "",
-    before: str = "",
-    max_results: int = 10,
-) -> str:
-    """Search the mailbox and return a list of matching messages.
+def make_tools(user_id: str) -> list[Any]:
+    """Build the seven mail tools bound to ``user_id``.
 
-    Args:
-        query: Gmail search terms (subject, sender, words, etc.). Empty means all
-            messages in the folder.
-        folder: inbox | sent | archived | trash.
-        unread: filter to unread (True) or read (False) messages.
-        starred: filter to starred (True) or unstarred (False) messages.
-        after: only messages received on or after this date (ISO YYYY-MM-DD,
-            e.g. "2026-08-01"). Inclusive of that day.
-        before: only messages received before this date (ISO YYYY-MM-DD,
-            exclusive of that day).
-        max_results: how many messages to return (max 50).
+    Each tool closure calls ``gmail_service`` with ``user_id`` so the agent
+    always operates on the requesting user's own Gmail account.
     """
-    size = max(1, min(int(max_results), MAX_LIST_SIZE))
-    try:
-        messages, total, _has_next = gmail_service.list_messages(
-            _safe_folder(folder),
-            q=query,
-            unread=unread,
-            starred=starred,
-            after=after or None,
-            before=before or None,
-            page=0,
-            size=size,
+    uid = user_id
+
+    @tool
+    def search_mail(
+        query: str = "",
+        folder: str = "inbox",
+        unread: bool | None = None,
+        starred: bool | None = None,
+        after: str = "",
+        before: str = "",
+        max_results: int = 10,
+    ) -> str:
+        """Search the mailbox and return a list of matching messages.
+
+        Args:
+            query: Gmail search terms (subject, sender, words, etc.). Empty means all
+                messages in the folder.
+            folder: inbox | sent | archived | trash.
+            unread: filter to unread (True) or read (False) messages.
+            starred: filter to starred (True) or unstarred (False) messages.
+            after: only messages received on or after this date (ISO YYYY-MM-DD,
+                e.g. "2026-08-01"). Inclusive of that day.
+            before: only messages received before this date (ISO YYYY-MM-DD,
+                exclusive of that day).
+            max_results: how many messages to return (max 50).
+        """
+        size = max(1, min(int(max_results), MAX_LIST_SIZE))
+        try:
+            messages, total, _has_next = gmail_service.list_messages(
+                uid,
+                _safe_folder(folder),
+                q=query,
+                unread=unread,
+                starred=starred,
+                after=after or None,
+                before=before or None,
+                page=0,
+                size=size,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"Search failed: {exc}"
+        if not messages:
+            return "No matching messages found."
+        lines = "\n".join(_fmt_message(message) for message in messages)
+        return f"Found {total} message(s):\n{lines}"
+
+    @tool
+    def read_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> str:
+        """Read the full content of one email.
+
+        Args:
+            message_id: the id returned by search_mail (preferred).
+            query: when no message_id is given, locate the first message matching this
+                description.
+            folder: inbox | sent | archived | trash.
+        Reading marks the message as read.
+        """
+        target = _resolve_message_id(uid, message_id, query, folder)
+        if not target:
+            return "Could not find the email to read."
+        try:
+            message = gmail_service.get_message(uid, target)
+        except Exception as exc:  # noqa: BLE001
+            return f"Failed to read email: {exc}"
+        body = message.body_html or message.body
+        # created_at is UTC; convert to local time so the date shown to the user
+        # matches the web UI (browser-local formatting).
+        local_date = message.created_at.astimezone() if message.created_at else None
+        date_line = f"{local_date:%Y-%m-%d %H:%M}" if local_date else "?"
+        return (
+            f"Subject: {message.subject}\n"
+            f"From: {message.sender}\n"
+            f"To: {', '.join(message.recipients)}\n"
+            f"Date: {date_line}\n\n"
+            f"{body}"
         )
-    except Exception as exc:  # noqa: BLE001
-        return f"Search failed: {exc}"
-    if not messages:
-        return "No matching messages found."
-    lines = "\n".join(_fmt_message(message) for message in messages)
-    return f"Found {total} message(s):\n{lines}"
 
+    @tool
+    def delete_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> str:
+        """Move an email to trash.
 
-@tool
-def read_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> str:
-    """Read the full content of one email.
+        Args:
+            message_id: the id returned by search_mail (preferred).
+            query: when no message_id is given, locate the first message matching this
+                description.
+            folder: inbox | sent | archived | trash | spam.
+        """
+        target = _resolve_message_id(uid, message_id, query, folder)
+        if not target:
+            return "Could not find the email to delete."
+        if _is_recently_trashed(uid, target):
+            return "That email was already deleted moments ago (moved to trash); skipping duplicate deletion."
+        try:
+            deleted = gmail_service.trash_message(uid, target)
+        except Exception as exc:  # noqa: BLE001
+            return f"Failed to delete email: {exc}"
+        _mark_trashed(uid, target)
+        return f"Deleted email '{deleted.subject}' (moved to trash)."
 
-    Args:
-        message_id: the id returned by search_mail (preferred).
-        query: when no message_id is given, locate the first message matching this
-            description.
-        folder: inbox | sent | archived | trash.
-    Reading marks the message as read.
-    """
-    target = _resolve_message_id(message_id, query, folder)
-    if not target:
-        return "Could not find the email to read."
-    try:
-        message = gmail_service.get_message(target)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to read email: {exc}"
-    body = message.body_html or message.body
-    # created_at is UTC; convert to local time so the date shown to the user
-    # matches the web UI (browser-local formatting).
-    local_date = message.created_at.astimezone() if message.created_at else None
-    date_line = f"{local_date:%Y-%m-%d %H:%M}" if local_date else "?"
-    return (
-        f"Subject: {message.subject}\n"
-        f"From: {message.sender}\n"
-        f"To: {', '.join(message.recipients)}\n"
-        f"Date: {date_line}\n\n"
-        f"{body}"
-    )
+    @tool
+    def delete_mail_batch(
+        query: str = "",
+        folder: str = "inbox",
+        unread: bool | None = None,
+        starred: bool | None = None,
+        after: str = "",
+        before: str = "",
+        max_results: int = 50,
+    ) -> str:
+        """Move ALL matching emails to trash in one call.
 
+        Use this when the user wants to delete many emails at once (e.g. all spam,
+        everything from a sender, or everything before a date) instead of calling
+        delete_mail repeatedly.
 
-@tool
-def delete_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> str:
-    """Move an email to trash.
+        Args:
+            query: Gmail search terms (subject, sender, words). Empty means all
+                messages in the folder.
+            folder: inbox | sent | archived | trash | spam.
+            unread: filter to unread (True) or read (False) messages.
+            starred: filter to starred (True) or unstarred (False) messages.
+            after: only messages received on or after this date (ISO YYYY-MM-DD,
+                inclusive of that day).
+            before: only messages received before this date (ISO YYYY-MM-DD,
+                exclusive of that day).
+            max_results: maximum number of messages to delete (max 200).
+        """
+        size = max(1, min(int(max_results), 200))
+        try:
+            messages, _total, _has_next = gmail_service.list_messages(
+                uid,
+                _safe_folder(folder),
+                q=query,
+                unread=unread,
+                starred=starred,
+                after=after or None,
+                before=before or None,
+                page=0,
+                size=size,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"Search failed: {exc}"
+        if not messages:
+            return "No matching emails found to delete."
+        ids = [message.id for message in messages]
+        fresh_ids = [
+            message_id for message_id in ids
+            if not _is_recently_trashed(uid, message_id)
+        ]
+        skipped = len(ids) - len(fresh_ids)
+        if not fresh_ids:
+            return "All matching emails were already deleted moments ago; nothing to do."
+        try:
+            done = gmail_service.trash_messages(uid, fresh_ids)
+        except Exception as exc:  # noqa: BLE001
+            return f"Failed to delete emails: {exc}"
+        for message_id in fresh_ids:
+            _mark_trashed(uid, message_id)
+        suffix = f" ({skipped} already deleted skipped)" if skipped else ""
+        return f"Moved {done} email(s) to trash ({', '.join(message.subject for message in messages[:3])}...){suffix}"
 
-    Args:
-        message_id: the id returned by search_mail (preferred).
-        query: when no message_id is given, locate the first message matching this
-            description.
-        folder: inbox | sent | archived | trash | spam.
-    """
-    target = _resolve_message_id(message_id, query, folder)
-    if not target:
-        return "Could not find the email to delete."
-    if _is_recently_trashed(target):
-        return "That email was already deleted moments ago (moved to trash); skipping duplicate deletion."
-    try:
-        deleted = gmail_service.trash_message(target)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to delete email: {exc}"
-    _mark_trashed(target)
-    return f"Deleted email '{deleted.subject}' (moved to trash)."
+    @tool
+    def star_mail(
+        message_id: str = "",
+        query: str = "",
+        folder: str = "inbox",
+        starred: bool = True,
+    ) -> str:
+        """Star or unstar an email.
 
+        Args:
+            message_id: the id returned by search_mail (preferred).
+            query: when no message_id is given, locate the first message matching this
+                description.
+            folder: inbox | sent | archived | trash.
+            starred: True to star, False to unstar.
+        """
+        target = _resolve_message_id(uid, message_id, query, folder)
+        if not target:
+            return "Could not find the email to star."
+        try:
+            updated = gmail_service.update_message(uid, target, starred=starred)
+        except Exception as exc:  # noqa: BLE001
+            return f"Failed to update email: {exc}"
+        label = "starred" if starred else "unstarred"
+        return f"Starred status of '{updated.subject}': {label}."
 
-@tool
-def delete_mail_batch(
-    query: str = "",
-    folder: str = "inbox",
-    unread: bool | None = None,
-    starred: bool | None = None,
-    after: str = "",
-    before: str = "",
-    max_results: int = 50,
-) -> str:
-    """Move ALL matching emails to trash in one call.
+    @tool
+    def archive_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> str:
+        """Remove an email from the inbox (archive it).
 
-    Use this when the user wants to delete many emails at once (e.g. all spam,
-    everything from a sender, or everything before a date) instead of calling
-    delete_mail repeatedly.
+        Args:
+            message_id: the id returned by search_mail (preferred).
+            query: when no message_id is given, locate the first message matching this
+                description.
+            folder: inbox | sent | archived | trash.
+        """
+        target = _resolve_message_id(uid, message_id, query, folder)
+        if not target:
+            return "Could not find the email to archive."
+        try:
+            archived = gmail_service.archive_message(uid, target)
+        except Exception as exc:  # noqa: BLE001
+            return f"Failed to archive email: {exc}"
+        return f"Archived email '{archived.subject}'."
 
-    Args:
-        query: Gmail search terms (subject, sender, words). Empty means all
-            messages in the folder.
-        folder: inbox | sent | archived | trash | spam.
-        unread: filter to unread (True) or read (False) messages.
-        starred: filter to starred (True) or unstarred (False) messages.
-        after: only messages received on or after this date (ISO YYYY-MM-DD,
-            inclusive of that day).
-        before: only messages received before this date (ISO YYYY-MM-DD,
-            exclusive of that day).
-        max_results: maximum number of messages to delete (max 200).
-    """
-    size = max(1, min(int(max_results), 200))
-    try:
-        messages, _total, _has_next = gmail_service.list_messages(
-            _safe_folder(folder),
-            q=query,
-            unread=unread,
-            starred=starred,
-            after=after or None,
-            before=before or None,
-            page=0,
-            size=size,
+    @tool
+    def send_mail(recipients: list[str], subject: str, body: str) -> str:
+        """Send a new email.
+
+        Args:
+            recipients: list of recipient email addresses.
+            subject: email subject.
+            body: email body text.
+        """
+        try:
+            request = SendMailRequest(recipients=recipients, subject=subject, body=body)
+        except Exception as exc:  # noqa: BLE001 - validation error -> ask the user
+            return f"Invalid email request: {exc}"
+        try:
+            sent = gmail_service.send_message(uid, request)
+        except Exception as exc:  # noqa: BLE001
+            return f"Failed to send email: {exc}"
+        return (
+            f"Sent email '{sent.subject}' to {', '.join(sent.recipients)} "
+            f"(message id: {sent.id})."
         )
-    except Exception as exc:  # noqa: BLE001
-        return f"Search failed: {exc}"
-    if not messages:
-        return "No matching emails found to delete."
-    ids = [message.id for message in messages]
-    fresh_ids = [message_id for message_id in ids if not _is_recently_trashed(message_id)]
-    skipped = len(ids) - len(fresh_ids)
-    if not fresh_ids:
-        return "All matching emails were already deleted moments ago; nothing to do."
-    try:
-        done = gmail_service.trash_messages(fresh_ids)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to delete emails: {exc}"
-    for message_id in fresh_ids:
-        _mark_trashed(message_id)
-    suffix = f" ({skipped} already deleted skipped)" if skipped else ""
-    return f"Moved {done} email(s) to trash ({', '.join(message.subject for message in messages[:3])}...){suffix}"
 
-
-@tool
-def star_mail(
-    message_id: str = "",
-    query: str = "",
-    folder: str = "inbox",
-    starred: bool = True,
-) -> str:
-    """Star or unstar an email.
-
-    Args:
-        message_id: the id returned by search_mail (preferred).
-        query: when no message_id is given, locate the first message matching this
-            description.
-        folder: inbox | sent | archived | trash.
-        starred: True to star, False to unstar.
-    """
-    target = _resolve_message_id(message_id, query, folder)
-    if not target:
-        return "Could not find the email to star."
-    try:
-        updated = gmail_service.update_message(target, starred=starred)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to update email: {exc}"
-    label = "starred" if starred else "unstarred"
-    return f"Starred status of '{updated.subject}': {label}."
-
-
-@tool
-def archive_mail(message_id: str = "", query: str = "", folder: str = "inbox") -> str:
-    """Remove an email from the inbox (archive it).
-
-    Args:
-        message_id: the id returned by search_mail (preferred).
-        query: when no message_id is given, locate the first message matching this
-            description.
-        folder: inbox | sent | archived | trash.
-    """
-    target = _resolve_message_id(message_id, query, folder)
-    if not target:
-        return "Could not find the email to archive."
-    try:
-        archived = gmail_service.archive_message(target)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to archive email: {exc}"
-    return f"Archived email '{archived.subject}'."
-
-
-@tool
-def send_mail(recipients: list[str], subject: str, body: str) -> str:
-    """Send a new email.
-
-    Args:
-        recipients: list of recipient email addresses.
-        subject: email subject.
-        body: email body text.
-    """
-    try:
-        request = SendMailRequest(recipients=recipients, subject=subject, body=body)
-    except Exception as exc:  # noqa: BLE001 - validation error -> ask the user
-        return f"Invalid email request: {exc}"
-    try:
-        sent = gmail_service.send_message(request)
-    except Exception as exc:  # noqa: BLE001
-        return f"Failed to send email: {exc}"
-    return (
-        f"Sent email '{sent.subject}' to {', '.join(sent.recipients)} "
-        f"(message id: {sent.id})."
-    )
-
-
-MAIL_TOOLS = [search_mail, read_mail, delete_mail, delete_mail_batch, star_mail, archive_mail, send_mail]
+    return [search_mail, read_mail, delete_mail, delete_mail_batch, star_mail, archive_mail, send_mail]
 
 
 def _thread_id(session_id: str) -> str:
@@ -406,7 +421,7 @@ def _llm() -> ChatOpenAI:
     )
 
 
-_agent_cache: dict[tuple[str, str, str], Any] = {}
+_agent_cache: dict[tuple[str, str, str, str], Any] = {}
 
 
 def is_configured() -> bool:
@@ -418,12 +433,13 @@ def _today_stamp() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d (%A)")
 
 
-def build_agent() -> Any:
-    """Build (and cache) the LangChain agent.
+def build_agent(user_id: str) -> Any:
+    """Build (and cache) the LangChain agent for ``user_id``.
 
     The system prompt embeds the current date so the model can resolve relative
     dates ("昨天", "last week") into concrete after/before values. The cache is
-    keyed by date so a long-running process picks up a new date at midnight.
+    keyed by (model, base url, date, user) so a long-running process picks up a
+    new date at midnight and each user gets tools bound to their own mailbox.
 
     Raises:
         RuntimeError: when no LLM API key is configured in the environment.
@@ -434,12 +450,12 @@ def build_agent() -> Any:
             "in the repository .env file."
         )
     today = _today_stamp()
-    key = (config.MAIL_LLM_MODEL, config.MAIL_LLM_BASE_URL, today)
+    key = (config.MAIL_LLM_MODEL, config.MAIL_LLM_BASE_URL, today, user_id)
     if key not in _agent_cache:
-        logger.info("building mail agent: model=%s base=%s date=%s", *key)
+        logger.info("building mail agent: model=%s base=%s date=%s user=%s", *key)
         _agent_cache[key] = create_react_agent(
             _llm(),
-            MAIL_TOOLS,
+            make_tools(user_id),
             prompt=SystemMessage(content=SYSTEM_PROMPT.format(today=today)),
             checkpointer=InMemorySaver(),
         )
@@ -461,13 +477,15 @@ def _actions_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
     return actions
 
 
-async def run_chat(message: str, session_id: str) -> dict[str, Any]:
-    """Run one chat turn against the mail agent and return the structured result.
+async def run_chat(message: str, session_id: str, user_id: str) -> dict[str, Any]:
+    """Run one chat turn against the mail agent for ``user_id``.
 
-    The session id is reused as the LangGraph thread id so multi-turn follow-ups
-    ("再找一封", "那封考试邮件") keep their context.
+    The agent and its tools are bound to ``user_id`` so every Gmail operation
+    uses that user's own credentials. The session id is reused as the LangGraph
+    thread id so multi-turn follow-ups ("再找一封", "那封考试邮件") keep their
+    context (thread ids are already user-scoped by the caller).
     """
-    agent = build_agent()
+    agent = build_agent(user_id)
     thread = _thread_id(session_id)
     if not thread:
         import uuid

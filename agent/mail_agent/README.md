@@ -2,8 +2,13 @@
 
 Gmail-backed REST service for the web mail module. Messages are fetched and
 operated on directly through the Gmail API using OAuth2, and every message is
-automatically tagged with an ML-predicted category (`campus`, `career`,
-`finance` or `other`).
+automatically tagged with a category (`campus`, `career`, `finance` or
+`other`) — classified by the LLM first, with the trained ML model as fallback.
+
+**Each CampusLink user binds their own Gmail account**: the caller identity is
+resolved from the `Authorization` header (user JWT `sub` = email for the web
+path, or an internal MCP-gateway token for the chat path) and every mail /
+calendar operation runs against that user's own credentials.
 
 ## Layout
 
@@ -11,11 +16,13 @@ automatically tagged with an ML-predicted category (`campus`, `career`,
 agent/mail_agent/
 ├── mail_agent/                    # FastAPI service package
 │   ├── main.py                    # REST routes (/api/mail/**)
-│   ├── agent.py                   # LangChain agent + 6 tools
-│   ├── gmail_service.py           # Gmail API operations -> MailMessage
+│   ├── auth.py                    # Identity resolution (user JWT + internal token)
+│   ├── agent.py                   # LangChain agent + 7 tools (per-user bound)
+│   ├── gmail_service.py           # Per-user Gmail API operations -> MailMessage
 │   ├── models.py                  # Pydantic models + MailCategory enum
-│   ├── classifier.py              # ML classifier wrapper (lazy load + cache)
-│   └── config.py                  # OAuth client / token path / env config
+│   ├── classifier.py              # Classification: LLM first, ML fallback (lazy + cache)
+│   └── config.py                  # OAuth client / token dir / env config
+├── gmail_tokens/                  # Per-user Gmail OAuth tokens (<sha256(user_id)>.json)
 ├── ml/                            # Trained email classifier
 │   ├── email_classifier.py
 │   └── models/email_classifier.joblib
@@ -74,16 +81,18 @@ curl http://localhost:5000/health
 * **宿主机端口必须保持 5000**：Google Cloud Console 注册的回调
   `http://localhost:5000/callback` 要求浏览器从宿主机访问该端口进入容器，
   因此 `ports` 映射固定为 `5000:5000`，不能改成别的宿主端口。
-* **数据持久化**：`token.json`（Gmail OAuth 刷新令牌）与 `calendar.db`
-  （SQLite 日历库）在镜像内默认落到 `/data`（`GMAIL_TOKEN_PATH` /
+* **数据持久化**：每个用户的 Gmail OAuth token（`gmail_tokens/`，`GMAIL_TOKEN_DIR`）
+  与 `calendar.db`（SQLite 日历库）在镜像内默认落到 `/data`（`GMAIL_TOKEN_DIR` /
   `MAIL_CALENDAR_DB`），compose 用命名卷 `mail_data:/data` 持久化，
   容器重建/升级不丢失授权与日历数据。本地开发仍落在 `agent/mail_agent/`。
 * **Gmail 凭据 / LLM 配置**：从仓库根 `.env` 读取（`env_file`），
   或直接在 compose 的 `environment` 覆盖（`GMAIL_CLIENT_ID`、
   `GMAIL_CLIENT_SECRET`、`GMAIL_REDIRECT_URI`、`MAIL_LLM_API_KEY` 等）。
+* **身份密钥**：`JWT_SECRET` 必须与后端 Java 一致（用户 JWT 验签）；聊天/MCP
+  通道经 `MAIL_INTERNAL_SECRET`（回退 `AGENT_SHARED_SECRET`）代签内部令牌。
 * **非 root 运行**：镜像内以 `app` 用户运行；`/data` 属主为 `app`，
   命名卷会自动继承该属主。若改用 bind mount，请确保目录权限可写。
-* 健康检查：`GET /health`（`gmail_connected` / `agent_configured`）。
+* 健康检查：`GET /health`（`gmail_connected` = 是否有用户已绑定 / `agent_configured`）。
 
 ### 构建 / 推送镜像（CI 已接入）
 
@@ -94,14 +103,15 @@ docker build -t campuslink-mail-agent agent/mail_agent
 # 中 mail-service 引用该镜像。
 ```
 
-## One-time Gmail authorization
+## Per-user Gmail authorization
 
 1. The Google OAuth web client is preconfigured in `mail_agent/config.py`
    (override via `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REDIRECT_URI`
    env vars). `http://localhost:5000/callback` **must** be listed as an
    Authorized redirect URI in the Google Cloud Console.
 2. Start the service (port 5000).
-3. As any authenticated CampusLink user, call:
+3. Each user authorises **their own** Gmail account. As an authenticated
+   CampusLink user, call:
 
    ```bash
    curl -H "Authorization: Bearer <jwt>" http://localhost:5000/api/mail/oauth/url
@@ -109,17 +119,30 @@ docker build -t campuslink-mail-agent agent/mail_agent
 
    ...or click **Connect Gmail** in the web Mail page. Open the returned
    `auth_url`, grant Gmail access. Google redirects to
-   `http://localhost:5000/callback`, which exchanges the code and persists a
-   refresh token to `token.json`.
-4. The mailbox is now served from `/api/mail/messages`.
+   `http://localhost:5000/callback`, which exchanges the code and stores a
+   refresh token for **that user** (keyed by their identity) under
+   `gmail_tokens/`.
+4. The user's mailbox is now served from `/api/mail/messages`. Other users are
+   not affected and see `409 GMAIL_NOT_CONNECTED` with their own `auth_url`
+   until they authorize.
 
-To re-authorize or switch accounts: delete `token.json` (or call
-`POST /api/mail/oauth/disconnect`) and repeat.
+The identity is verified with the CampusLink user JWT (HS256, `JWT_SECRET` must
+match the Java backend's `JWT_SECRET`; `sub` = email). The web frontend already
+sends this JWT as `Authorization: Bearer <jwt>`.
+
+The chat / MCP path cannot carry the user JWT (it never leaves the chat
+backend), so `mail-agent-mcp` mints a short-lived **internal token** (HS256,
+`MAIL_INTERNAL_SECRET` or `AGENT_SHARED_SECRET`, `aud=mail-service`, 30s TTL)
+with the delegation token's `sub` (numeric user id) and forwards that to this
+service; mail operations then use that user's own (chat-path) Gmail binding.
+
+To re-authorize or switch accounts: call `POST /api/mail/oauth/disconnect`
+(removes **only your own** token) and repeat.
 
 ## Email classification
 
 Every message returned by the service is automatically tagged with one of four
-categories predicted by the trained model in `agent/mail_agent/ml`:
+categories:
 
 | Category | Meaning                                    |
 |----------|--------------------------------------------|
@@ -132,13 +155,23 @@ The tag is exposed as the `category` field on each `MailMessage` and rendered
 as a colored chip in the web Mail page (list and detail view); the MCP mail
 gateway also shows it in chat summaries.
 
+Classification is **LLM-first with ML fallback**:
+
+1. the LLM (DeepSeek, configured via `MAIL_LLM_*` / `DEEPSEEK_*`) classifies
+   each page of messages in a single call (batches of up to 50);
+2. messages the LLM does not answer (missing entry, invalid category, call
+   failure) fall back to the trained ML model in `agent/mail_agent/ml`;
+3. anything still unclassified falls back to `other`.
+
 Classification is best-effort:
 
-* the model is loaded lazily once per process and predictions are cached per
-  message id for a bounded window;
-* if the model is missing or a single message cannot be classified, the
-  service keeps working and that message falls back to `other`;
-* the model path can be overridden with the `MAIL_CLASSIFIER_MODEL` env var
+* the LLM/model are used lazily and predictions are cached per message id for a
+  bounded window, so repeated page loads cost nothing;
+* if the LLM and the model are both unavailable, the service keeps working and
+  every message falls back to `other`;
+* the strategy can be pinned with `MAIL_CLASSIFIER_MODE` (`auto` = LLM first,
+  ML fallback, default; `llm` = LLM only; `ml` = ML only);
+* the ML model path can be overridden with the `MAIL_CLASSIFIER_MODEL` env var
   (default: `ml/models/email_classifier.joblib`).
 
 ## Mail agent (LangChain)
@@ -147,14 +180,15 @@ The service exposes a natural-language mail agent built with LangChain
 (`create_react_agent`). It runs an OpenAI-compatible chat model (DeepSeek by
 default) and can call the following tools against the connected Gmail account:
 
-| Tool            | Description                                    |
-|-----------------|------------------------------------------------|
-| `search_mail`   | Search / list messages                         |
-| `read_mail`     | Read the full body (marks the message read)    |
-| `delete_mail`   | Move a message to trash                        |
-| `star_mail`     | Star / unstar a message                        |
-| `archive_mail`  | Remove a message from the inbox                |
-| `send_mail`     | Compose and send a new message                 |
+| Tool               | Description                                    |
+|--------------------|------------------------------------------------|
+| `search_mail`      | Search / list messages                         |
+| `read_mail`        | Read the full body (marks the message read)    |
+| `delete_mail`      | Move a message to trash                        |
+| `delete_mail_batch`| Move ALL matching messages to trash            |
+| `star_mail`        | Star / unstar a message                        |
+| `archive_mail`     | Remove a message from the inbox                |
+| `send_mail`        | Compose and send a new message                 |
 
 Every mutation tool accepts either an explicit `message_id` (returned by
 `search_mail`) or a natural-language `query` that resolves to the first
@@ -169,6 +203,7 @@ Model configuration comes from the repository root `.env`:
 | `MAIL_LLM_BASE_URL`     | falls back to `DEEPSEEK_BASE_URL` (api.deepseek.com)|
 | `MAIL_LLM_MODEL`        | falls back to `DEEPSEEK_MODEL` (deepseek-v4-flash)  |
 | `MAIL_AGENT_MAX_TOKENS` | 2000                                                |
+| `MAIL_CLASSIFIER_MODE`  | `auto` (LLM first, ML fallback); `llm` / `ml` to pin |
 
 Chat endpoint (same `Authorization: Bearer <jwt>` contract as the rest of the
 service):

@@ -80,6 +80,7 @@ public class LostFoundAdminService {
                 reportRepository.countByReportType(ReportType.LOST),
                 reportRepository.countByReportType(ReportType.FOUND),
                 claimRepository.countByStatus(ClaimStatus.SUBMITTED),
+                claimRepository.countByStatus(ClaimStatus.APPROVED) + claimRepository.countByStatus(ClaimStatus.REJECTED),
                 reportRepository.countByAdminHiddenTrue());
     }
 

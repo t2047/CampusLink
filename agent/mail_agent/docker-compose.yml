@@ -9,11 +9,16 @@
 # 说明：
 #   * 宿主机 5000 端口必须保持 5000 —— Google Cloud Console 注册的回调
 #     http://localhost:5000/callback 要求浏览器从宿主机访问该端口进入容器。
-#   * Gmail OAuth 令牌（token.json）与日历库（calendar.db）持久化在命名卷
-#     mail_data（容器内 /data），容器重建/升级不丢失授权与日历数据。
+#   * GMAIL_REDIRECT_URI / MAIL_FRONTEND_URL 留空时，服务按请求的
+#     Host / X-Forwarded-Proto 自动推导（生产域名 https://<域名>/callback）。
+#   * 每个用户的 Gmail OAuth 令牌（gmail_tokens/，GMAIL_TOKEN_DIR）与日历库
+#     （calendar.db）持久化在命名卷 mail_data（容器内 /data），容器重建/升级
+#     不丢失授权与日历数据。
 #   * 凭据与 LLM 配置读取仓库根 .env（GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET /
 #     MAIL_LLM_API_KEY / MAIL_LLM_BASE_URL / MAIL_LLM_MODEL 等），
 #     也可用 environment 直接覆盖。
+#   * JWT_SECRET 必须与后端 Java 一致（用户 JWT 验签）；聊天通道经
+#     MAIL_INTERNAL_SECRET（回退 AGENT_SHARED_SECRET）代签内部令牌。
 
 services:
   mail-service:
@@ -26,10 +31,10 @@ services:
     env_file:
       - ../../.env
     environment:
-      - GMAIL_TOKEN_PATH=/data/token.json
+      - GMAIL_TOKEN_DIR=/data/gmail_tokens
       - MAIL_CALENDAR_DB=/data/calendar.db
-      - GMAIL_REDIRECT_URI=${GMAIL_REDIRECT_URI:-http://localhost:5000/callback}
-      - MAIL_FRONTEND_URL=${MAIL_FRONTEND_URL:-http://localhost:5173}
+      - GMAIL_REDIRECT_URI=${GMAIL_REDIRECT_URI:-}
+      - MAIL_FRONTEND_URL=${MAIL_FRONTEND_URL:-}
     volumes:
       - mail_data:/data
     restart: unless-stopped

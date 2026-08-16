@@ -13,6 +13,7 @@ import com.app.campusagent.lostfound.dto.LostFoundImageResponse;
 import com.app.campusagent.lostfound.dto.LostFoundReportResponse;
 import com.app.campusagent.lostfound.dto.PageResponse;
 import com.app.campusagent.lostfound.dto.UpdateLostFoundReportRequest;
+import com.app.campusagent.lostfound.colour.ColourNormalizer;
 import com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse;
 import com.app.campusagent.lostfound.embedding.LostFoundEmbeddingClient;
 import com.app.campusagent.lostfound.embedding.StoredEmbedding;
@@ -214,14 +215,34 @@ public class LostFoundReportService {
             LocalDate dateFrom,
             LocalDate dateTo,
             ReportStatus status,
+            String owner,
             Pageable pageable,
             User currentUser) {
+        boolean mine = resolveOwnerFilter(owner);
         Specification<LostFoundReport> specification = specification(
-                reportType, keyword, category, colour, location, dateFrom, dateTo, status);
+                reportType, keyword, category, colour, location, dateFrom, dateTo, status,
+                mine, currentUser);
 
         Page<LostFoundReportResponse> result = reportRepository.findAll(specification, pageable)
                 .map(report -> toResponse(report, currentUser));
         return PageResponse.from(result);
+    }
+
+    /**
+     * 解析 owner 查询参数：仅接受 null 或缺省为公开搜索、{@code me} 表示只看自己的报告。
+     * 非法值返回 422（个人中心需求 §9.2 / §11.1）。
+     */
+    private boolean resolveOwnerFilter(String owner) {
+        if (owner == null || owner.isBlank()) {
+            return false;
+        }
+        if (!"me".equals(owner)) {
+            throw new LostFoundApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "INVALID_OWNER_FILTER",
+                    "owner must be 'me' when provided");
+        }
+        return true;
     }
 
     @Transactional(readOnly = true)
@@ -500,6 +521,30 @@ public class LostFoundReportService {
             LocalDate dateFrom,
             LocalDate dateTo,
             ReportStatus status) {
+        return specification(
+                reportType, keyword, category, colour, location, dateFrom, dateTo, status,
+                false, null);
+    }
+
+    /**
+     * 公开搜索与 owner 模式共用的查询条件：
+     * <ul>
+     *   <li>owner 模式（mine=true）按当前用户过滤 createdBy，并豁免 adminHidden
+     *       （用户能看到自己发布的报告，含被管理员下架的，见个人中心需求 §9.2）；</li>
+     *   <li>公开搜索保持 {@code adminHidden = false} 过滤不变。</li>
+     * </ul>
+     */
+    private Specification<LostFoundReport> specification(
+            ReportType reportType,
+            String keyword,
+            ItemCategory category,
+            String colour,
+            String location,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            ReportStatus status,
+            boolean mine,
+            User currentUser) {
         if (dateFrom != null && dateTo != null && dateFrom.isAfter(dateTo)) {
             throw new LostFoundApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
@@ -508,7 +553,11 @@ public class LostFoundReportService {
         }
         return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(builder.isFalse(root.get("adminHidden")));
+            if (mine) {
+                predicates.add(builder.equal(root.get("createdBy").get("id"), currentUser.getId()));
+            } else {
+                predicates.add(builder.isFalse(root.get("adminHidden")));
+            }
             if (reportType != null) {
                 predicates.add(builder.equal(root.get("reportType"), reportType));
             }
@@ -525,7 +574,16 @@ public class LostFoundReportService {
                         builder.like(builder.lower(root.get("description")), pattern)));
             }
             if (StringUtils.hasText(colour)) {
-                predicates.add(builder.like(builder.lower(root.get("colour")), likePattern(colour)));
+                // P0：颜色跨语言/同义词不一致 — 命中 canonical 表时扩展为同义表面形式
+                // 的 OR（white 能命中数据库里的 白色/ivory/cream），否则回退原始 LIKE。
+                List<String> expandedColours = ColourNormalizer.expand(colour);
+                if (expandedColours.isEmpty()) {
+                    predicates.add(builder.like(builder.lower(root.get("colour")), likePattern(colour)));
+                } else {
+                    predicates.add(builder.or(expandedColours.stream()
+                            .map(synonym -> builder.like(builder.lower(root.get("colour")), likePattern(synonym)))
+                            .toArray(Predicate[]::new)));
+                }
             }
             if (StringUtils.hasText(location)) {
                 predicates.add(builder.like(builder.lower(root.get("location")), likePattern(location)));
@@ -559,6 +617,7 @@ public class LostFoundReportService {
                 report.getStatus(),
                 images,
                 report.getCreatedBy().getId().equals(currentUser.getId()),
+                report.isAdminHidden(),
                 report.getCreatedAt(),
                 report.getUpdatedAt());
     }

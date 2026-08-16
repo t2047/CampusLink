@@ -1,18 +1,27 @@
-"""CampusLink Mail Service - Gmail-backed.
+"""CampusLink Mail Service - Gmail-backed, per-user Gmail authorization.
 
 Exposes ``/api/mail/**`` used by the web frontend (and the MCP mail gateway),
 backed by the real Gmail API via OAuth2. The shapes match the previous in-memory
 mock so existing clients keep working.
 
+**Per-user Gmail binding**: each CampusLink user authorises their own Gmail
+account. The caller identity is resolved from the ``Authorization`` header
+(``auth.resolve_identity``: user JWT ``sub`` = email for the web path, or an
+internal MCP-gateway token for the chat path) and every mail/calendar
+operation runs against that user's own credentials.
+
 OAuth flow:
-  * ``GET  /api/mail/oauth/url``     -> Google consent URL.
-  * ``GET  /api/mail/oauth/status``  -> {connected, email}.
+  * ``GET  /api/mail/oauth/url``     -> Google consent URL bound to the user.
+  * ``GET  /api/mail/oauth/status``  -> {connected, email} for the user.
   * ``GET  /callback``               -> Google redirect target; exchanges the
-                                       code for a token and redirects to the app.
+                                       code for a token and stores it for the
+                                       user recovered from ``state``.
+  * ``POST /api/mail/oauth/disconnect`` -> remove only *this* user's token.
 """
 
 from __future__ import annotations
 
+import contextvars
 import math
 import re
 import uuid
@@ -22,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from . import agent, calendar_service, config, gmail_service
+from . import agent, auth, calendar_service, config, gmail_service
 from .calendar_service import (
     CalendarEvent,
     CalendarEventRequest,
@@ -57,8 +66,10 @@ def _unauthorized(message: str) -> MailApiError:
     return MailApiError(status.HTTP_401_UNAUTHORIZED, "UNAUTHORIZED", message)
 
 
-def _not_connected() -> MailApiError:
-    url, _state = gmail_service.authorization_url()
+def _not_connected(user_id: str) -> MailApiError:
+    url, _state = gmail_service.authorization_url(
+        user_id, redirect_uri=_effective_redirect_uri()
+    )
     return MailApiError(
         status.HTTP_409_CONFLICT,
         "GMAIL_NOT_CONNECTED",
@@ -69,7 +80,16 @@ def _not_connected() -> MailApiError:
 
 def _map_gmail_error(exc: Exception) -> MailApiError:
     if isinstance(exc, gmail_service.GmailNotConnectedError):
-        return _not_connected()
+        # 409 需要知道是哪个用户未授权，才能给出绑定该用户的 auth_url；
+        # GmailNotConnectedError 携带发起请求的 user_id。
+        user_id = getattr(exc, "user_id", None)
+        if user_id:
+            return _not_connected(user_id)
+        return MailApiError(
+            status.HTTP_409_CONFLICT,
+            "GMAIL_NOT_CONNECTED",
+            "Gmail is not connected. Authorize it first.",
+        )
     upstream_status = getattr(exc, "status_code", None)
     reason = getattr(exc, "reason", None) or str(exc)
     if isinstance(upstream_status, int) and upstream_status:
@@ -82,12 +102,52 @@ def _map_gmail_error(exc: Exception) -> MailApiError:
 
 
 def _user_from_auth(authorization: str | None) -> str:
-    """Validate the bearer shape (mirrors the previous mock contract)."""
-    if not authorization:
-        raise _unauthorized("Missing Authorization")
-    if not authorization.lower().startswith("bearer "):
-        raise _unauthorized("Invalid Authorization")
-    return authorization[len("bearer "):].strip()
+    """Verify the caller identity and return its user id (email for web users).
+
+    Raises:
+        MailApiError: 401 when the bearer is missing, malformed, or fails
+        verification against both the user-JWT key and the internal key.
+    """
+    try:
+        return auth.resolve_identity(authorization)
+    except auth.UnauthorizedError as exc:
+        raise _unauthorized(str(exc)) from exc
+
+
+# Bound to every request so helpers can derive the public origin (scheme + host)
+# even from error paths (e.g. the 409 auth_url) that carry no Request parameter.
+_current_request: contextvars.ContextVar[Request | None] = contextvars.ContextVar(
+    "mail_current_request", default=None
+)
+
+
+def _public_base_url(request: Request | None = None) -> str:
+    """The public origin the client used to reach this service.
+
+    Behind the nginx reverse proxy the service sees container-internal host/port,
+    so trust ``X-Forwarded-Proto`` + ``Host`` (both set by nginx); when accessed
+    directly (local dev, port 5000) fall back to the raw URL parts.
+    """
+    req = request or _current_request.get()
+    if req is None:
+        return "http://localhost:5000"
+    scheme = (
+        req.headers.get("x-forwarded-proto") or req.url.scheme
+    ).split(",")[0].strip()
+    host = req.headers.get("host") or req.url.netloc
+    return f"{scheme}://{host}"
+
+
+def _effective_redirect_uri(request: Request | None = None) -> str:
+    """Redirect URI the Google OAuth flow should use.
+
+    An explicitly configured ``GMAIL_REDIRECT_URI`` (local dev) wins; otherwise
+    derive ``https://<public-host>/callback`` from the request so any deployment
+    domain matches the URI registered in the Google Cloud Console.
+    """
+    if config.GMAIL_REDIRECT_URI:
+        return config.GMAIL_REDIRECT_URI
+    return f"{_public_base_url(request)}/callback"
 
 
 app = FastAPI(title="CampusLink Mail Service", version="0.2.0")
@@ -98,6 +158,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _bind_current_request(request: Request, call_next):
+    token = _current_request.set(request)
+    try:
+        return await call_next(request)
+    finally:
+        _current_request.reset(token)
 
 
 @app.exception_handler(MailApiError)
@@ -112,34 +181,43 @@ async def health() -> dict[str, object]:
     return {
         "status": "ok",
         "service": "mail-agent",
-        "gmail_connected": gmail_service.is_connected(),
+        # Gmail 现在是按用户授权的：健康检查报告有多少用户已绑定 Gmail。
+        "gmail_connected": gmail_service.connected_user_count() > 0,
+        "gmail_users_connected": gmail_service.connected_user_count(),
         "agent_configured": agent.is_configured(),
         "agent_model": config.MAIL_LLM_MODEL,
     }
 
 
 # ---------------------------------------------------------------------------
-# OAuth2
+# OAuth2 (per user)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/mail/oauth/url", response_model=OAuthUrlResponse)
 async def oauth_url(authorization: str | None = Header(default=None)) -> OAuthUrlResponse:
-    _user_from_auth(authorization)
-    url, _state = gmail_service.authorization_url()
-    return OAuthUrlResponse(auth_url=url, connected=gmail_service.is_connected())
+    user_id = _user_from_auth(authorization)
+    url, _state = gmail_service.authorization_url(
+        user_id, redirect_uri=_effective_redirect_uri()
+    )
+    return OAuthUrlResponse(auth_url=url, connected=gmail_service.is_connected(user_id))
 
 
 @app.get("/api/mail/oauth/status", response_model=OAuthStatusResponse)
 async def oauth_status(authorization: str | None = Header(default=None)) -> OAuthStatusResponse:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     return OAuthStatusResponse(
-        connected=gmail_service.is_connected(),
-        email=gmail_service.connected_email(),
+        connected=gmail_service.is_connected(user_id),
+        email=gmail_service.connected_email(user_id),
     )
 
 
 @app.get("/callback")
-async def oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+async def oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
     if error:
         raise MailApiError(status.HTTP_400_BAD_REQUEST, "OAUTH_ERROR", error)
     if not code or not state:
@@ -154,13 +232,14 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
         raise MailApiError(status.HTTP_400_BAD_REQUEST, "OAUTH_ERROR", str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
-    return RedirectResponse(url=f"{config.FRONTEND_URL}/mail?connected=1")
+    frontend = config.FRONTEND_URL or _public_base_url(request)
+    return RedirectResponse(url=f"{frontend}/mail?connected=1")
 
 
 @app.post("/api/mail/oauth/disconnect", response_model=OAuthStatusResponse)
 async def oauth_disconnect(authorization: str | None = Header(default=None)) -> OAuthStatusResponse:
-    _user_from_auth(authorization)
-    gmail_service.reset_connection()
+    user_id = _user_from_auth(authorization)
+    gmail_service.reset_connection(user_id)
     return OAuthStatusResponse(connected=False, email=None)
 
 
@@ -178,10 +257,10 @@ def list_messages(
     page: int = Query(default=0, ge=0),
     size: int = Query(default=20, ge=1, le=gmail_service.MAX_PAGE_SIZE),
 ) -> PageResponse:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
         messages, total, has_next = gmail_service.list_messages(
-            folder, q, unread, starred, page, size
+            user_id, folder, q, unread, starred, page, size
         )
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
@@ -202,9 +281,9 @@ def get_message(
     message_id: str,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
-        return gmail_service.get_message(message_id, mark_read=True)
+        return gmail_service.get_message(user_id, message_id, mark_read=True)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
 
@@ -218,9 +297,9 @@ def send_message(
     request: SendMailRequest,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
-        return gmail_service.send_message(request)
+        return gmail_service.send_message(user_id, request)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
 
@@ -231,10 +310,10 @@ def update_message(
     request: UpdateMailRequest,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
         return gmail_service.update_message(
-            message_id, request.read, request.starred, request.folder
+            user_id, message_id, request.read, request.starred, request.folder
         )
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
@@ -245,9 +324,9 @@ def archive_message(
     message_id: str,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
-        return gmail_service.archive_message(message_id)
+        return gmail_service.archive_message(user_id, message_id)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
 
@@ -257,9 +336,9 @@ def delete_message(
     message_id: str,
     authorization: str | None = Header(default=None),
 ) -> MailMessage:
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
-        return gmail_service.trash_message(message_id)
+        return gmail_service.trash_message(user_id, message_id)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
 
@@ -351,9 +430,9 @@ def extract_calendar_schedules(
     Nothing is written yet: the frontend shows these to the user, who confirms
     the selection, then calls ``POST /api/mail/calendar/import``.
     """
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     try:
-        messages = gmail_service.list_recent_messages(days, max_results)
+        messages = gmail_service.list_recent_messages(user_id, days, max_results)
     except Exception as exc:  # noqa: BLE001
         raise _map_gmail_error(exc) from exc
     events, mode = calendar_service.extract_schedules_with_mode(messages)
@@ -408,10 +487,11 @@ async def agent_chat(
     """Run a natural-language request through the LangChain mail agent.
 
     The agent can search, read, delete, star, archive and send mail via the
-    Gmail-backed ``gmail_service``. Reuse the same ``session_id`` to keep
-    multi-turn conversation context.
+    Gmail-backed ``gmail_service``, always acting on the *requesting user's own*
+    mailbox. Reuse the same ``session_id`` to keep multi-turn conversation
+    context.
     """
-    _user_from_auth(authorization)
+    user_id = _user_from_auth(authorization)
     if not agent.is_configured():
         raise MailApiError(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -420,7 +500,7 @@ async def agent_chat(
         )
     session_id = _sanitize_session_id(request.session_id) or f"anon-{uuid.uuid4().hex}"
     try:
-        result = await agent.run_chat(request.message, session_id)
+        result = await agent.run_chat(request.message, session_id, user_id)
     except Exception as exc:  # noqa: BLE001
         raise MailApiError(
             status.HTTP_500_INTERNAL_SERVER_ERROR,

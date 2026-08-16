@@ -65,11 +65,79 @@ class LostFoundSearchIntegrationTest {
                 LocalDate.now().minusDays(2),
                 LocalDate.now(),
                 ReportStatus.OPEN,
+                null,
                 PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")),
                 owner);
 
         assertThat(result.totalElements()).isEqualTo(1);
         assertThat(result.content().getFirst().itemName()).isEqualTo("Black Headphones");
+    }
+
+    @Test
+    void colourFilterExpandsToCrossLanguageAndSynonymValues() {
+        User owner = userRepository.save(new User("owner-colour@u.nus.edu", "encoded"));
+        reportRepository.save(report(
+                ReportType.FOUND, "White Cup", ItemCategory.OTHER,
+                "A white ceramic cup.", "白色", "Canteen",
+                LocalDate.now().minusDays(1), owner));
+        reportRepository.save(report(
+                ReportType.FOUND, "Black Wallet", ItemCategory.WALLET_PURSE,
+                "A black leather wallet.", "Black", "Library",
+                LocalDate.now().minusDays(1), owner));
+        reportRepository.flush();
+
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+
+        // white 命中数据库里 colour='白色' 的候选（P0 复现场景）
+        var whiteToChinese = service.search(
+                ReportType.FOUND, null, null, "white", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+        assertThat(whiteToChinese.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("White Cup");
+
+        // 反向：白色 命中 colour='White' 的候选
+        var chineseToEnglish = service.search(
+                ReportType.FOUND, null, null, "白色", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+        assertThat(chineseToEnglish.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("White Cup");
+
+        // 非同色（Black）不命中白色候选
+        var blackSearch = service.search(
+                ReportType.FOUND, null, null, "black", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+        assertThat(blackSearch.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("Black Wallet");
+    }
+
+    @Test
+    void unknownColourFallsBackToSubstringLike() {
+        User owner = userRepository.save(new User("owner-unknown-colour@u.nus.edu", "encoded"));
+        reportRepository.save(report(
+                ReportType.FOUND, "Rainbow Scarf", ItemCategory.CLOTHING,
+                "A colourful scarf.", "multicolour", "Gym",
+                LocalDate.now().minusDays(1), owner));
+        reportRepository.flush();
+
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+
+        // "colour" 未命中 canonical 表 → 回退原始 lower(colour) like '%colour%'
+        var result = service.search(
+                ReportType.FOUND, null, null, "colour", null, null, null,
+                ReportStatus.OPEN, null, PageRequest.of(0, 20), owner);
+
+        assertThat(result.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactly("Rainbow Scarf");
     }
 
     @Test
@@ -145,7 +213,7 @@ class LostFoundSearchIntegrationTest {
                 mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
 
         var search = service.search(
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
                 PageRequest.of(0, 20), owner);
         assertThat(search.content())
                 .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
@@ -160,6 +228,91 @@ class LostFoundSearchIntegrationTest {
     }
 
     @Test
+    void ownerMeReturnsOnlyOwnReportsAndIncludesHiddenOnes() {
+        User owner = userRepository.save(new User("owner-me@u.nus.edu", "encoded"));
+        User other = userRepository.save(new User("other-me@u.nus.edu", "encoded"));
+        LostFoundReport mineLost = report(
+                ReportType.LOST, "My Wallet", ItemCategory.WALLET_PURSE,
+                "A black leather wallet.", "Black", "Central Library",
+                LocalDate.now().minusDays(1), owner);
+        LostFoundReport mineHidden = report(
+                ReportType.LOST, "Hidden Watch", ItemCategory.OTHER,
+                "A silver wrist watch removed by an admin.", "Silver", "Sports Hall",
+                LocalDate.now().minusDays(2), owner);
+        mineHidden.hide();
+        reportRepository.saveAndFlush(mineLost);
+        reportRepository.saveAndFlush(mineHidden);
+        reportRepository.saveAndFlush(report(
+                ReportType.LOST, "Other Phone", ItemCategory.ELECTRONICS,
+                "A phone posted by someone else.", "Black", "Engineering Library",
+                LocalDate.now().minusDays(3), other));
+        reportRepository.flush();
+
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+
+        var result = service.search(
+                ReportType.LOST, null, null, null, null, null, null, null, "me",
+                PageRequest.of(0, 20), owner);
+
+        assertThat(result.content()).hasSize(2);
+        assertThat(result.content())
+                .extracting(com.app.campusagent.lostfound.dto.LostFoundReportResponse::itemName)
+                .containsExactlyInAnyOrder("My Wallet", "Hidden Watch");
+        assertThat(result.content())
+                .filteredOn(r -> r.itemName().equals("Hidden Watch"))
+                .singleElement()
+                .satisfies(r -> assertThat(r.adminHidden()).isTrue());
+    }
+
+    @Test
+    void ownerMeCombinesWithStatusFilter() {
+        User owner = userRepository.save(new User("owner-status@u.nus.edu", "encoded"));
+        LostFoundReport openReport = report(
+                ReportType.LOST, "Open Headphones", ItemCategory.ELECTRONICS,
+                "Open status headphones.", "Black", "Central Library",
+                LocalDate.now().minusDays(1), owner);
+        LostFoundReport closedReport = report(
+                ReportType.LOST, "Closed Umbrella", ItemCategory.UMBRELLA,
+                "A closed status umbrella.", "Blue", "East Gate",
+                LocalDate.now().minusDays(2), owner);
+        closedReport.markClosed();
+        reportRepository.saveAndFlush(openReport);
+        reportRepository.saveAndFlush(closedReport);
+        reportRepository.flush();
+
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+
+        var result = service.search(
+                ReportType.LOST, null, null, null, null, null, null, ReportStatus.CLOSED, "me",
+                PageRequest.of(0, 20), owner);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.content().getFirst().itemName()).isEqualTo("Closed Umbrella");
+    }
+
+    @Test
+    void rejectsInvalidOwnerFilter() {
+        LostFoundReportService service = new LostFoundReportService(
+                reportRepository, mock(ObjectStorageService.class),
+                mock(LostFoundClaimRepository.class), mock(LostFoundNotificationRepository.class),
+                mock(LostFoundAuditService.class), mock(LostFoundImageStagingService.class));
+        User currentUser = new User("reader@u.nus.edu", "encoded");
+
+        assertThatThrownBy(() -> service.search(
+                null, null, null, null, null,
+                null, null, null, "someone",
+                PageRequest.of(0, 20), currentUser))
+                .extracting("code")
+                .isEqualTo("INVALID_OWNER_FILTER");
+    }
+
+    @Test
     void rejectsReversedDateRange() {
         LostFoundReportService service = new LostFoundReportService(
                 reportRepository, mock(ObjectStorageService.class),
@@ -169,7 +322,7 @@ class LostFoundSearchIntegrationTest {
 
         assertThatThrownBy(() -> service.search(
                 null, null, null, null, null,
-                LocalDate.now(), LocalDate.now().minusDays(1), null,
+                LocalDate.now(), LocalDate.now().minusDays(1), null, null,
                 PageRequest.of(0, 20), currentUser))
                 .extracting("code")
                 .isEqualTo("INVALID_DATE_RANGE");

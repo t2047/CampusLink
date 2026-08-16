@@ -42,6 +42,7 @@ const overview = {
   lostReports: 5,
   foundReports: 7,
   submittedClaims: 4,
+  processedClaims: 0,
   hiddenReports: 1,
 }
 
