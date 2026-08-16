@@ -68,6 +68,7 @@ public class LostFoundReportController {
             @RequestParam(required = false) LocalDate dateFrom,
             @RequestParam(required = false) LocalDate dateTo,
             @RequestParam(required = false) ReportStatus status,
+            @RequestParam(required = false) String owner,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt,desc") String sort,
@@ -81,6 +82,7 @@ public class LostFoundReportController {
                 dateFrom,
                 dateTo,
                 status,
+                owner,
                 pageable(page, size, sort),
                 currentUser);
     }

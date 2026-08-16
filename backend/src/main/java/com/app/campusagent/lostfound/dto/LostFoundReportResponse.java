@@ -21,6 +21,7 @@ public record LostFoundReportResponse(
         ReportStatus status,
         List<LostFoundImageResponse> images,
         boolean createdByMe,
+        boolean adminHidden,
         Instant createdAt,
         Instant updatedAt) {
 }

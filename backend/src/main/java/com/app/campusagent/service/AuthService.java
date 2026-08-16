@@ -44,7 +44,7 @@ public class AuthService {
         userRepository.save(user);
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
-        return new AuthResponse(token, user.getEmail(), user.getRole().name());
+        return toAuthResponse(token, user);
     }
 
     /**
@@ -71,7 +71,7 @@ public class AuthService {
         userRepository.save(user);
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
-        return new AuthResponse(token, user.getEmail(), user.getRole().name());
+        return toAuthResponse(token, user);
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -83,7 +83,16 @@ public class AuthService {
         }
 
         String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
-        return new AuthResponse(token, user.getEmail(), user.getRole().name());
+        return toAuthResponse(token, user);
+    }
+
+    private static AuthResponse toAuthResponse(String token, User user) {
+        return new AuthResponse(
+                token,
+                user.getEmail(),
+                user.getRole().name(),
+                user.getNickname(),
+                user.getAvatarUrl());
     }
 
     @Transactional(readOnly = true)

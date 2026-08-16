@@ -36,9 +36,14 @@ public class MinioObjectStorageService implements ObjectStorageService {
 
     @Override
     public StoredObject upload(MultipartFile file) {
+        String extension = extensionFor(file.getContentType());
+        return upload(file, "lost-found/" + UUID.randomUUID() + extension);
+    }
+
+    @Override
+    public StoredObject upload(MultipartFile file, String objectKey) {
         String contentType = file.getContentType();
         String extension = extensionFor(contentType);
-        String objectKey = "lost-found/" + UUID.randomUUID() + extension;
 
         try {
             ensureBucketExists();
