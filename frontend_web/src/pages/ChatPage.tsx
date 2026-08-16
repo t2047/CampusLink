@@ -1081,7 +1081,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
           )}
         </div>
         <p className="mx-auto mt-1.5 w-full max-w-3xl text-center text-[11px] text-slate-400 dark:text-slate-600">
-          AI 生成内容仅供参考 · Campus Link
+          AI-generated content is for reference only · Campus Link
         </p>
       </footer>
     </div>
