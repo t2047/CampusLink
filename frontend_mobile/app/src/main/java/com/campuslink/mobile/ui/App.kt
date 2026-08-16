@@ -28,6 +28,16 @@ import com.campuslink.mobile.ui.facilities.SpaceDetailsScreen
 import com.campuslink.mobile.ui.facilities.SpaceDetailsViewModel
 import com.campuslink.mobile.ui.facilities.SpaceSearchScreen
 import com.campuslink.mobile.ui.facilities.SpaceSearchViewModel
+import com.campuslink.mobile.core.model.ReportType
+import com.campuslink.mobile.ui.lostfound.CreateLostFoundReportScreen
+import com.campuslink.mobile.ui.lostfound.CreateLostFoundReportViewModel
+import com.campuslink.mobile.ui.lostfound.LostFoundBrowseScreen
+import com.campuslink.mobile.ui.lostfound.LostFoundBrowseViewModel
+import com.campuslink.mobile.ui.lostfound.LostFoundClaimsScreen
+import com.campuslink.mobile.ui.lostfound.LostFoundClaimsViewModel
+import com.campuslink.mobile.ui.lostfound.LostFoundDetailsScreen
+import com.campuslink.mobile.ui.lostfound.LostFoundDetailsViewModel
+import com.campuslink.mobile.ui.lostfound.LostFoundHomeScreen
 import kotlinx.coroutines.launch
 
 private sealed interface Screen {
@@ -43,6 +53,11 @@ private sealed interface Screen {
     data class SubmitMaintenance(val preselectedSpaceId: Long? = null) : Screen
     data object MyMaintenance : Screen
     data class MaintenanceDetails(val ticketId: Long) : Screen
+    data object LostFoundHome : Screen
+    data object LostFoundBrowse : Screen
+    data class LostFoundDetails(val reportId: Long, val returnToClaims: Boolean = false) : Screen
+    data class CreateLostFoundReport(val reportType: ReportType) : Screen
+    data object LostFoundClaims : Screen
 }
 
 @Composable
@@ -64,37 +79,28 @@ fun CampusLinkApp(container: AppContainer) {
                 mutableStateOf(Screen.MyMaintenance)
             }
             when (val active = screen) {
-                Screen.Conversations -> {
-                    val list: ConversationListViewModel = viewModel(
-                        key = "conversations-${session!!.email}",
-                        factory = ContainerViewModelFactory { ConversationListViewModel(container, session!!.email) },
-                    )
-                    ConversationListScreen(
-                        viewModel = list,
+                Screen.Conversations ->
+                    ConversationListRoute(
+                        container = container,
+                        email = session!!.email,
                         text = strings(language),
-                        onOpen = { screen = Screen.Chat(it) },
-                        onSettings = { screen = Screen.Settings },
+                        navigate = { screen = it },
                         onServices = {
                             servicesReturnScreen = Screen.Conversations
                             screen = Screen.Services
                         },
                     )
-                }
-                is Screen.Chat -> {
-                    val chat: ChatViewModel = viewModel(
-                        key = "chat-${active.id}",
-                        factory = ContainerViewModelFactory { ChatViewModel(container, active.id) },
-                    )
-                    ChatScreen(
-                        chat,
-                        strings(language),
+                is Screen.Chat ->
+                    ChatRoute(
+                        container = container,
+                        conversationId = active.id,
+                        text = strings(language),
                         onBack = { screen = Screen.Conversations },
                         onServices = {
                             servicesReturnScreen = active
                             screen = Screen.Services
                         },
                     )
-                }
                 Screen.Settings -> SettingsScreen(
                     container = container,
                     text = strings(language),
@@ -103,17 +109,8 @@ fun CampusLinkApp(container: AppContainer) {
                         scope.launch { container.chatRepository.clearForUser(session!!.email) }
                     },
                 )
-                Screen.Services -> ServicesScreen(
-                    onBack = { screen = servicesReturnScreen },
-                    onFacilities = { screen = Screen.FacilitiesHome },
-                )
-                Screen.FacilitiesHome -> FacilitiesHomeScreen(
-                    onBack = { screen = Screen.Services },
-                    onSearchSpaces = { screen = Screen.FacilitiesSearch },
-                    onMyBookings = { screen = Screen.MyBookings },
-                    onReportMaintenance = { screen = Screen.SubmitMaintenance() },
-                    onMyMaintenance = { screen = Screen.MyMaintenance },
-                )
+                Screen.Services -> ServicesRoute(servicesReturnScreen) { screen = it }
+                Screen.FacilitiesHome -> FacilitiesHomeRoute { screen = it }
                 Screen.FacilitiesSearch -> FacilitiesSearchRoute(container) { screen = it }
                 is Screen.SpaceDetails -> SpaceDetailsRoute(container, active.spaceId, { screen = it }) {
                     bookingDetailsReturnScreen = Screen.MyBookings
@@ -142,9 +139,147 @@ fun CampusLinkApp(container: AppContainer) {
                 is Screen.MaintenanceDetails -> MaintenanceDetailsRoute(container, active.ticketId) {
                     screen = maintenanceDetailsReturnScreen
                 }
+                Screen.LostFoundHome -> LostFoundHomeScreen(
+                    onBack = { screen = Screen.Services },
+                    onBrowse = { screen = Screen.LostFoundBrowse },
+                    onCreate = { screen = Screen.CreateLostFoundReport(it) },
+                    onClaims = { screen = Screen.LostFoundClaims },
+                )
+                Screen.LostFoundBrowse -> LostFoundBrowseRoute(container) { screen = it }
+                is Screen.LostFoundDetails -> LostFoundDetailsRoute(container, active.reportId) {
+                    screen = if (active.returnToClaims) Screen.LostFoundClaims else Screen.LostFoundBrowse
+                }
+                is Screen.CreateLostFoundReport -> CreateLostFoundReportRoute(
+                    container = container,
+                    reportType = active.reportType,
+                    onBack = { screen = Screen.LostFoundHome },
+                    onCreated = { screen = Screen.LostFoundDetails(it) },
+                )
+                Screen.LostFoundClaims -> LostFoundClaimsRoute(container) { screen = it }
             }
         }
     }
+}
+
+@Composable
+private fun ConversationListRoute(
+    container: AppContainer,
+    email: String,
+    text: UiStrings,
+    navigate: (Screen) -> Unit,
+    onServices: () -> Unit,
+) {
+    val viewModel: ConversationListViewModel = viewModel(
+        key = "conversations-$email",
+        factory = ContainerViewModelFactory { ConversationListViewModel(container, email) },
+    )
+    ConversationListScreen(
+        viewModel,
+        text,
+        onOpen = { navigate(Screen.Chat(it)) },
+        onSettings = { navigate(Screen.Settings) },
+        onServices = onServices,
+    )
+}
+
+@Composable
+private fun ChatRoute(
+    container: AppContainer,
+    conversationId: String,
+    text: UiStrings,
+    onBack: () -> Unit,
+    onServices: () -> Unit,
+) {
+    val viewModel: ChatViewModel = viewModel(
+        key = "chat-$conversationId",
+        factory = ContainerViewModelFactory { ChatViewModel(container, conversationId) },
+    )
+    ChatScreen(viewModel, text, onBack, onServices)
+}
+
+@Composable
+private fun ServicesRoute(returnScreen: Screen, navigate: (Screen) -> Unit) {
+    ServicesScreen(
+        onBack = { navigate(returnScreen) },
+        onFacilities = { navigate(Screen.FacilitiesHome) },
+        onLostFound = { navigate(Screen.LostFoundHome) },
+    )
+}
+
+@Composable
+private fun FacilitiesHomeRoute(navigate: (Screen) -> Unit) {
+    FacilitiesHomeScreen(
+        onBack = { navigate(Screen.Services) },
+        onSearchSpaces = { navigate(Screen.FacilitiesSearch) },
+        onMyBookings = { navigate(Screen.MyBookings) },
+        onReportMaintenance = { navigate(Screen.SubmitMaintenance()) },
+        onMyMaintenance = { navigate(Screen.MyMaintenance) },
+    )
+}
+
+@Composable
+private fun AuthRoute(container: AppContainer, language: AppLanguage) {
+    val auth: AuthViewModel = viewModel(factory = ContainerViewModelFactory { AuthViewModel(container) })
+    AuthScreen(
+        viewModel = auth,
+        text = strings(language),
+        onToggleLanguage = {
+            container.settings.setLanguage(
+                if (language == AppLanguage.ENGLISH) AppLanguage.CHINESE else AppLanguage.ENGLISH,
+            )
+        },
+    )
+}
+
+@Composable
+private fun LostFoundBrowseRoute(container: AppContainer, navigate: (Screen) -> Unit) {
+    val viewModel: LostFoundBrowseViewModel = viewModel(
+        key = "lost-found-browse",
+        factory = ContainerViewModelFactory { LostFoundBrowseViewModel(container.lostFoundRepository) },
+    )
+    LostFoundBrowseScreen(
+        viewModel = viewModel,
+        onBack = { navigate(Screen.LostFoundHome) },
+        onOpenReport = { navigate(Screen.LostFoundDetails(it)) },
+    )
+}
+
+@Composable
+private fun LostFoundDetailsRoute(container: AppContainer, reportId: Long, onBack: () -> Unit) {
+    val viewModel: LostFoundDetailsViewModel = viewModel(
+        key = "lost-found-details-$reportId",
+        factory = ContainerViewModelFactory { LostFoundDetailsViewModel(reportId, container.lostFoundRepository) },
+    )
+    LostFoundDetailsScreen(viewModel = viewModel, onBack = onBack)
+}
+
+@Composable
+private fun CreateLostFoundReportRoute(
+    container: AppContainer,
+    reportType: ReportType,
+    onBack: () -> Unit,
+    onCreated: (Long) -> Unit,
+) {
+    val viewModel: CreateLostFoundReportViewModel = viewModel(
+        key = "create-lost-found-${reportType.name}",
+        factory = ContainerViewModelFactory {
+            CreateLostFoundReportViewModel(reportType, container.lostFoundRepository)
+        },
+    )
+    CreateLostFoundReportScreen(reportType, viewModel, onBack, onCreated)
+}
+
+@Composable
+private fun LostFoundClaimsRoute(container: AppContainer, navigate: (Screen) -> Unit) {
+    val viewModel: LostFoundClaimsViewModel = viewModel(
+        key = "lost-found-claims",
+        factory = ContainerViewModelFactory { LostFoundClaimsViewModel(container.lostFoundRepository) },
+    )
+    LostFoundClaimsScreen(
+        viewModel = viewModel,
+        onBack = { navigate(Screen.LostFoundHome) },
+        onOpenReport = { navigate(Screen.LostFoundDetails(it, returnToClaims = true)) },
+    )
 }
 
 @Composable
@@ -204,20 +339,6 @@ private fun BookingDetailsRoute(container: AppContainer, bookingId: Long, onBack
         factory = ContainerViewModelFactory { BookingDetailsViewModel(bookingId, container.facilitiesRepository) },
     )
     BookingDetailsScreen(viewModel = viewModel, onBack = onBack)
-}
-
-@Composable
-private fun AuthRoute(container: AppContainer, language: AppLanguage) {
-    val auth: AuthViewModel = viewModel(factory = ContainerViewModelFactory { AuthViewModel(container) })
-    AuthScreen(
-        viewModel = auth,
-        text = strings(language),
-        onToggleLanguage = {
-            container.settings.setLanguage(
-                if (language == AppLanguage.ENGLISH) AppLanguage.CHINESE else AppLanguage.ENGLISH,
-            )
-        },
-    )
 }
 
 @Composable

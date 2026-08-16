@@ -2,9 +2,9 @@
 
 > 组员接手开发前，请先阅读[移动端开发状态与后续路线](DEVELOPMENT_STATUS_cn.md)。
 
-原生 Kotlin / Jetpack Compose 客户端，首版聚焦统一 Core Chat。它直接连接 Spring Boot 的
+原生 Kotlin / Jetpack Compose 客户端，以统一 Core Chat 为基础，并提供 Facilities 与 Lost & Found 原生业务页面。它直接连接 Spring Boot 的
 `/api/chat/stream` 和 `/api/chat/resume`，展示 SSE 流式文本、Agent/Utility 执行步骤、
-Lost & Found 匹配卡片及 HITL 确认。
+Lost & Found 匹配卡片及 HITL 确认。Lost & Found 原生页面支持浏览筛选、详情、发布 LOST/FOUND、多图上传和认领审核流程。
 
 ## 构建变体
 
@@ -52,6 +52,8 @@ export CAMPUSLINK_RELEASE_KEY_PASSWORD='***'
 ## 当前边界
 
 - Chat Core 只接受文字，因此暂不支持图片、文件和语音消息。
-- Lost & Found、Facilities 和 Mail 通过编排层调用，暂不提供各模块的完整原生页面。
+- Facilities 已提供搜索、详情、预约和取消原生页面；维修请求仍待开发。
+- Lost & Found 已提供浏览、详情、发布和 Claims Phase 1；编辑、关闭、删除、通知和 Chat 卡片跳转仍待开发。
+- Mail 仍通过编排层调用，暂不提供完整原生页面。
 - Mail 是否可用取决于云端 Gmail OAuth 配置。
 - 正式签名配置入口已提供；签名文件生成、保管和 Play Store 发布不在首版范围内。

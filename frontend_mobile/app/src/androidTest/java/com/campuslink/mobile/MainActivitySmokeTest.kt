@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.ExperimentalTestApi
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
@@ -12,6 +13,11 @@ import org.junit.Test
 class MainActivitySmokeTest {
     @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+
+    @Before
+    fun clearPersistedSession() {
+        (rule.activity.application as CampusLinkApplication).container.sessionStore.clear()
+    }
 
     @Test
     fun unauthenticatedUserSeesLoginScreen() {
