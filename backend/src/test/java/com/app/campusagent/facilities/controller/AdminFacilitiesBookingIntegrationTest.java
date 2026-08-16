@@ -80,7 +80,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void adminCanQueryBookingsAcrossUsersInDefaultAscendingOrder() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
@@ -106,27 +106,27 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void superAdminCanAccessBookings() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .with(authentication(authFor(superAdmin))))
                 .andExpect(status().isOk());
     }
 
     @Test
     void studentReceivesForbidden() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .with(authentication(authFor(firstStudent))))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void anonymousUserReceivesUnauthorized() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings"))
+        mockMvc.perform(get("/api/admin/facilities/bookings/search"))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void filtersByStatus() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("status", "CANCELLED")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -136,7 +136,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void filtersBySpaceId() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("spaceId", firstSpace.getId().toString())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -146,7 +146,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void filtersByUserId() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("userId", secondStudent.getId().toString())
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -156,7 +156,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void filtersByTrimmedExactUserEmail() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("userEmail", "  " + firstStudent.getEmail() + "  ")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -166,7 +166,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void missingUserEmailReturnsEmptyPage() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("userEmail", "missing@nus.edu.sg")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -178,7 +178,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void filtersByInclusiveStartDateRange() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("startFrom", BASE_TIME.plusHours(1).toString())
                         .param("startTo", BASE_TIME.plusHours(2).toString())
                         .with(authentication(authFor(admin))))
@@ -189,7 +189,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void acceptsIsoDateTimeWithUtcOffsetFromTheFrontend() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("startFrom", "2026-08-15T00:00:00.000Z")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -198,7 +198,7 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void rejectsReversedStartDateRange() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("startFrom", BASE_TIME.plusDays(1).toString())
                         .param("startTo", BASE_TIME.toString())
                         .with(authentication(authFor(admin))))
@@ -207,17 +207,17 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void validatesPageAndSize() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("page", "-1")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isBadRequest());
 
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("size", "101")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isBadRequest());
 
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("page", "1")
                         .param("size", "1")
                         .with(authentication(authFor(admin))))
@@ -229,12 +229,12 @@ class AdminFacilitiesBookingIntegrationTest {
 
     @Test
     void enforcesSortWhitelistAndAcceptsSafeSort() throws Exception {
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("sort", "space.name,asc")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isBadRequest());
 
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("sort", "id,desc")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -246,7 +246,7 @@ class AdminFacilitiesBookingIntegrationTest {
         Booking orphanedBooking = bookingRepository.saveAndFlush(
                 new Booking(Long.MAX_VALUE, firstSpace, BASE_TIME.plusHours(4), BASE_TIME.plusHours(5)));
 
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .param("userId", Long.toString(Long.MAX_VALUE))
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk())
@@ -258,7 +258,7 @@ class AdminFacilitiesBookingIntegrationTest {
     void endpointDoesNotModifyBookings() throws Exception {
         long before = bookingRepository.count();
 
-        mockMvc.perform(get("/api/admin/facilities/bookings")
+        mockMvc.perform(get("/api/admin/facilities/bookings/search")
                         .with(authentication(authFor(admin))))
                 .andExpect(status().isOk());
 
