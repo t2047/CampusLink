@@ -28,6 +28,7 @@ export function MyBookingsPage() {
       <Box>
         <Typography component="h2" variant="h5" fontWeight={700}>My Bookings</Typography>
         <Typography color="text.secondary">View your upcoming and previous campus space bookings.</Typography>
+        {!loading && !error && <Typography variant="body2" color="primary" sx={{ mt: 1 }}>{bookings.length} {bookings.length === 1 ? 'booking' : 'bookings'} total</Typography>}
       </Box>
 
       {error && <Alert severity="error">{error}</Alert>}

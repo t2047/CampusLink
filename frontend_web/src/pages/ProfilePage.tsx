@@ -1,6 +1,8 @@
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate'
+import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import EditIcon from '@mui/icons-material/Edit'
+import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlined'
 import FindInPageIcon from '@mui/icons-material/FindInPage'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import InboxIcon from '@mui/icons-material/Inbox'
@@ -14,6 +16,7 @@ import { Link as RouterLink } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
 import { getMyClaims, searchReports } from '../api/lostFound'
 import { getMyProfile, updateNickname, uploadAvatar } from '../api/users'
+import { facilitiesApi } from '../api/facilities'
 import { displayName } from '../auth/displayName'
 import { useAuth } from '../auth/AuthContext'
 import type { UserProfile } from '../types'
@@ -57,6 +60,8 @@ export function ProfilePage() {
   const [submittedCount, setSubmittedCount] = useState<number | null>(null)
   const [lostCount, setLostCount] = useState<number | null>(null)
   const [foundCount, setFoundCount] = useState<number | null>(null)
+  const [bookingsCount, setBookingsCount] = useState<number | null>(null)
+  const [maintenanceCount, setMaintenanceCount] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [editOpen, setEditOpen] = useState(false)
 
@@ -79,6 +84,12 @@ export function ProfilePage() {
     searchReports({ owner: 'me', reportType: 'FOUND', size: 1 })
       .then((page) => { if (active) setFoundCount(page.totalElements) })
       .catch(() => { if (active) setFoundCount(0) })
+    facilitiesApi.listBookings()
+      .then((bookings) => { if (active) setBookingsCount(bookings.length) })
+      .catch(() => { if (active) setBookingsCount(0) })
+    facilitiesApi.listMaintenanceRequests()
+      .then((requests) => { if (active) setMaintenanceCount(requests.length) })
+      .catch(() => { if (active) setMaintenanceCount(0) })
     return () => { active = false }
   }, [updateProfile])
 
@@ -136,6 +147,18 @@ export function ProfilePage() {
             title="My Found Items"
             subtitle={<CountText value={foundCount} suffix="found-item reports" />}
             to="/lost-found/profile/found"
+          />
+          <ServiceEntry
+            icon={<EventAvailableOutlinedIcon fontSize="large" />}
+            title="My Bookings"
+            subtitle={<CountText value={bookingsCount} suffix="bookings" />}
+            to="/facilities/bookings"
+          />
+          <ServiceEntry
+            icon={<BuildOutlinedIcon fontSize="large" />}
+            title="My Maintenance Requests"
+            subtitle={<CountText value={maintenanceCount} suffix="maintenance requests" />}
+            to="/facilities/maintenance"
           />
         </Stack>
       </Box>

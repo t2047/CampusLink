@@ -27,9 +27,9 @@ export function AppShell() {
             sx={{ flexGrow: 1, fontWeight: 700, textDecoration: 'none', color: '#172554', '&:hover': { opacity: 0.8 } }}
           >CampusLink</Typography>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/lost-found" startIcon={<SearchIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Browse</Button>
-          <Button variant="outlined" color="inherit" component={RouterLink} to="/facilities" startIcon={<MeetingRoomIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Facilities</Button>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/lost-found/new/lost" startIcon={<AddCircleOutlineIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Report</Button>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/claims/mine" startIcon={<InboxIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Claims</Button>
+          <Button variant="outlined" color="inherit" component={RouterLink} to="/facilities" startIcon={<MeetingRoomIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Facilities</Button>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/mail" startIcon={<MailOutlineIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Mail</Button>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/mail/calendar" startIcon={<CalendarMonthIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Calendar</Button>
           <Button

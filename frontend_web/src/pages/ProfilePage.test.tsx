@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TOKEN_KEY, USER_KEY } from '../api/client'
 import { getMyClaims, searchReports } from '../api/lostFound'
 import { getMyProfile, updateNickname } from '../api/users'
+import { facilitiesApi } from '../api/facilities'
 import { AuthProvider } from '../auth/AuthContext'
 import type { UserProfile } from '../types'
 import { ProfilePage } from './ProfilePage'
 
 vi.mock('../api/lostFound', () => ({ getMyClaims: vi.fn(), searchReports: vi.fn() }))
 vi.mock('../api/users', () => ({ getMyProfile: vi.fn(), updateNickname: vi.fn(), uploadAvatar: vi.fn() }))
+vi.mock('../api/facilities', () => ({ facilitiesApi: { listBookings: vi.fn(), listMaintenanceRequests: vi.fn() } }))
 
 const baseProfile: UserProfile = { email: 'student@example.edu', role: 'STUDENT', nickname: 'Alex', avatarUrl: null }
 
@@ -37,6 +39,8 @@ beforeEach(() => {
   vi.mocked(getMyProfile).mockResolvedValue(baseProfile)
   vi.mocked(getMyClaims).mockResolvedValue([])
   vi.mocked(searchReports).mockResolvedValue(emptyPage())
+  vi.mocked(facilitiesApi.listBookings).mockResolvedValue([])
+  vi.mocked(facilitiesApi.listMaintenanceRequests).mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -67,6 +71,10 @@ describe('ProfilePage', () => {
     expect(screen.getByRole('link', { name: /My Claims/ })).toHaveAttribute('href', '/claims/mine')
     expect(screen.getByRole('link', { name: /My Lost Items/ })).toHaveAttribute('href', '/lost-found/profile/lost')
     expect(screen.getByRole('link', { name: /My Found Items/ })).toHaveAttribute('href', '/lost-found/profile/found')
+    expect(screen.getByRole('link', { name: /My Bookings/ })).toHaveAttribute('href', '/facilities/bookings')
+    expect(screen.getByRole('link', { name: /My Maintenance Requests/ })).toHaveAttribute('href', '/facilities/maintenance')
+    expect(await screen.findByText('0 bookings')).toBeInTheDocument()
+    expect(screen.getByText('0 maintenance requests')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /FAQ/ })).toHaveAttribute('href', '/lost-found/faq')
   })
 
