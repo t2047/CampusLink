@@ -21,8 +21,7 @@ class NavigationReliabilityTest {
 
         pressBackAndAssert(Screen.FacilitiesSearch)
         pressBackAndAssert(Screen.FacilitiesHome)
-        pressBackAndAssert(Screen.Services)
-        pressBackAndAssert(Screen.Conversations)
+        pressBackAndAssert(Screen.Home)
 
         assertFalse(rule.activity.isFinishing)
     }
@@ -75,6 +74,24 @@ class NavigationReliabilityTest {
 
         recreateAndAssert(Screen.Chat("conversation-7"))
         pressBackAndAssert(Screen.Conversations)
+    }
+
+    @Test
+    fun agentCoreAndProfileRootsReturnHome() {
+        navigateTo(NavigationState(screen = Screen.Conversations))
+        pressBackAndAssert(Screen.Home)
+
+        navigateTo(NavigationState(screen = Screen.Profile))
+        pressBackAndAssert(Screen.Home)
+    }
+
+    @Test
+    fun selectedBottomTabSurvivesRecreation() {
+        navigateTo(NavigationState(screen = Screen.Profile))
+        recreateAndAssert(Screen.Profile)
+
+        navigateTo(NavigationState(screen = Screen.Conversations))
+        recreateAndAssert(Screen.Conversations)
     }
 
     private fun navigateTo(state: NavigationState) {
