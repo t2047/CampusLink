@@ -18,6 +18,12 @@ import com.campuslink.mobile.ui.facilities.BookingDetailsScreen
 import com.campuslink.mobile.ui.facilities.BookingDetailsViewModel
 import com.campuslink.mobile.ui.facilities.MyBookingsScreen
 import com.campuslink.mobile.ui.facilities.MyBookingsViewModel
+import com.campuslink.mobile.ui.facilities.SubmitMaintenanceScreen
+import com.campuslink.mobile.ui.facilities.SubmitMaintenanceViewModel
+import com.campuslink.mobile.ui.facilities.MyMaintenanceScreen
+import com.campuslink.mobile.ui.facilities.MyMaintenanceViewModel
+import com.campuslink.mobile.ui.facilities.MaintenanceDetailsScreen
+import com.campuslink.mobile.ui.facilities.MaintenanceDetailsViewModel
 import com.campuslink.mobile.ui.facilities.SpaceDetailsScreen
 import com.campuslink.mobile.ui.facilities.SpaceDetailsViewModel
 import com.campuslink.mobile.ui.facilities.SpaceSearchScreen
@@ -34,6 +40,9 @@ private sealed interface Screen {
     data class SpaceDetails(val spaceId: Long) : Screen
     data object MyBookings : Screen
     data class BookingDetails(val bookingId: Long) : Screen
+    data class SubmitMaintenance(val preselectedSpaceId: Long? = null) : Screen
+    data object MyMaintenance : Screen
+    data class MaintenanceDetails(val ticketId: Long) : Screen
 }
 
 @Composable
@@ -46,20 +55,14 @@ fun CampusLinkApp(container: AppContainer) {
 
     MaterialTheme(colorScheme = palette) {
         if (session == null) {
-            val auth: AuthViewModel = viewModel(factory = ContainerViewModelFactory { AuthViewModel(container) })
-            AuthScreen(
-                viewModel = auth,
-                text = strings(language),
-                onToggleLanguage = {
-                    container.settings.setLanguage(
-                        if (language == AppLanguage.ENGLISH) AppLanguage.CHINESE else AppLanguage.ENGLISH,
-                    )
-                },
-            )
+            AuthRoute(container, language)
         } else {
             var screen: Screen by remember(session!!.email) { mutableStateOf(Screen.Conversations) }
             var servicesReturnScreen: Screen by remember(session!!.email) { mutableStateOf(Screen.Conversations) }
             var bookingDetailsReturnScreen: Screen by remember(session!!.email) { mutableStateOf(Screen.MyBookings) }
+            var maintenanceDetailsReturnScreen: Screen by remember(session!!.email) {
+                mutableStateOf(Screen.MyMaintenance)
+            }
             when (val active = screen) {
                 Screen.Conversations -> {
                     val list: ConversationListViewModel = viewModel(
@@ -108,6 +111,8 @@ fun CampusLinkApp(container: AppContainer) {
                     onBack = { screen = Screen.Services },
                     onSearchSpaces = { screen = Screen.FacilitiesSearch },
                     onMyBookings = { screen = Screen.MyBookings },
+                    onReportMaintenance = { screen = Screen.SubmitMaintenance() },
+                    onMyMaintenance = { screen = Screen.MyMaintenance },
                 )
                 Screen.FacilitiesSearch -> FacilitiesSearchRoute(container) { screen = it }
                 is Screen.SpaceDetails -> SpaceDetailsRoute(container, active.spaceId, { screen = it }) {
@@ -120,6 +125,22 @@ fun CampusLinkApp(container: AppContainer) {
                 }
                 is Screen.BookingDetails -> BookingDetailsRoute(container, active.bookingId) {
                     screen = bookingDetailsReturnScreen
+                }
+                is Screen.SubmitMaintenance -> SubmitMaintenanceRoute(
+                    container,
+                    active.preselectedSpaceId,
+                    navigate = { screen = it },
+                    onViewRequest = {
+                        maintenanceDetailsReturnScreen = active
+                        screen = Screen.MaintenanceDetails(it)
+                    },
+                )
+                Screen.MyMaintenance -> MyMaintenanceRoute(container, navigate = { screen = it }) {
+                    maintenanceDetailsReturnScreen = Screen.MyMaintenance
+                    screen = Screen.MaintenanceDetails(it)
+                }
+                is Screen.MaintenanceDetails -> MaintenanceDetailsRoute(container, active.ticketId) {
+                    screen = maintenanceDetailsReturnScreen
                 }
             }
         }
@@ -155,6 +176,7 @@ private fun SpaceDetailsRoute(
         onBack = { navigate(Screen.FacilitiesSearch) },
         onViewBooking = onViewBooking,
         onMyBookings = { navigate(Screen.MyBookings) },
+        onReportIssue = { navigate(Screen.SubmitMaintenance(it)) },
     )
 }
 
@@ -182,4 +204,69 @@ private fun BookingDetailsRoute(container: AppContainer, bookingId: Long, onBack
         factory = ContainerViewModelFactory { BookingDetailsViewModel(bookingId, container.facilitiesRepository) },
     )
     BookingDetailsScreen(viewModel = viewModel, onBack = onBack)
+}
+
+@Composable
+private fun AuthRoute(container: AppContainer, language: AppLanguage) {
+    val auth: AuthViewModel = viewModel(factory = ContainerViewModelFactory { AuthViewModel(container) })
+    AuthScreen(
+        viewModel = auth,
+        text = strings(language),
+        onToggleLanguage = {
+            container.settings.setLanguage(
+                if (language == AppLanguage.ENGLISH) AppLanguage.CHINESE else AppLanguage.ENGLISH,
+            )
+        },
+    )
+}
+
+@Composable
+private fun SubmitMaintenanceRoute(
+    container: AppContainer,
+    preselectedSpaceId: Long?,
+    navigate: (Screen) -> Unit,
+    onViewRequest: (Long) -> Unit,
+) {
+    val viewModel: SubmitMaintenanceViewModel = viewModel(
+        key = "submit-maintenance-${preselectedSpaceId ?: "none"}",
+        factory = ContainerViewModelFactory {
+            SubmitMaintenanceViewModel(container.facilitiesRepository, preselectedSpaceId)
+        },
+    )
+    SubmitMaintenanceScreen(
+        viewModel = viewModel,
+        onBack = {
+            navigate(preselectedSpaceId?.let(Screen::SpaceDetails) ?: Screen.FacilitiesHome)
+        },
+        onViewRequest = onViewRequest,
+        onMyMaintenance = { navigate(Screen.MyMaintenance) },
+    )
+}
+
+@Composable
+private fun MyMaintenanceRoute(
+    container: AppContainer,
+    navigate: (Screen) -> Unit,
+    onOpenRequest: (Long) -> Unit,
+) {
+    val viewModel: MyMaintenanceViewModel = viewModel(
+        key = "my-maintenance",
+        factory = ContainerViewModelFactory { MyMaintenanceViewModel(container.facilitiesRepository) },
+    )
+    MyMaintenanceScreen(
+        viewModel = viewModel,
+        onBack = { navigate(Screen.FacilitiesHome) },
+        onOpenRequest = onOpenRequest,
+    )
+}
+
+@Composable
+private fun MaintenanceDetailsRoute(container: AppContainer, ticketId: Long, onBack: () -> Unit) {
+    val viewModel: MaintenanceDetailsViewModel = viewModel(
+        key = "maintenance-details-$ticketId",
+        factory = ContainerViewModelFactory {
+            MaintenanceDetailsViewModel(ticketId, container.facilitiesRepository)
+        },
+    )
+    MaintenanceDetailsScreen(viewModel = viewModel, onBack = onBack)
 }

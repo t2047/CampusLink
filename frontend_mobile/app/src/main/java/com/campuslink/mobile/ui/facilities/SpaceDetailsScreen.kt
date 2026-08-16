@@ -46,6 +46,7 @@ fun SpaceDetailsScreen(
     onBack: () -> Unit,
     onViewBooking: (Long) -> Unit,
     onMyBookings: () -> Unit,
+    onReportIssue: (Long) -> Unit = {},
 ) {
     val details by viewModel.detailsState.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
@@ -82,6 +83,10 @@ fun SpaceDetailsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 SpaceDetails(current.space)
+                OutlinedButton(
+                    onClick = { onReportIssue(current.space.spaceId) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Report a facility issue") }
                 HorizontalDivider()
                 AvailabilitySection(
                     selection = selection,

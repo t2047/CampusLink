@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -21,7 +23,13 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FacilitiesHomeScreen(onBack: () -> Unit, onSearchSpaces: () -> Unit, onMyBookings: () -> Unit) {
+fun FacilitiesHomeScreen(
+    onBack: () -> Unit,
+    onSearchSpaces: () -> Unit,
+    onMyBookings: () -> Unit,
+    onReportMaintenance: () -> Unit,
+    onMyMaintenance: () -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -50,6 +58,18 @@ fun FacilitiesHomeScreen(onBack: () -> Unit, onSearchSpaces: () -> Unit, onMyBoo
                 supportingContent = { Text("View and manage your space bookings") },
                 leadingContent = { Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onMyBookings),
+            )
+            ListItem(
+                headlineContent = { Text("Report Maintenance") },
+                supportingContent = { Text("Report an issue with a campus space") },
+                leadingContent = { Icon(Icons.Default.Build, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onReportMaintenance),
+            )
+            ListItem(
+                headlineContent = { Text("My Maintenance Requests") },
+                supportingContent = { Text("Track the status of submitted requests") },
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.Assignment, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onMyMaintenance),
             )
         }
     }
