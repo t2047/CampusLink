@@ -10,9 +10,10 @@ Extraction strategy (``MAIL_CALENDAR_EXTRACT_MODE``, default ``auto``):
   * ``llm``  - LLM only (an LLM failure surfaces as an error);
   * ``rules`` - always use the built-in rule parser.
 
-Events are scoped to the caller's identity: the bearer token string returned by
-``main._user_from_auth`` is used as the ``user_id``, mirroring how the rest of
-the mail service treats users.
+Events are scoped to the caller's identity: the verified user id returned by
+``main._user_from_auth`` (email for web/mobile user JWTs, or the ``sub`` of an
+internal MCP-gateway token for the chat path) is used as the ``user_id``,
+mirroring how the rest of the mail service treats users.
 
 Endpoints are wired in ``main.py`` under ``/api/mail/calendar/**``.
 """
