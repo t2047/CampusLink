@@ -23,18 +23,21 @@ function fireResult(rec: FakeRecognition, transcripts: { final: boolean; text: s
   } as never)
 }
 
+// Window → Record<string, unknown> 需先经 unknown（TS2352），统一用 win
+const win = window as unknown as Record<string, unknown>
+
 describe('useSpeechRecognition', () => {
-  const original = (window as Record<string, unknown>).SpeechRecognition
+  const original = win.SpeechRecognition
 
   afterEach(() => {
     vi.restoreAllMocks()
-    if (original === undefined) delete (window as Record<string, unknown>).SpeechRecognition
-    else (window as Record<string, unknown>).SpeechRecognition = original
+    if (original === undefined) delete win.SpeechRecognition
+    else win.SpeechRecognition = original
   })
 
   beforeEach(() => {
-    delete (window as Record<string, unknown>).SpeechRecognition
-    delete (window as Record<string, unknown>).webkitSpeechRecognition
+    delete win.SpeechRecognition
+    delete win.webkitSpeechRecognition
   })
 
   it('supported=false when SpeechRecognition is unavailable', () => {
@@ -48,7 +51,7 @@ describe('useSpeechRecognition', () => {
 
   it('start sets listening and passes lang/options to the recognition instance', () => {
     const ctor = vi.fn(function () { return new FakeRecognition() })
-    ;(window as Record<string, unknown>).SpeechRecognition = ctor as never
+    ;win.SpeechRecognition = ctor as never
 
     const onFinal = vi.fn()
     const { result } = renderHook(() => useSpeechRecognition('zh-CN'))
@@ -67,7 +70,7 @@ describe('useSpeechRecognition', () => {
 
   it('commits final transcript via onFinal on end', () => {
     const ctor = vi.fn(function () { return new FakeRecognition() })
-    ;(window as Record<string, unknown>).SpeechRecognition = ctor as never
+    ;win.SpeechRecognition = ctor as never
 
     const onFinal = vi.fn()
     const { result } = renderHook(() => useSpeechRecognition('en-US'))
@@ -88,7 +91,7 @@ describe('useSpeechRecognition', () => {
 
   it('stop delegates to recognition.stop()', () => {
     const ctor = vi.fn(function () { return new FakeRecognition() })
-    ;(window as Record<string, unknown>).SpeechRecognition = ctor as never
+    ;win.SpeechRecognition = ctor as never
 
     const { result } = renderHook(() => useSpeechRecognition('en-US'))
     act(() => result.current.start({ onFinal: vi.fn() }))
@@ -100,7 +103,7 @@ describe('useSpeechRecognition', () => {
 
   it('unmount aborts the active recognition', () => {
     const ctor = vi.fn(function () { return new FakeRecognition() })
-    ;(window as Record<string, unknown>).SpeechRecognition = ctor as never
+    ;win.SpeechRecognition = ctor as never
 
     const { result, unmount } = renderHook(() => useSpeechRecognition('en-US'))
     act(() => result.current.start({ onFinal: vi.fn() }))
