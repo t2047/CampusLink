@@ -131,7 +131,7 @@ describe('admin Facilities API', () => {
 
     const result = await searchAdminFacilityBookings(params)
 
-    expect(get).toHaveBeenCalledWith('/admin/facilities/bookings', { params })
+    expect(get).toHaveBeenCalledWith('/admin/facilities/bookings/search', { params })
     expect(result).toBe(bookingsPage)
   })
 
@@ -153,7 +153,7 @@ describe('admin Facilities API', () => {
     })
 
     const call = get.mock.calls.at(-1)
-    expect(call?.[0]).toBe('/admin/facilities/maintenance')
+    expect(call?.[0]).toBe('/admin/facilities/maintenance/search')
     const params = call?.[1]?.params as URLSearchParams
     expect(params.getAll('status')).toEqual(['SUBMITTED', 'IN_PROGRESS'])
     expect(params.get('priority')).toBe('HIGH')
@@ -174,7 +174,7 @@ describe('admin Facilities API', () => {
 
     const result = await getAdminFacilityMaintenance(41)
 
-    expect(get).toHaveBeenCalledWith('/admin/facilities/maintenance/41')
+    expect(get).toHaveBeenCalledWith('/admin/facilities/maintenance/search/41')
     expect(result).toBe(maintenanceFixture)
   })
 
