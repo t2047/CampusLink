@@ -2,17 +2,17 @@
 
 > 最后更新：2026-08-16
 >
-> 当前基线分支：`main`
+> 当前开发分支：`feature/mobile-lost-found`（基于 `main` 提交 `0034868`）
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat 第一版及 Facilities Mobile Phase 1、Phase 2 已完成
+> 当前阶段：Core Chat 第一版、Facilities Mobile Phase 1/2 已完成；Lost & Found Native Phase 1 已完成开发和本地自动化验证
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
 ## 1. 当前目标与范围
 
-当前移动端优先实现统一 Core Chat，而不是把 Web 端所有业务页面逐一改写成原生 Android 页面。
+移动端以统一 Core Chat 为基础，并按模块逐步补充高频业务的原生页面。Facilities 与 Lost & Found 使用同一套认证、网络和 Compose 导航基础，但各自保持独立的 API、Repository、ViewModel 和 UI 目录，方便多人并行开发。
 
 当前调用链：
 
@@ -25,7 +25,7 @@ Android Core Chat
 → Mail / Facilities / Lost & Found / Utility Agents
 ```
 
-当前版本只支持文字消息。图片、文件、语音、推送通知和各业务模块的完整原生页面不在第一阶段范围内。
+Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从设备选择图片。聊天图片/文件/语音、推送通知以及 Mail 完整原生页面仍未实现。
 
 ## 2. 已完成的工程基础
 
@@ -202,7 +202,7 @@ message
 - 分项分数；
 - 匹配模式。
 
-首版不会从卡片跳转到原生 Lost & Found 详情页，因为该业务页面尚未开发。候选数据由 Chat Core 和 Lost & Found Agent 提供，移动端不在本地重复执行匹配算法。
+Lost & Found 原生详情页已经开发，但 Chat 内匹配卡片尚未接入原生详情导航。候选数据仍由 Chat Core 和 Lost & Found Agent 提供，移动端不在本地重复执行匹配算法。
 
 ### 3.8 Markdown 与界面
 
@@ -251,6 +251,67 @@ message
 - 重叠时段在真实运行中由 Availability preflight 返回 `BOOKING_CONFLICT` 并阻止 Book 按钮；测试创建的预约最终均已取消。
 
 Maintenance 原生页面尚未实现。Facilities 原生确认属于 REST 页面误操作防护，不替代 Central Agent 的 HITL `/api/chat/resume`。
+
+### 3.11 Lost & Found Native Phase 1
+
+状态：**已完成开发和本地自动化验证，等待真实后端/设备联调与 PR 合并**
+
+已完成的用户流程：
+
+```text
+Services
+→ Lost & Found 首页
+→ 浏览 LOST / FOUND OPEN 记录
+→ 按关键词、类别、颜色、地点和日期筛选
+→ 查看记录详情和图片
+→ 发布 LOST / FOUND（0–5 张图片）
+→ 对 OPEN FOUND 提交认领证明
+→ 查看 My Claims / Received Claims
+→ FOUND 发布者批准或拒绝认领
+```
+
+页面与导航：
+
+- Services 新增 Lost & Found 入口，不改变 Facilities 的入口和返回路径；
+- 新增 Lost & Found 首页、浏览筛选、详情、发布和 Claims 页面；
+- Browse 默认显示 `FOUND + OPEN`，可切换 LOST，支持重置、错误重试和每页 20 条的继续加载；
+- 详情页展示名称、类型、类别、描述、颜色、地点、日期、时间和多图；
+- 只有 `FOUND + OPEN + 非本人发布` 的记录显示 Submit Claim；
+- Claims 页面支持 My Claims 与 Received 两种视图；
+- 收到的 `SUBMITTED` 申请可以批准或拒绝，批准前明确提示会把报告改为 `CLAIMED` 并拒绝其他待处理申请。
+
+API 与分层：
+
+- `GET /api/lost-found/reports`：浏览、组合筛选与分页；
+- `GET /api/lost-found/reports/{reportId}`：详情；
+- `POST /api/lost-found/reports`：multipart 发布报告；
+- `POST /api/lost-found/reports/{reportId}/claims`：提交认领；
+- `GET /api/lost-found/claims/mine`：我提交的认领；
+- `GET /api/lost-found/claims/received`：我收到的认领；
+- `POST /api/lost-found/claims/{claimId}/approve|reject`：审核认领；
+- 新增 `LostFoundApi`、`LostFoundRepository`、Lost & Found ViewModel 与 Compose UI 目录；
+- 复用共享 `AuthenticatedHttpClient`，仅增加 multipart RequestBody 支持；JWT、401 清理和后端结构化错误映射保持统一；
+- Facility API、Repository、ViewModel 和页面没有被 Lost & Found 代码依赖或改写。
+
+输入与安全校验：
+
+- 物品名 2–100 字符、描述 10–2000 字符、地点必填；
+- 日期使用 `YYYY-MM-DD` 且不能晚于当前日期；
+- 颜色最多 50 字符，时间描述最多 100 字符；
+- 图片最多 5 张，仅接受 JPEG、PNG、WebP，每张最大 10 MB；
+- 认领证明 10–1000 字符，审核意见最多 500 字符；
+- 移动端校验用于即时反馈，权限、重复认领、状态冲突和最终图片规则仍由 Spring Backend 决定；
+- 不把 JWT、认领证明、图片字节或完整请求 Header写入日志或本地数据库。
+
+本阶段明确未实现：
+
+- 编辑、关闭、删除本人报告；
+- “我的发布”独立列表和通知中心；
+- Chat 匹配卡片点击跳转原生详情；
+- 原生 Agent 自然语言输入与多模态匹配入口；
+- 上传进度百分比、图片压缩/裁剪、相机拍摄、断点续传；
+- 日期选择器、本地化文案和无障碍专项优化；
+- 真机和云端 HTTPS 环境的完整人工验收。
 
 ## 4. 本地数据与安全
 
@@ -347,7 +408,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 34 个通过 |
+| JVM 单元测试 | 47 个通过 |
 | 模拟器测试 | 5 个通过 |
 | `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
@@ -355,7 +416,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API 序列化，以及空间、可用性、预约创建、列表排序、详情和取消状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、创建确认和取消确认。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，以及两类业务 ViewModel 的成功、空结果、校验、错误和审核状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、创建确认和取消确认；Lost & Found Compose 设备测试仍待补充。
 
 ### 6.3 CI/CD
 
@@ -408,6 +469,7 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 - 状态：**已完成**
 - 已完成：Core Chat 第一版、HTTPS/CD、Facilities Phase 1 和 Phase 2 已通过独立提交或 PR 进入 `main`
+- 开发中：Lost & Found Native Phase 1 已在 `feature/mobile-lost-found` 完成开发和本地验证，尚未合并
 - 持续要求：后续移动端功能仍需通过功能分支和 PR；所有 GitHub 检查通过后再合并，提交、PR 标题、描述和协作备注使用中文。
 
 ### P1：Core Chat 第二阶段
@@ -454,9 +516,9 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.9 Lost & Found 原生页面
 
-- 状态：**未开始**
-- 可复用：现有认证、OkHttp、图片加载、数据模型和后端 API。
-- 需要开发：浏览筛选、发布 LOST/FOUND、多图上传、详情、认领申请、收到的认领和审核状态。
+- 状态：**Phase 1 已完成开发和本地自动化验证；真机/云端联调、UI 测试和 PR 合并待完成**
+- 已完成：Services 入口、浏览筛选、分页、详情、多图发布 LOST/FOUND、认领申请、My Claims、Received Claims 和批准/拒绝。
+- 下一阶段：我的发布、编辑/关闭/删除、通知、Chat 卡片跳转、日期选择器、图片压缩/拍摄、完整中英文文案、Compose UI 测试与真机验收。
 
 #### 7.10 Facilities 原生页面
 

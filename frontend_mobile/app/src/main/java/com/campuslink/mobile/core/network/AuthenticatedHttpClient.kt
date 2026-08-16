@@ -10,6 +10,7 @@ import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -25,9 +26,12 @@ class AuthenticatedHttpClient(
     private val onUnauthorized: () -> Unit,
 ) {
     suspend fun get(path: String, query: List<Pair<String, String>> = emptyList()): String =
-        execute("GET", path, query, null)
+        execute("GET", path, query, jsonBody = null)
 
     suspend fun post(path: String, jsonBody: String): String = execute("POST", path, emptyList(), jsonBody)
+
+    suspend fun postMultipart(path: String, body: RequestBody): String =
+        execute("POST", path, emptyList(), body)
 
     suspend fun patch(path: String, jsonBody: String? = null): String = execute("PATCH", path, emptyList(), jsonBody)
 
@@ -36,6 +40,18 @@ class AuthenticatedHttpClient(
         path: String,
         query: List<Pair<String, String>>,
         jsonBody: String?,
+    ): String = execute(
+        method = method,
+        path = path,
+        query = query,
+        body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE),
+    )
+
+    private suspend fun execute(
+        method: String,
+        path: String,
+        query: List<Pair<String, String>>,
+        body: RequestBody?,
     ): String {
         val token = tokenProvider()?.takeIf(String::isNotBlank)
             ?: throw ApiException(401, "Not authenticated")
@@ -47,8 +63,8 @@ class AuthenticatedHttpClient(
             .header("Accept", "application/json")
         when (method) {
             "GET" -> requestBuilder.get()
-            "POST" -> requestBuilder.post(requireNotNull(jsonBody).toRequestBody(JSON_MEDIA_TYPE))
-            "PATCH" -> requestBuilder.patch((jsonBody ?: "").toRequestBody(JSON_MEDIA_TYPE))
+            "POST" -> requestBuilder.post(requireNotNull(body))
+            "PATCH" -> requestBuilder.patch(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
             else -> error("Unsupported HTTP method: $method")
         }
         return await(requestBuilder.build())
