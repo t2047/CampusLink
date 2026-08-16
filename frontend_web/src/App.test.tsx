@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -250,18 +250,30 @@ describe('admin application routes', () => {
     renderApp('/admin/dashboard')
 
     expect(await screen.findByRole('heading', { name: 'Dashboard Overview' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('link', { name: label }))
+
+    const adminNavigation = within(
+      screen.getByRole('navigation', { name: 'Administration' }),
+    )
+
+    fireEvent.click(adminNavigation.getByRole('link', { name: label }))
 
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent(path)
-    expect(screen.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page')
+    expect(adminNavigation.getByRole('link', { name: label })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it('navigates from the Administration sidebar to the Facilities dashboard', async () => {
     storeSession('ADMIN')
     renderApp('/admin/dashboard')
 
-    fireEvent.click(screen.getByRole('link', { name: 'Facilities' }))
+    const adminNavigation = within(
+      screen.getByRole('navigation', { name: 'Administration' }),
+    )
+
+    fireEvent.click(adminNavigation.getByRole('link', { name: 'Facilities' }))
 
     expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/facilities')
@@ -272,11 +284,21 @@ describe('admin application routes', () => {
     renderApp('/admin/dashboard')
 
     expect(await screen.findByRole('heading', { name: 'Dashboard Overview' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('link', { name: 'Lost & Found' }))
 
-    await waitFor(() => expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/lost-found'))
+    const adminNavigation = within(
+      screen.getByRole('navigation', { name: 'Administration' }),
+    )
+
+    fireEvent.click(adminNavigation.getByRole('link', { name: 'Lost & Found' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/lost-found'),
+    )
     expect(await screen.findByRole('heading', { name: 'Lost & Found' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Lost & Found' })).toHaveAttribute('aria-current', 'page')
+    expect(adminNavigation.getByRole('link', { name: 'Lost & Found' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it.each(['ADMIN', 'SUPER_ADMIN'])('renders the Claim detail route inside the Admin Layout for %s', async (role) => {
