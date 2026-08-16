@@ -41,6 +41,8 @@ Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从
 - Android Keystore 保护 JWT 和数据库密钥；
 - CommonMark 解析聊天 Markdown，不使用 WebView，也不渲染原始 HTML；
 - Coil 加载 Lost & Found 候选图片；
+- 单 Activity `Screen` 导航已统一接入 Android System Back；顶部 Back 与系统 Back 使用同一返回规则；
+- 当前 route、详情 ID、Chat conversation ID 和动态 return target 使用轻量 `rememberSaveable` 状态，configuration change 后可恢复；
 - `minSdk 26`；
 - `compileSdk/targetSdk 36`；
 - 构建基线为 JDK 17。
@@ -426,15 +428,15 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 58 个通过 |
-| 模拟器测试 | 11 个通过 |
+| JVM 单元测试 | 81 个通过 |
+| 模拟器测试 | 17 个通过 |
 | `assembleLocalDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
 | Nginx `nginx -t` | 通过 |
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情，以及 Lost & Found 首页、浏览、发布和 Claims 主要 Compose 流程。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及 Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
 
 ### 6.3 CI/CD
 
