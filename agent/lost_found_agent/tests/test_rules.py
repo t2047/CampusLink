@@ -12,7 +12,11 @@ from lost_found_agent.models import (
     TraceParent,
     VerifiedRequest,
 )
-from lost_found_agent.rules import RuleEngine, detect_explicit_intent
+from lost_found_agent.rules import (
+    RuleEngine,
+    detect_explicit_intent,
+    extract_colour,
+)
 from lost_found_agent.tools import ReportLostInput
 
 from .conftest import FakeCampusApiClient
@@ -567,3 +571,23 @@ async def test_claim_invalid_fields_degrades_to_needs_more_info(
     assert response.status == "needs_more_info"
     assert "内部错误" not in response.response
     assert fake_api.calls == []
+
+
+def test_extract_colour_preserves_input_language() -> None:
+    # 中文输入抽中文展示形式
+    assert extract_colour("我丢了白色水杯") == "白色"
+    assert extract_colour("米白水杯") == "白色"
+    # 英文输入抽英文展示形式（含同义词归一）
+    assert extract_colour("colour: black") == "Black"
+    assert extract_colour("a white backpack") == "White"
+    assert extract_colour("ivory phone case") == "White"
+    assert extract_colour("navy blue jacket") == "Blue"
+
+
+def test_extract_colour_word_boundary_avoids_false_positives() -> None:
+    assert extract_colour("black backpack") == "Black"  # black 先命中
+    assert extract_colour("a grey backpack") == "Grey"
+    # "backpack" 不含颜色、"redemption" 不命中 red
+    assert extract_colour("backpack") is None
+    assert extract_colour("redemption arc") is None
+    assert extract_colour("") is None

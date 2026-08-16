@@ -13,6 +13,7 @@ import com.app.campusagent.lostfound.dto.LostFoundImageResponse;
 import com.app.campusagent.lostfound.dto.LostFoundReportResponse;
 import com.app.campusagent.lostfound.dto.PageResponse;
 import com.app.campusagent.lostfound.dto.UpdateLostFoundReportRequest;
+import com.app.campusagent.lostfound.colour.ColourNormalizer;
 import com.app.campusagent.lostfound.dto.agent.AgentCandidateResponse;
 import com.app.campusagent.lostfound.embedding.LostFoundEmbeddingClient;
 import com.app.campusagent.lostfound.embedding.StoredEmbedding;
@@ -573,7 +574,16 @@ public class LostFoundReportService {
                         builder.like(builder.lower(root.get("description")), pattern)));
             }
             if (StringUtils.hasText(colour)) {
-                predicates.add(builder.like(builder.lower(root.get("colour")), likePattern(colour)));
+                // P0：颜色跨语言/同义词不一致 — 命中 canonical 表时扩展为同义表面形式
+                // 的 OR（white 能命中数据库里的 白色/ivory/cream），否则回退原始 LIKE。
+                List<String> expandedColours = ColourNormalizer.expand(colour);
+                if (expandedColours.isEmpty()) {
+                    predicates.add(builder.like(builder.lower(root.get("colour")), likePattern(colour)));
+                } else {
+                    predicates.add(builder.or(expandedColours.stream()
+                            .map(synonym -> builder.like(builder.lower(root.get("colour")), likePattern(synonym)))
+                            .toArray(Predicate[]::new)));
+                }
             }
             if (StringUtils.hasText(location)) {
                 predicates.add(builder.like(builder.lower(root.get("location")), likePattern(location)));
