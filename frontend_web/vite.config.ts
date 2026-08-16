@@ -20,6 +20,13 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // jsdom 27 需要非 opaque origin 才会提供 localStorage；应用的 Chat 页面
+    // 使用 localStorage 保存会话、语言和主题，因此测试环境固定一个本地 URL。
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost/',
+      },
+    },
     setupFiles: './src/test/setup.ts',
   },
 })
