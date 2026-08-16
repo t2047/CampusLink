@@ -1,4 +1,5 @@
 import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined'
+import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined'
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined'
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined'
 import ChatBubbleOutlineOutlinedIcon from '@mui/icons-material/ChatBubbleOutlineOutlined'
@@ -34,12 +35,18 @@ export function WorkspaceShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
-  const [lostFoundOpen, setLostFoundOpen] = useState(true)
-  const [facilitiesOpen, setFacilitiesOpen] = useState(true)
+  // 分组默认折叠；当前所在分组按路径自动展开（深链/刷新时可见激活项）
+  const [lostFoundOpen, setLostFoundOpen] = useState(() =>
+    location.pathname.startsWith('/lost-found') || location.pathname.startsWith('/claims'),
+  )
+  const [facilitiesOpen, setFacilitiesOpen] = useState(() =>
+    location.pathname.startsWith('/facilities'),
+  )
   const [agentOpen, setAgentOpen] = useState(true)
   const [workspaceOpen, setWorkspaceOpen] = useState(true)
   const profileName = user ? displayName(user.nickname, user.email) : 'CampusLink user'
   const isAgent = location.pathname === '/chat'
+  const isAdmin = !!user && ['ADMIN', 'SUPER_ADMIN'].includes(user.role)
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
@@ -56,8 +63,8 @@ export function WorkspaceShell() {
           </div>
         </NavLink>
 
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto" aria-label="Workspace navigation">
-          <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Workspace</p>
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto" aria-label="Main navigation">
+          <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Main Menu</p>
           <SidebarLink to="/chat" label="Agent" icon={<ChatBubbleOutlineOutlinedIcon sx={{ fontSize: 19 }} />} />
           <button type="button" onClick={() => setLostFoundOpen((value) => !value)} className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
             <span className="flex items-center gap-3"><SearchOutlinedIcon sx={{ fontSize: 19 }} />Lost &amp; Found</span>
@@ -80,6 +87,9 @@ export function WorkspaceShell() {
           </div>}
           <SidebarLink to="/mail" label="Mail" icon={<MailOutlineIcon sx={{ fontSize: 19 }} />} />
           <SidebarLink to="/mail/calendar" label="Calendar" icon={<CalendarMonthOutlinedIcon sx={{ fontSize: 19 }} />} />
+          {isAdmin && (
+            <SidebarLink to="/admin" label="Admin" icon={<AdminPanelSettingsOutlinedIcon sx={{ fontSize: 19 }} />} />
+          )}
         </nav>
 
         <div className="mt-4 space-y-1 border-t border-slate-200 pt-3 dark:border-slate-800">

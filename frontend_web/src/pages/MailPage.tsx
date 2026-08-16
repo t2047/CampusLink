@@ -519,7 +519,7 @@ export function MailPage() {
                     border: 1,
                     borderColor: 'divider',
                     p: 0.5,
-                    bgcolor: 'grey.50',
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? '#0f172a' : 'grey.50'),
                   }}
                 >
                   <Tooltip title={selected.starred ? 'Unstar' : 'Star'}>

@@ -7,7 +7,7 @@ export function AdminForbiddenPage() {
   const navigate = useNavigate()
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'grey.100', display: 'grid', placeItems: 'center', p: 2 }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: (theme) => (theme.palette.mode === 'dark' ? '#0f172a' : 'grey.100'), display: 'grid', placeItems: 'center', p: 2 }}>
       <Card sx={{ width: '100%', maxWidth: 520 }}>
         <CardContent sx={{ p: 4 }}>
           <Stack spacing={3}>
