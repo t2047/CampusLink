@@ -32,4 +32,19 @@ export const auditActionLabels: Record<AuditAction, string> = {
   REPORT_RESTORED: 'Restored',
   REPORT_DELETED_BY_ADMIN: 'Deleted by admin',
   REPORT_CLAIMED: 'Marked claimed',
+  CLAIM_APPROVED_BY_ADMIN: 'Claim approved by admin',
+  CLAIM_REJECTED_BY_ADMIN: 'Claim rejected by admin',
+}
+
+export const dashboardAuditActionLabels: Record<AuditAction, string> = {
+  REPORT_CREATED: 'Report Created',
+  REPORT_UPDATED: 'Report Updated',
+  REPORT_CLOSED: 'Report Closed',
+  REPORT_DELETED: 'Report Deleted',
+  REPORT_DELISTED: 'Report Delisted',
+  REPORT_RESTORED: 'Report Restored',
+  REPORT_DELETED_BY_ADMIN: 'Report Deleted By Admin',
+  REPORT_CLAIMED: 'Report Claimed',
+  CLAIM_APPROVED_BY_ADMIN: 'Claim Approved By Admin',
+  CLAIM_REJECTED_BY_ADMIN: 'Claim Rejected By Admin',
 }

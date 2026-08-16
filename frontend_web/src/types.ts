@@ -99,7 +99,78 @@ export interface AdminLostFoundOverview {
   lostReports: number
   foundReports: number
   submittedClaims: number
+  processedClaims: number
   hiddenReports: number
+}
+
+export type AdminFacilitySpaceStatus = 'AVAILABLE' | 'OUT_OF_SERVICE' | 'INACTIVE'
+export type AdminFacilityBookingStatus = 'CONFIRMED' | 'CANCELLED' | 'COMPLETED'
+export type AdminFacilityMaintenanceStatus = 'SUBMITTED' | 'IN_PROGRESS' | 'RESOLVED' | 'CANCELLED'
+
+export interface AdminFacilitiesStatusCount<TStatus extends string> {
+  status: TStatus
+  count: number
+}
+
+export interface AdminFacilitiesOverviewSummary {
+  totalSpaces: number
+  availableSpaces: number
+  outOfServiceSpaces: number
+  inactiveSpaces: number
+  totalBookings: number
+  confirmedBookings: number
+  cancelledBookings: number
+  completedBookings: number
+  totalMaintenanceRequests: number
+  submittedMaintenanceRequests: number
+  inProgressMaintenanceRequests: number
+  resolvedMaintenanceRequests: number
+  cancelledMaintenanceRequests: number
+  openMaintenanceRequests: number
+}
+
+export interface AdminFacilitiesOverview {
+  summary: AdminFacilitiesOverviewSummary
+  spaceStatusBreakdown: AdminFacilitiesStatusCount<AdminFacilitySpaceStatus>[]
+  bookingStatusBreakdown: AdminFacilitiesStatusCount<AdminFacilityBookingStatus>[]
+  maintenanceStatusBreakdown: AdminFacilitiesStatusCount<AdminFacilityMaintenanceStatus>[]
+}
+
+export interface AdminFacilityBooking {
+  bookingId: number
+  userId: number
+  userEmail: string | null
+  spaceId: number
+  spaceName: string
+  building: string
+  floor: string
+  roomNumber: string
+  spaceType: string
+  startDateTime: string
+  endDateTime: string
+  status: AdminFacilityBookingStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminFacilityMaintenancePriority = 'LOW' | 'MEDIUM' | 'HIGH'
+
+export interface AdminFacilityMaintenance {
+  ticketId: number
+  userId: number
+  userEmail: string | null
+  spaceId: number | null
+  spaceName: string | null
+  spaceType: string | null
+  building: string
+  floor: string | null
+  roomNumber: string
+  facilityType: string
+  description: string
+  priority: AdminFacilityMaintenancePriority
+  status: AdminFacilityMaintenanceStatus
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AdminLostFoundReport {
@@ -203,6 +274,8 @@ export type AuditAction =
   | 'REPORT_RESTORED'
   | 'REPORT_DELETED_BY_ADMIN'
   | 'REPORT_CLAIMED'
+  | 'CLAIM_APPROVED_BY_ADMIN'
+  | 'CLAIM_REJECTED_BY_ADMIN'
 
 export interface AdminAuditLog {
   id: number
