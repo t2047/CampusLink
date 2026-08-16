@@ -14,7 +14,13 @@ streamable HTTP 端点（/mcp/），编排层可经标准 MCP 调用邮件能力
 安全：与其它 MCP Agent 一致 -- 挂 ``McpSecurityMiddleware``（RS256
 Delegation Token 验签 + aud=mail-agent + X-Timestamp 窗口）；工具内用
 ``identity_from_context``（mcp_servers.security 公共 helper）从 Authorization
-解析身份，作为 Bearer 透传给 mail REST（其当前只校验 Bearer 前缀，不验真伪）。
+解析身份（sub = 数字 userId）。
+
+**mail REST 侧现在按用户绑定各自的 Gmail**：REST 只接受两种 Bearer —— 用户 JWT
+（HS256，JWT_SECRET，sub=邮箱，Web 路径）或内部服务令牌（HS256，
+MAIL_INTERNAL_SECRET/AGENT_SHARED_SECRET，aud=mail-service）。用户 JWT 不离开
+Chat Backend，因此本适配层用共享密钥**代签一个短时内部令牌**（sub=delegation
+sub）转发给 mail REST，聊天路径因此能按同一数字 userId 使用自己的 Gmail 绑定。
 
 运行（独立进程，端口 8081；替换原 domain_server 的 mail-agent mock 实例）：
     uvicorn mcp_servers.mail_server:app --host 0.0.0.0 --port 8081 --reload
@@ -60,14 +66,26 @@ except ImportError as _e:  # pragma: no cover - 依赖缺失/版本错误时的�
 
 import httpx
 
+import jwt
+
 from mcp_servers.security import McpSecurityMiddleware, identity_from_context
 
 logger = logging.getLogger(__name__)
 
 AGENT_NAME = "mail-agent"
 
-# 8091 REST 客户端（base_url 从环境变量读，默认本地 8091）
+# 5000 REST 客户端（base_url 从环境变量读，默认本地 5000）
 MAIL_REST_URL = os.environ.get("MAIL_REST_URL", "http://127.0.0.1:5000").rstrip("/")
+
+# mail REST 内部令牌签名密钥：与 mail REST 侧 auth.py 的解析一致
+# （显式 MAIL_INTERNAL_SECRET，回退 AGENT_SHARED_SECRET —— 与 Java 后端
+# app.agent.shared-secret 共用同一值，见 LostFoundAgentGateway 惯例）。
+MAIL_INTERNAL_SECRET = (
+    os.environ.get("MAIL_INTERNAL_SECRET", "").strip()
+    or os.environ.get("AGENT_SHARED_SECRET", "").strip()
+)
+MAIL_INTERNAL_AUD = "mail-service"
+MAIL_INTERNAL_TTL_SECONDS = 30
 
 # 确认 TTL（对齐 mail-agent.json security.confirmationTtlSeconds=600）
 _CONFIRM_TTL_SECONDS = int(os.environ.get("MAIL_CONFIRM_TTL_SECONDS", "600"))
@@ -76,17 +94,45 @@ _CONFIRM_TTL_SECONDS = int(os.environ.get("MAIL_CONFIRM_TTL_SECONDS", "600"))
 _PENDING_CONFIRMATION: dict[str, dict[str, Any]] = {}
 
 
+def _internal_token(user_id: str) -> str:
+    """Mint the short-lived internal HS256 token mail REST verifies.
+
+    mail REST 只接受用户 JWT 或内部令牌；本适配层无法拿到用户 JWT（用户 JWT 不
+    离开 Chat Backend），所以用与 REST 共享的密钥代签一个 30s 令牌（aud 固定为
+    mail-service），sub 沿用 delegation token 的数字 userId。
+    """
+    if not MAIL_INTERNAL_SECRET:
+        raise RuntimeError(
+            "MAIL_INTERNAL_SECRET / AGENT_SHARED_SECRET 未配置，无法调用 mail REST"
+        )
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "sub": str(user_id),
+            "aud": MAIL_INTERNAL_AUD,
+            "iat": now,
+            "exp": now + MAIL_INTERNAL_TTL_SECONDS,
+        },
+        MAIL_INTERNAL_SECRET.encode("utf-8"),
+        algorithm="HS256",
+    )
+
+
+def _auth_headers(user_id: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {_internal_token(user_id)}"}
+
+
 # ──────────────────────────────────────────────────────────────────────
-# 8091 REST 客户端
+# mail REST 客户端
 # ──────────────────────────────────────────────────────────────────────
 
 
 class MailRestClient:
-    """调 8091 mail REST 服务的异步客户端。
+    """调 mail REST 服务的异步客户端。
 
-    8091 当前只校验 Bearer 前缀（_user_from_auth 不验真伪），任意值都放行，
-    故此处透传编排层解析出的 user_id 作为 token，便于将来 8091 接真实身份后
-    直接按 sub 区分用户而无需改本适配层。
+    mail REST 按用户绑定 Gmail：请求头用本适配层代签的内部 HS256 令牌
+    （sub = delegation token 的数字 userId），REST 验签后按该 userId
+    取用户自己的 Gmail 凭据。
     """
 
     def __init__(self, base_url: str) -> None:
@@ -101,12 +147,13 @@ class MailRestClient:
     async def _request(
         self, method: str, path: str, user_id: str, **kwargs: Any
     ) -> dict[str, Any]:
-        headers = {"Authorization": f"Bearer {user_id}"}
-        resp = await self._client.request(method, path, headers=headers, **kwargs)
+        resp = await self._client.request(
+            method, path, headers=_auth_headers(user_id), **kwargs
+        )
         resp.raise_for_status()
         return resp.json()
 
-    # 对应 8091 接口
+    # 对应 mail REST 接口
     async def list_messages(
         self, user_id: str, folder: str = "inbox", q: str = "",
         unread: bool | None = None, starred: bool | None = None,
@@ -160,7 +207,7 @@ class MailRestClient:
         """
         resp = await self._client.request(
             "POST", "/api/mail/agent/chat",
-            headers={"Authorization": f"Bearer {user_id}"},
+            headers=_auth_headers(user_id),
             json={"message": message, "session_id": session_id},
             timeout=timeout,
         )

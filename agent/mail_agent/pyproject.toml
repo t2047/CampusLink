@@ -15,6 +15,9 @@ dependencies = [
     "google-api-python-client>=2.140,<3",
     "google-auth-oauthlib>=1.2,<2",
     "google-auth-httplib2>=0.2,<1",
+    # Identity: verifies the CampusLink user JWT (HS256, JWT_SECRET) and the
+    # internal MCP-gateway token (HS256, MAIL_INTERNAL_SECRET/AGENT_SHARED_SECRET).
+    "PyJWT>=2.8,<3",
     # LangChain mail agent (agent/mail_agent/mail_agent/agent.py).
     "langchain>=0.3,<2",
     "langchain-core>=0.3,<2",
@@ -42,3 +45,4 @@ ml = ["models/*.joblib", "models/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

@@ -17,9 +17,10 @@ COPY ml ./ml
 
 RUN pip install --no-cache-dir .
 
-# 运行时数据目录：token.json（Gmail OAuth 刷新令牌）与 calendar.db（SQLite 日历）
-# 均落到 /data，由 compose 挂载命名卷持久化——容器重建/升级不丢失授权与日历数据。
-ENV GMAIL_TOKEN_PATH=/data/token.json \
+# 运行时数据目录：每个用户的 Gmail OAuth 令牌（gmail_tokens/）与
+# calendar.db（SQLite 日历）均落到 /data，由 compose 挂载命名卷持久化——
+# 容器重建/升级不丢失授权与日历数据。
+ENV GMAIL_TOKEN_DIR=/data/gmail_tokens \
     MAIL_CALENDAR_DB=/data/calendar.db
 
 RUN mkdir -p /data \
