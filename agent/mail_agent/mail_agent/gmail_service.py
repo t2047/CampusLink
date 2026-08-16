@@ -2,17 +2,21 @@
 
 This module owns:
   * the web OAuth2 flow (authorize URL + ``/callback`` token exchange),
-  * refresh-token persistence (``token.json``),
-  * Gmail API operations mapped onto the service's ``MailMessage`` model.
+  * **per-user** refresh-token persistence (one file per user under
+    ``GMAIL_TOKEN_DIR``, keyed by the verified user identity),
+  * Gmail API operations mapped onto the service's ``MailMessage`` model,
+    always executed with the *requesting user's own* credentials.
 
-A single shared Gmail account is authorised once; every mail operation reuses
-the persisted (auto-refreshing) credentials.
+Every public operation takes ``user_id`` as its first argument. The identity
+comes from ``auth.resolve_identity`` (user JWT ``sub`` for the web path, or the
+``sub`` of an internal MCP-gateway token for the chat path).
 """
 
 from __future__ import annotations
 
 import base64
 import functools
+import hashlib
 import re
 import secrets
 import threading
@@ -34,23 +38,41 @@ from .models import MailFolder, MailMessage, SendMailRequest, preview_of
 # ---------------------------------------------------------------------------
 # Thread safety
 # ---------------------------------------------------------------------------
-# The shared Gmail client (httplib2 transport) is NOT thread-safe: the LangChain
-# agent executes its tools in a thread pool (parallel tool calls), so concurrent
-# Gmail API requests through one client crashed the process with a native
-# "Windows fatal exception: access violation" inside ssl/httplib2. Serialize
-# every public Gmail operation with a re-entrant lock (RLock: nested calls such
-# as update_message -> get_message stay safe).
+# Each user owns one Gmail client (httplib2 transport). A single client is NOT
+# thread-safe: the LangChain agent executes its tools in a thread pool (parallel
+# tool calls), so concurrent Gmail API requests through one client crashed the
+# process with a native "Windows fatal exception: access violation" inside
+# ssl/httplib2. Serialize every public Gmail operation with a *per-user*
+# re-entrant lock (RLock: nested calls such as update_message -> get_message
+# stay safe); different users run concurrently on their own clients.
 
 _F = TypeVar("_F", bound=Callable[..., Any])
-_api_lock = threading.RLock()
+
+_module_lock = threading.Lock()
+_user_locks: dict[str, threading.RLock] = {}
+
+
+def _lock_for(user_id: str) -> threading.RLock:
+    """Return the re-entrant lock guarding one user's Gmail client."""
+    with _module_lock:
+        lock = _user_locks.get(user_id)
+        if lock is None:
+            lock = threading.RLock()
+            _user_locks[user_id] = lock
+        return lock
 
 
 def _serialized(func: _F) -> _F:
-    """Run ``func`` while holding the module-wide Gmail API lock."""
+    """Run ``func`` while holding the calling user's Gmail API lock.
+
+    The first positional argument must be the ``user_id``.
+    """
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        with _api_lock:
+        if not args:
+            raise TypeError("serialized Gmail function needs user_id as first argument")
+        with _lock_for(args[0]):
             return func(*args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
@@ -71,75 +93,82 @@ _FUZZY_MAX_CANDIDATES = 200  # 预筛阶段最多取多少封候选邮件
 _FUZZY_MIN_SCORE = 0.30      # 低于该分数的结果不返回
 
 # Gmail list pageTokens are opaque cursors tied to one query. Cache them per
-# query so consecutive pagination is a single list call instead of re-walking
-# from page 0. ``tokens[i]`` holds the nextPageToken returned by page ``i``.
+# (user, query) so consecutive pagination is a single list call instead of
+# re-walking from page 0. ``tokens[i]`` holds the nextPageToken returned by
+# page ``i``.
 _PAGE_TOKEN_CACHE: dict[tuple[Any, ...], list[str | None]] = {}
-_PAGE_TOKEN_CACHE_MAX_KEYS = 50
+_PAGE_TOKEN_CACHE_MAX_KEYS = 200
 
 # Full-message body cache: opening a message twice in a short window should not
-# re-download the full payload. Mutations drop the affected entry.
+# re-download the full payload. Mutations drop the affected entry. Keyed by
+# (user_id, message_id).
 _MESSAGE_CACHE_TTL_SECONDS = 60
-_MESSAGE_CACHE: dict[str, tuple[float, MailMessage]] = {}
+_MESSAGE_CACHE: dict[tuple[str, str], tuple[float, MailMessage]] = {}
 
 
-def _cache_get(message_id: str) -> MailMessage | None:
-    entry = _MESSAGE_CACHE.get(message_id)
+def _cache_get(user_id: str, message_id: str) -> MailMessage | None:
+    entry = _MESSAGE_CACHE.get((user_id, message_id))
     if entry is None:
         return None
     cached_at, message = entry
     if time.monotonic() - cached_at > _MESSAGE_CACHE_TTL_SECONDS:
-        _MESSAGE_CACHE.pop(message_id, None)
+        _MESSAGE_CACHE.pop((user_id, message_id), None)
         return None
     return message
 
 
-def _cache_put(message_id: str, message: MailMessage) -> None:
-    _MESSAGE_CACHE[message_id] = (time.monotonic(), message)
+def _cache_put(user_id: str, message_id: str, message: MailMessage) -> None:
+    _MESSAGE_CACHE[(user_id, message_id)] = (time.monotonic(), message)
 
 
-def _cache_drop(message_id: str) -> None:
-    _MESSAGE_CACHE.pop(message_id, None)
+def _cache_drop(user_id: str, message_id: str) -> None:
+    _MESSAGE_CACHE.pop((user_id, message_id), None)
 
 
 class GmailNotConnectedError(RuntimeError):
-    """Raised when no Gmail account has been authorised yet."""
+    """Raised when the requesting user has not authorised a Gmail account yet."""
+
+    def __init__(self, message: str, user_id: str | None = None) -> None:
+        super().__init__(message)
+        self.user_id = user_id
 
 
-# Pending OAuth states (CSRF protection) - in-memory is fine for a one-time flow.
-# Maps state -> redirect_uri so the token exchange reuses the exact URI the
-# consent URL was built with (required when the URI is derived per request).
-_pending_states: dict[str, str] = {}
+# Pending OAuth states (CSRF protection) - in-memory is fine for a one-shot
+# flow. Maps state -> (user_id, redirect_uri) so the token exchange reuses the
+# exact URI the consent URL was built with and stores the token under the user
+# who started the flow (the browser callback carries no JWT).
+_pending_states: dict[str, tuple[str, str]] = {}
 
 
-_service_instance: Any | None = None
+_service_instances: dict[str, Any] = {}
 
 
-def _invalidate_service() -> None:
-    """Drop the cached Gmail client (e.g. after token re-auth/reset)."""
-    global _service_instance
-    _service_instance = None
+def _invalidate_service(user_id: str) -> None:
+    """Drop the cached Gmail client for one user (e.g. after token re-auth)."""
+    _service_instances.pop(user_id, None)
 
 
-def _service():
-    """Return a cached authenticated Gmail v1 client.
+def _service(user_id: str):
+    """Return a cached authenticated Gmail v1 client for ``user_id``.
 
     The client owns an authorized HTTP transport whose connections (incl. the
     TLS handshake) are reused across requests; rebuilding it on every call is
     what made each request pay ~0.7s of TLS setup again.
     """
-    global _service_instance
-    creds = load_credentials()
+    creds = load_credentials(user_id)
     if creds is None:
-        raise GmailNotConnectedError("Gmail account is not connected")
-    if _service_instance is None:
-        _service_instance = build(
+        raise GmailNotConnectedError("Gmail account is not connected", user_id)
+    instance = _service_instances.get(user_id)
+    if instance is None:
+        instance = build(
             "gmail", "v1", credentials=creds, cache_discovery=False
         )
-    return _service_instance
+        _service_instances[user_id] = instance
+    return instance
 
 
 # ---------------------------------------------------------------------------
-# OAuth2 web flow
+# OAuth2 web flow (per user)
 # ---------------------------------------------------------------------------
 
 def _effective_redirect_uri(redirect_uri: str | None = None) -> str:
@@ -163,8 +192,8 @@ def _build_flow(
 
 
 @_serialized
-def authorization_url(redirect_uri: str | None = None) -> tuple[str, str]:
-    """Return ``(url, state)`` for the Google consent screen."""
+def authorization_url(user_id: str, redirect_uri: str | None = None) -> tuple[str, str]:
+    """Return ``(url, state)`` for the Google consent screen for ``user_id``."""
     flow = _build_flow(redirect_uri=redirect_uri)
     url, state = flow.authorization_url(
         access_type="offline",
@@ -177,57 +206,68 @@ def authorization_url(redirect_uri: str | None = None) -> tuple[str, str]:
         code_challenge=None,
         code_challenge_method=None,
     )
-    _pending_states[state] = _effective_redirect_uri(redirect_uri)
+    _pending_states[state] = (user_id, _effective_redirect_uri(redirect_uri))
     return url, state
 
 
-@_serialized
 def exchange_code(code: str, state: str) -> Credentials:
-    """Exchange an authorization code for credentials and persist them."""
-    redirect_uri = _pending_states.pop(state, None)
-    if redirect_uri is None:
+    """Exchange an authorization code for credentials and persist them for the
+    user who started the flow (recovered from ``state``)."""
+    pending = _pending_states.pop(state, None)
+    if pending is None:
         raise ValueError("Invalid or expired OAuth state")
-    flow = _build_flow(state=state, redirect_uri=redirect_uri)
-    flow.fetch_token(code=code)
-    creds = flow.credentials
-    save_credentials(creds)
-    return creds
+    user_id, redirect_uri = pending
+    with _lock_for(user_id):
+        flow = _build_flow(state=state, redirect_uri=redirect_uri)
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+        save_credentials(user_id, creds)
+        return creds
 
 
 @_serialized
-def save_credentials(creds: Credentials) -> None:
-    _invalidate_service()
-    config.TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
+def save_credentials(user_id: str, creds: Credentials) -> None:
+    _invalidate_service(user_id)
+    path = _token_path(user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(creds.to_json(), encoding="utf-8")
+
+
+def _token_path(user_id: str) -> Any:
+    """Per-user token file: ``<GMAIL_TOKEN_DIR>/<sha256(user_id)>.json``."""
+    digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    return config.GMAIL_TOKEN_DIR / f"{digest}.json"
 
 
 @_serialized
-def load_credentials() -> Credentials | None:
-    if not config.TOKEN_PATH.exists():
+def load_credentials(user_id: str) -> Credentials | None:
+    path = _token_path(user_id)
+    if not path.exists():
         return None
     creds = Credentials.from_authorized_user_file(
-        str(config.TOKEN_PATH), config.GMAIL_SCOPES
+        str(path), config.GMAIL_SCOPES
     )
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            save_credentials(creds)
+            save_credentials(user_id, creds)
             return creds
         return None
     return creds
 
 
 @_serialized
-def is_connected() -> bool:
+def is_connected(user_id: str) -> bool:
     try:
-        return load_credentials() is not None
+        return load_credentials(user_id) is not None
     except Exception:
         return False
 
 
 @_serialized
-def connected_email() -> str | None:
+def connected_email(user_id: str) -> str | None:
     try:
-        creds = load_credentials()
+        creds = load_credentials(user_id)
     except Exception:
         return None
     if creds is None:
@@ -235,10 +275,18 @@ def connected_email() -> str | None:
     try:
         # Credentials do not carry the address; resolve it from the Gmail
         # profile via the cached client so the TLS connection is reused.
-        profile = _service().users().getProfile(userId="me").execute()
+        profile = _service(user_id).users().getProfile(userId="me").execute()
         return profile.get("emailAddress")
     except Exception:
         return None
+
+
+def connected_user_count() -> int:
+    """Number of users who have stored a Gmail token (for the health check)."""
+    token_dir = config.GMAIL_TOKEN_DIR
+    if not token_dir.exists():
+        return 0
+    return len(list(token_dir.glob("*.json")))
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +497,7 @@ def _folder_label_ids(folder: MailFolder) -> list[str] | None:
 
 
 # ---------------------------------------------------------------------------
-# Operations
+# Operations (all take user_id first)
 # ---------------------------------------------------------------------------
 
 def _fetch_metadata(
@@ -719,6 +767,7 @@ def _fuzzy_search(
 
 @_serialized
 def list_recent_messages(
+    user_id: str,
     days: int = 0,
     max_results: int = 20,
 ) -> list[MailMessage]:
@@ -735,7 +784,7 @@ def list_recent_messages(
     """
     if days < 0:
         days = 0
-    service = _service()
+    service = _service(user_id)
     today = datetime.now().astimezone()
     start_local = today - timedelta(days=days)
     after_utc = datetime(
@@ -773,7 +822,7 @@ def list_recent_messages(
     full: list[MailMessage] = []
     for message in in_window:
         try:
-            full.append(get_message(message.id, mark_read=False))
+            full.append(get_message(user_id, message.id, mark_read=False))
         except Exception:  # noqa: BLE001 - keep going on per-message failures
             full.append(message)
     return full
@@ -781,6 +830,7 @@ def list_recent_messages(
 
 @_serialized
 def list_messages(
+    user_id: str,
     folder: MailFolder,
     q: str = "",
     unread: bool | None = None,
@@ -790,7 +840,7 @@ def list_messages(
     after: str | None = None,
     before: str | None = None,
 ) -> tuple[list[MailMessage], int, bool]:
-    """Fetch one page of matching messages (capped at MAX_PAGE_SIZE per page).
+    """Fetch one page of matching messages for ``user_id`` (capped at MAX_PAGE_SIZE per page).
 
     Gmail paginates with opaque ``pageToken`` cursors; page tokens are cached
     per query so consecutive pages cost one list call each. Metadata is
@@ -806,7 +856,7 @@ def list_messages(
     """
     size = max(1, min(size, MAX_PAGE_SIZE))
     page = max(0, page)
-    service = _service()
+    service = _service(user_id)
     after_utc = _date_arg_to_utc_bound(after)
     before_utc = _date_arg_to_utc_bound(before, end_of_day=True)
     if after_utc or before_utc:
@@ -822,7 +872,7 @@ def list_messages(
         )
     query = _build_query(folder, q, unread, starred)
     label_ids = _folder_label_ids(folder)
-    key = (folder.value, query, unread, starred, size)
+    key = (user_id, folder.value, query, unread, starred, size)
     try:
         ids, estimate, has_next = _fetch_page_ids(
             service, key, page, size, query, label_ids
@@ -918,9 +968,9 @@ def _fetch_full_marked_read(service: Any, message_id: str) -> dict[str, Any]:
 
 
 @_serialized
-def get_message(message_id: str, mark_read: bool = True) -> MailMessage:
-    service = _service()
-    cached = _cache_get(message_id)
+def get_message(user_id: str, message_id: str, mark_read: bool = True) -> MailMessage:
+    service = _service(user_id)
+    cached = _cache_get(user_id, message_id)
     if cached is not None and not mark_read:
         return cached
     if cached is not None:
@@ -933,7 +983,7 @@ def get_message(message_id: str, mark_read: bool = True) -> MailMessage:
             body={"removeLabelIds": [_LABEL_UNREAD]},
         ).execute()
         message = cached.model_copy(update={"read": True})
-        _cache_put(message_id, message)
+        _cache_put(user_id, message_id, message)
         return message
     if mark_read:
         # One round trip instead of two: mark read + fetch in a single batch.
@@ -948,15 +998,15 @@ def get_message(message_id: str, mark_read: bool = True) -> MailMessage:
             .execute()
         )
         message = _to_message(msg, include_body=True)
-    _cache_put(message_id, message)
+    _cache_put(user_id, message_id, message)
     return message
 
 
 @_serialized
-def send_message(request: SendMailRequest) -> MailMessage:
+def send_message(user_id: str, request: SendMailRequest) -> MailMessage:
     import email.message
 
-    service = _service()
+    service = _service(user_id)
     profile = service.users().getProfile(userId="me").execute()
     sender = profile.get("emailAddress", "")
     message = email.message.EmailMessage()
@@ -971,21 +1021,22 @@ def send_message(request: SendMailRequest) -> MailMessage:
         .send(userId="me", body={"raw": raw})
         .execute()
     )
-    return get_message(str(sent["id"]), mark_read=False)
+    return get_message(user_id, str(sent["id"]), mark_read=False)
 
 
 @_serialized
 def update_message(
+    user_id: str,
     message_id: str,
     read: bool | None = None,
     starred: bool | None = None,
     folder: MailFolder | None = None,
 ) -> MailMessage:
-    service = _service()
+    service = _service(user_id)
     if folder == MailFolder.trash:
         service.users().messages().trash(userId="me", id=message_id).execute()
-        _cache_drop(message_id)
-        return get_message(message_id, mark_read=False)
+        _cache_drop(user_id, message_id)
+        return get_message(user_id, message_id, mark_read=False)
     add_labels: list[str] = []
     remove_labels: list[str] = []
     if read is True:
@@ -1009,29 +1060,29 @@ def update_message(
                 "removeLabelIds": remove_labels,
             },
         ).execute()
-    _cache_drop(message_id)
-    return get_message(message_id, mark_read=False)
+    _cache_drop(user_id, message_id)
+    return get_message(user_id, message_id, mark_read=False)
 
 
 @_serialized
-def archive_message(message_id: str) -> MailMessage:
-    return update_message(message_id, folder=MailFolder.archived)
+def archive_message(user_id: str, message_id: str) -> MailMessage:
+    return update_message(user_id, message_id, folder=MailFolder.archived)
 
 
 @_serialized
-def trash_message(message_id: str) -> MailMessage:
-    service = _service()
+def trash_message(user_id: str, message_id: str) -> MailMessage:
+    service = _service(user_id)
     service.users().messages().trash(userId="me", id=message_id).execute()
-    _cache_drop(message_id)
-    return get_message(message_id, mark_read=False)
+    _cache_drop(user_id, message_id)
+    return get_message(user_id, message_id, mark_read=False)
 
 
 @_serialized
-def trash_messages(message_ids: list[str]) -> int:
+def trash_messages(user_id: str, message_ids: list[str]) -> int:
     """Move many messages to trash in batched requests; returns the count done."""
     if not message_ids:
         return 0
-    service = _service()
+    service = _service(user_id)
     done = 0
     for start in range(0, len(message_ids), 10):
         batch = service.new_batch_http_request()
@@ -1043,24 +1094,26 @@ def trash_messages(message_ids: list[str]) -> int:
         batch.execute()
         done += len(chunk)
         for message_id in chunk:
-            _cache_drop(message_id)
+            _cache_drop(user_id, message_id)
     return done
 
 
 @_serialized
-def reset_connection() -> None:
-    """Remove the persisted Gmail token (e.g. to re-authorize)."""
-    _MESSAGE_CACHE.clear()
-    _PAGE_TOKEN_CACHE.clear()
-    _invalidate_service()
+def reset_connection(user_id: str) -> None:
+    """Remove one user's persisted Gmail token (e.g. to re-authorize)."""
+    _invalidate_service(user_id)
+    for key in [k for k in _MESSAGE_CACHE if k[0] == user_id]:
+        _MESSAGE_CACHE.pop(key, None)
+    for key in [k for k in _PAGE_TOKEN_CACHE if k and k[0] == user_id]:
+        _PAGE_TOKEN_CACHE.pop(key, None)
     try:
-        config.TOKEN_PATH.unlink()
+        _token_path(user_id).unlink()
     except FileNotFoundError:
         pass
 
 
-def new_state(redirect_uri: str | None = None) -> str:
-    """Generate and remember a fresh CSRF state token."""
+def new_state(user_id: str, redirect_uri: str | None = None) -> str:
+    """Generate and remember a fresh CSRF state token bound to ``user_id``."""
     state = secrets.token_urlsafe(16)
-    _pending_states[state] = _effective_redirect_uri(redirect_uri)
+    _pending_states[state] = (user_id, _effective_redirect_uri(redirect_uri))
     return state

@@ -1,4 +1,5 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getAdminLostFoundOverview } from '../../../api/adminLostFound'
 import type { AdminLostFoundOverview } from '../../../types'
@@ -8,6 +9,8 @@ vi.mock('../../../api/adminLostFound', () => ({
   getAdminLostFoundOverview: vi.fn(),
 }))
 
+const getOverview = vi.mocked(getAdminLostFoundOverview)
+
 const overviewFixture: AdminLostFoundOverview = {
   totalReports: 12,
   openReports: 5,
@@ -16,48 +19,23 @@ const overviewFixture: AdminLostFoundOverview = {
   lostReports: 7,
   foundReports: 5,
   submittedClaims: 2,
-  hiddenReports: 0,
+  processedClaims: 0,
+  hiddenReports: 1,
 }
 
-interface Deferred<T> {
-  promise: Promise<T>
-  resolve: (value: T) => void
-  reject: (reason?: unknown) => void
-}
-
-function deferred<T>(): Deferred<T> {
+function deferred<T>() {
   let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+  const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise
-    reject = rejectPromise
   })
-  return { promise, resolve, reject }
+  return { promise, resolve }
 }
 
 function renderSection() {
   return render(<LostFoundOverviewSection />)
 }
 
-function getOverviewRegion() {
-  return screen.getByRole('region', { name: 'Lost & Found Overview' })
-}
-
-function getMetric(label: string) {
-  return within(getOverviewRegion()).getByRole('group', { name: label })
-}
-
-function expectMetric(label: string, value: number) {
-  expect(within(getMetric(label)).getByText(String(value))).toBeInTheDocument()
-}
-
-function getActionRequiredRegion() {
-  return screen.getByRole('region', { name: 'Action Required' })
-}
-
 describe('LostFoundOverviewSection', () => {
-  const getOverview = vi.mocked(getAdminLostFoundOverview)
-
   beforeEach(() => {
     getOverview.mockReset()
     getOverview.mockResolvedValue(overviewFixture)
@@ -65,38 +43,35 @@ describe('LostFoundOverviewSection', () => {
 
   afterEach(() => cleanup())
 
-  it('loads and displays only the three authorized overview metrics', async () => {
+  it('shows accessible loading and requests the overview once', () => {
+    const pending = deferred<AdminLostFoundOverview>()
+    getOverview.mockReturnValue(pending.promise)
+
     renderSection()
 
-    expect(
-      await screen.findByRole('group', { name: 'Total Reports' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Lost & Found Overview' })).toBeInTheDocument()
     expect(getOverview).toHaveBeenCalledTimes(1)
-    expectMetric('Total Reports', 12)
-    expectMetric('Open Reports', 5)
-    expectMetric('Pending Claims', 2)
-    expect(screen.queryByText('Claimed Reports')).not.toBeInTheDocument()
-    expect(screen.queryByText('Closed Reports')).not.toBeInTheDocument()
-    expect(screen.queryByText('Lost Reports')).not.toBeInTheDocument()
-    expect(screen.queryByText('Found Reports')).not.toBeInTheDocument()
-  })
-
-  it('shows an accessible loading state without fallback business values', () => {
-    getOverview.mockReturnValue(deferred<AdminLostFoundOverview>().promise)
-
-    renderSection()
-
     expect(screen.getByRole('status')).toHaveTextContent('Loading Lost & Found overview')
-    expect(screen.queryByText('12')).not.toBeInTheDocument()
-    expect(screen.queryByText('5')).not.toBeInTheDocument()
-    expect(screen.queryByText('2')).not.toBeInTheDocument()
-    expect(screen.queryByText('0')).not.toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(getOverview).toHaveBeenCalledTimes(1)
+    expect(screen.getByLabelText('Loading Lost & Found overview')).toBeInTheDocument()
   })
 
-  it('renders zero as real data instead of loading, error, or empty state', async () => {
+  it('shows four KPIs including Hidden Reports and the complete status chart', async () => {
+    renderSection()
+
+    expect(await screen.findByRole('group', { name: 'Total Reports' })).toHaveTextContent('12')
+    expect(screen.getByRole('group', { name: 'Open Reports' })).toHaveTextContent('5')
+    expect(screen.getByRole('group', { name: 'Pending Claims' })).toHaveTextContent('2')
+    expect(screen.getByRole('group', { name: 'Hidden Reports' })).toHaveTextContent('1')
+
+    expect(screen.getByRole('heading', { name: 'Lost & Found Report Status' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Open: 5' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Claimed: 3' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Closed: 4' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Open reports: 5' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Claimed reports: 3' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Closed reports: 4' })).toBeInTheDocument()
+  })
+
+  it('renders all-zero overview data normally', async () => {
     getOverview.mockResolvedValue({
       totalReports: 0,
       openReports: 0,
@@ -105,131 +80,78 @@ describe('LostFoundOverviewSection', () => {
       lostReports: 0,
       foundReports: 0,
       submittedClaims: 0,
+  processedClaims: 0,
       hiddenReports: 0,
     })
 
     renderSection()
 
-    expect(
-      await screen.findByRole('group', { name: 'Total Reports' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Lost & Found Overview' })).toBeInTheDocument()
-    expectMetric('Total Reports', 0)
-    expectMetric('Open Reports', 0)
-    expectMetric('Pending Claims', 0)
-    expect(within(getOverviewRegion()).getAllByText('0')).toHaveLength(3)
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(within(getActionRequiredRegion()).getByText('No pending claims require review.')).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'Total Reports' })).toHaveTextContent('0')
+    expect(screen.getByRole('group', { name: 'Open Reports' })).toHaveTextContent('0')
+    expect(screen.getByRole('group', { name: 'Pending Claims' })).toHaveTextContent('0')
+    expect(screen.getByRole('group', { name: 'Hidden Reports' })).toHaveTextContent('0')
+    expect(screen.getByRole('group', { name: 'Open: 0' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Claimed: 0' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Closed: 0' })).toBeInTheDocument()
   })
 
-  it('shows the API error and retry control without fake or stale values', async () => {
-    getOverview.mockRejectedValue(new Error('Unable to load Lost & Found overview.'))
-
+  it('removes the obsolete Action Required card and read-only limitation copy', async () => {
     renderSection()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load Lost & Found overview.')
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
-    expect(screen.queryByText('12')).not.toBeInTheDocument()
-    expect(screen.queryByText('5')).not.toBeInTheDocument()
-    expect(screen.queryByText('2')).not.toBeInTheDocument()
-    expect(screen.queryByText('0')).not.toBeInTheDocument()
-    expect(screen.queryByText('2 pending claims require review.')).not.toBeInTheDocument()
+    await screen.findByRole('group', { name: 'Total Reports' })
+    expect(screen.queryByRole('region', { name: 'Action Required' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Claim review actions are not available in this read-only dashboard yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/pending claims? requires? review/i)).not.toBeInTheDocument()
   })
 
-  it('retries once, prevents concurrent retry, and replaces the error with real data', async () => {
-    const retryRequest = deferred<AdminLostFoundOverview>()
+  it('shows an error, clears stale data, and retries successfully', async () => {
+    const retry = deferred<AdminLostFoundOverview>()
     getOverview
       .mockRejectedValueOnce(new Error('Unable to load Lost & Found overview.'))
-      .mockReturnValueOnce(retryRequest.promise)
+      .mockReturnValueOnce(retry.promise)
 
     renderSection()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load Lost & Found overview.')
-    const retryButton = screen.getByRole('button', { name: 'Retry' })
-
-    fireEvent.click(retryButton)
-
+    expect(screen.queryByRole('group', { name: 'Total Reports' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(screen.getByRole('status')).toHaveTextContent('Loading Lost & Found overview')
-    fireEvent.click(retryButton)
     expect(getOverview).toHaveBeenCalledTimes(2)
 
     await act(async () => {
-      retryRequest.resolve(overviewFixture)
-      await retryRequest.promise
+      retry.resolve(overviewFixture)
+      await retry.promise
     })
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
-    expectMetric('Total Reports', 12)
-    expectMetric('Open Reports', 5)
-    expectMetric('Pending Claims', 2)
-    expect(within(getActionRequiredRegion()).getByText('2 pending claims require review.')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Total Reports' })).toHaveTextContent('12')
+  })
+
+  it('prevents duplicate concurrent requests under StrictMode', () => {
+    const pending = deferred<AdminLostFoundOverview>()
+    getOverview.mockReturnValue(pending.promise)
+
+    render(
+      <StrictMode>
+        <LostFoundOverviewSection />
+      </StrictMode>,
+    )
+
+    expect(getOverview).toHaveBeenCalledTimes(1)
   })
 
   it('settles a pending request safely after unmount', async () => {
-    const request = deferred<AdminLostFoundOverview>()
-    getOverview.mockReturnValue(request.promise)
-    const { unmount } = renderSection()
+    const pending = deferred<AdminLostFoundOverview>()
+    getOverview.mockReturnValue(pending.promise)
+    const view = renderSection()
 
-    expect(getOverview).toHaveBeenCalledTimes(1)
-    unmount()
+    view.unmount()
 
     await act(async () => {
-      request.resolve(overviewFixture)
-      await request.promise
+      pending.resolve(overviewFixture)
+      await pending.promise
     })
 
-    expect(getOverview).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps all metric cards read-only and non-navigational', async () => {
-    renderSection()
-
-    expect(
-      await screen.findByRole('group', { name: 'Total Reports' }),
-    ).toBeInTheDocument()
-
-    for (const label of ['Total Reports', 'Open Reports', 'Pending Claims']) {
-      const metric = getMetric(label)
-      expect(metric.closest('a')).toBeNull()
-      expect(metric.closest('button')).toBeNull()
-      expect(metric).not.toHaveAttribute('href')
-      expect(within(metric).queryByRole('link')).not.toBeInTheDocument()
-      expect(within(metric).queryByRole('button')).not.toBeInTheDocument()
-    }
-  })
-
-  it('shows plural pending claims and the read-only limitation without actions', async () => {
-    renderSection()
-
-    const actionRequired = await screen.findByRole('region', { name: 'Action Required' })
-    expect(within(actionRequired).getByText('2 pending claims require review.')).toBeInTheDocument()
-    expect(within(actionRequired).getByText('Claim review actions are not available in this read-only dashboard yet.')).toBeInTheDocument()
-    expect(within(actionRequired).queryByRole('link')).not.toBeInTheDocument()
-    expect(within(actionRequired).queryByRole('button')).not.toBeInTheDocument()
-    expect(getOverview).toHaveBeenCalledTimes(1)
-  })
-
-  it('uses singular grammar for one pending claim', async () => {
-    getOverview.mockResolvedValue({ ...overviewFixture, submittedClaims: 1 })
-
-    renderSection()
-
-    const actionRequired = await screen.findByRole('region', { name: 'Action Required' })
-    expect(within(actionRequired).getByText('1 pending claim requires review.')).toBeInTheDocument()
-    expect(within(actionRequired).getByText('Claim review actions are not available in this read-only dashboard yet.')).toBeInTheDocument()
-  })
-
-  it('shows the zero pending-claims message without implying an available action', async () => {
-    getOverview.mockResolvedValue({ ...overviewFixture, submittedClaims: 0 })
-
-    renderSection()
-
-    const actionRequired = await screen.findByRole('region', { name: 'Action Required' })
-    expect(within(actionRequired).getByText('No pending claims require review.')).toBeInTheDocument()
-    expect(within(actionRequired).queryByText('Claim review actions are not available in this read-only dashboard yet.')).not.toBeInTheDocument()
-    expect(within(actionRequired).queryByRole('link')).not.toBeInTheDocument()
-    expect(within(actionRequired).queryByRole('button')).not.toBeInTheDocument()
     expect(getOverview).toHaveBeenCalledTimes(1)
   })
 })

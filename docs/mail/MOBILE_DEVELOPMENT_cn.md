@@ -38,8 +38,8 @@
 
 - **mail-service**：`agent/mail_agent/`，FastAPI 应用，监听 **5000** 端口。所有邮件/日历能力都通过它暴露。
 - **mail-agent-mcp**：`agent/mcp_servers/mail_server.py`，监听 **8081**，把 mail 服务包装成 MCP streamable HTTP 工具给聊天编排层调用（`chat` 模块 → 意图路由 → MCP invoke → mail REST）。**移动端做独立 Mail 页面不需要对接它**；只有做「聊天里问邮件」时才相关（见 §6.5）。
-- **身份**：CampusLink 的 JWT 通过 `Authorization: Bearer <jwt>` 传入。mail 服务目前**只校验 Bearer 前缀格式，不验真伪**；日历的用户隔离就是用这个 token 字符串本身作为 `user_id`（详见 §4.3）。
-- **Gmail 授权**：全站共用**一个** Gmail 账号（OAuth2 web flow，一次性授权后刷新令牌持久化到 `token.json`）。所有用户看到的都是这个共享邮箱。
+- **身份**：CampusLink 的 JWT 通过 `Authorization: Bearer <jwt>` 传入。mail 服务现在**验签用户 JWT**（HS256，`JWT_SECRET` 与后端一致），`sub`（邮箱）即用户身份；聊天/MCP 通道无法携带用户 JWT（用户 JWT 不离开 Chat Backend），改由 `mail-agent-mcp` 用共享密钥代签短时内部令牌（HS256，`MAIL_INTERNAL_SECRET`/`AGENT_SHARED_SECRET`，`aud=mail-service`，30s TTL）转发，`sub` 为数字 userId（详见 §4.1）。
+- **Gmail 授权**：**每个用户绑定自己的 Gmail 账号**（OAuth2 web flow，授权后刷新令牌按用户持久化到 `gmail_tokens/`）。不再有全站共享邮箱；各用户看到的是自己的 Gmail（详见 §4.2）。
 
 ### 1.2 代码文件速查
 
@@ -74,7 +74,7 @@ python -m venv .venv
 ```
 
 - 依赖：`fastapi`、`pydantic`、`google-api-python-client`、`google-auth-oauthlib`、`langchain`、`langgraph`、`scikit-learn` 等（见 `pyproject.toml`）。
-- 健康检查：`curl http://localhost:5000/health` 返回 `{status, service, gmail_connected, agent_configured, agent_model}`。
+- 健康检查：`curl http://localhost:5000/health` 返回 `{status, service, gmail_connected, gmail_users_connected, agent_configured, agent_model}`（`gmail_connected` = 是否有用户已绑定 Gmail）。
 - 环境变量从仓库根 `.env` 读取（`config.py` 自动 `load_dotenv`）。与 mail 相关的变量：
 
 | 环境变量 | 默认/回退 | 说明 |
@@ -84,18 +84,20 @@ python -m venv .venv
 | `MAIL_FRONTEND_URL` | 空 → 回跳请求来源 | OAuth 完成后浏览器跳回的前端地址 |
 | `MAIL_LLM_API_KEY` / `BASE_URL` / `MODEL` | 回退 `DEEPSEEK_API_KEY` / `api.deepseek.com` / `deepseek-v4-flash` | Agent 与日历 LLM 抽取共用 |
 | `MAIL_CALENDAR_DB` | `agent/mail_agent/calendar.db` | SQLite 日历库路径 |
-| `GMAIL_TOKEN_PATH` | `agent/mail_agent/token.json` | Gmail OAuth 刷新令牌持久化位置 |
+| `GMAIL_TOKEN_DIR` | `agent/mail_agent/gmail_tokens/` | **每个用户**一个 Gmail OAuth 刷新令牌文件（`<sha256(user_id)>.json`） |
+| `JWT_SECRET` | 空（未配置则用户 JWT 通道 fail-closed） | 用户 JWT 验签密钥，**必须与后端 Java 的 `JWT_SECRET` 一致** |
+| `MAIL_INTERNAL_SECRET` | 回退 `AGENT_SHARED_SECRET` | 内部令牌（聊天/MCP 通道代签）验签密钥 |
 
-### 2.2 一次性 Gmail 授权（必须做一次，否则所有邮件接口返回 409）
+### 2.2 Gmail 授权（每个用户必须做一次，否则自己的邮件接口返回 409）
 
-mail 服务直连真实 Gmail，需要先授权共享账号：
+mail 服务直连真实 Gmail，需要**当前登录用户**先授权自己的 Gmail：
 
 1. 服务跑在 5000 端口（`http://localhost:5000/callback` 必须已在 Google Cloud Console 注册为 Authorized redirect URI，**端口不能改**）。
-2. 任意请求头带 JWT 调 `GET /api/mail/oauth/url`，得到 `auth_url`。
-3. 浏览器打开 `auth_url` → Google 同意页 → 授权后跳回 `/callback` → 服务用 code 换 token 并持久化到 `token.json`。
-4. 之后 `GET /api/mail/oauth/status` 应返回 `{connected: true, email: ...}`。
+2. 请求头带 JWT 调 `GET /api/mail/oauth/url`，得到 `auth_url`（已绑定该用户）。
+3. 浏览器打开 `auth_url` → Google 同意页 → 授权后跳回 `/callback` → 服务用 code 换 token 并按 `state` 还原用户，持久化到 `gmail_tokens/<sha256(user_id)>.json`。
+4. 之后 `GET /api/mail/oauth/status` 应返回 `{connected: true, email: ...}`（只反映当前用户）。
 
-重新授权/换账号：删除 `token.json` 或调 `POST /api/mail/oauth/disconnect` 后重走流程。
+重新授权/换账号：调 `POST /api/mail/oauth/disconnect`（**只清当前用户**的 token）后重走流程。
 
 > **移动端注意**：此流程是为 Web 浏览器设计的。原生 App 里建议用系统浏览器/WebView 打开 `auth_url`，授权完成后让服务端 `/callback` 自行完成换 token，App 再轮询 `GET /api/mail/oauth/status` 判断是否 connected（详见 §4.2）。
 
@@ -117,8 +119,8 @@ mail 服务直连真实 Gmail，需要先授权共享账号：
 Authorization: Bearer <CampusLink JWT>
 ```
 
-- 缺头 / 不是 `Bearer ` 开头 → **401** `{"code":"UNAUTHORIZED","error":"..."}`。
-- 服务**不校验 JWT 真伪与过期**，只检查前缀（见 §4.3 说明）。移动端仍应传真实登录 JWT。
+- 缺头 / 不是 `Bearer ` 开头 / token 无法验签 → **401** `{"code":"UNAUTHORIZED","error":"..."}`。
+- 服务**验签用户 JWT**（HS256，`JWT_SECRET` 与后端一致）：用户身份 = `sub`（邮箱）；也可接受内部令牌（见 §4.1）。移动端传真实登录 JWT 即可。
 
 ### 3.2 统一错误格式
 
@@ -173,31 +175,34 @@ Authorization: Bearer <CampusLink JWT>
 
 ### 4.1 两层认证
 
-1. **CampusLink JWT**（App 登录后已有）：所有 `/api/mail/**` 的 Bearer 头。移动端沿用现有 `SessionStore` 取 token 的机制。
-2. **Gmail OAuth**（全站共享一个账号，一次性）：决定 `connected` 状态。未连接时邮件/日历抽取接口返回 409。
+1. **CampusLink JWT**（App 登录后已有）：所有 `/api/mail/**` 的 Bearer 头。mail 服务**验签**该 JWT（HS256，`JWT_SECRET` 须与后端一致），`sub`（邮箱）即用户身份。移动端沿用现有 `SessionStore` 取 token 的机制。
+2. **Gmail OAuth**（**每个用户自己的**账号）：决定 `connected` 状态。当前用户未连接时，其邮件/日历抽取接口返回 409（响应带该用户的 `auth_url`）。
+
+> 聊天/MCP 通道（`mail-agent-mcp`）：用户 JWT 不离开 Chat Backend，因此网关用 `MAIL_INTERNAL_SECRET`（回退 `AGENT_SHARED_SECRET`）代签 30s 内部令牌（`aud=mail-service`，`sub`=数字 userId）调用 mail REST，按该 userId 使用自己的 Gmail 绑定。Web/移动端不涉及此通道。
 
 ### 4.2 Gmail OAuth 在移动端的建议流程
 
 ```
-1. GET /api/mail/oauth/url          → {auth_url, connected}
+1. GET /api/mail/oauth/url          → {auth_url, connected}（auth_url 已绑定当前用户）
 2. 用系统浏览器/WebView 打开 auth_url
    → 用户同意 → Google 302 到 https://campuslink.tokeninf.xyz/callback
-   → mail-service 换 token 并持久化（/callback 由 nginx 转发，见 nginx.conf）
+   → mail-service 按 state 还原用户并换 token，持久化到该用户的 token 文件
+     （/callback 由 nginx 转发，见 nginx.conf）
    → 302 到 MAIL_FRONTEND_URL/mail?connected=1（移动端可忽略此跳转）
 3. App 轮询 GET /api/mail/oauth/status → {connected: true, email}
 4. connected 后即可正常调邮件接口
 ```
 
-- App 无需自己处理 code/state，`/callback` 的 code 交换在服务端完成。
+- App 无需自己处理 code/state，`/callback` 的 code 交换在服务端完成（`state` 由服务端内存保存并绑定发起用户，单进程部署足够）。
 - 若用 WebView 打开，**不要**拦截重定向自行处理；直接让页面走完，靠轮询 status 收尾即可。
 - 生产必须通过注册过的域名（`https://campuslink.tokeninf.xyz/callback`）触发，否则 Google 报 `redirect_uri_mismatch`。
-- `POST /api/mail/oauth/disconnect` 会清掉共享 token —— 影响**所有**用户，移动端 UI 一般不要暴露此入口（Web 端也只放在设置里）。
+- `POST /api/mail/oauth/disconnect` 只清**当前用户**的 Gmail token，不影响其它用户；移动端仍建议谨慎暴露此入口。
 
 ### 4.3 用户隔离现状（重要 caveat）
 
-- 邮件本身**不区分用户**：所有用户共享同一个 Gmail 邮箱。
-- 日历按用户隔离：`user_id` = **Bearer token 字符串本身**（`_user_from_auth` 返回的原文）。同一个 token 字符串会命中同一份日历数据。
-- 因此：移动端**必须**把登录后拿到的 JWT 原样作为 Bearer 传入，且登录态变化（重新登录拿到新 token）会导致日历"看起来丢数据"。日历事件响应里带 `user_id`，可据此判断归属。
+- **邮件与日历都按用户隔离**：`user_id` = 验签后 JWT 的 `sub`（邮箱，Web/移动端）或内部令牌的 `sub`（聊天通道为数字 userId）。每个用户看到的是自己 Gmail 里的邮件、自己的日历事件。
+- 因此：移动端**必须**把登录后拿到的 JWT 原样作为 Bearer 传入；未绑定 Gmail 的用户调邮件接口会得到 409 `GMAIL_NOT_CONNECTED`（带自己的 `auth_url`），引导授权而不是当成错误。
+- ⚠ 聊天通道（数字 userId）与 Web/移动端（邮箱）是两个不同的用户键：同一个人若在两端分别授权，会得到两份独立的 Gmail 绑定（见 §4.1 说明）。
 
 ---
 
@@ -211,7 +216,8 @@ Authorization: Bearer <CampusLink JWT>
 
 ```json
 { "status": "ok", "service": "mail-agent",
-  "gmail_connected": true, "agent_configured": true,
+  "gmail_connected": true, "gmail_users_connected": 3,
+  "agent_configured": true,
   "agent_model": "deepseek-v4-flash" }
 ```
 
@@ -261,7 +267,7 @@ Query 参数：
 - `recipients`：1..20 个，必须含 `@`，自动 trim、去空。
 - `subject`：1..160 字符；`body`：1..10000 字符。
 - 校验失败返回 **422**（FastAPI 校验错误体：`{"detail":[...]}`，与业务错误格式不同，移动端解析时注意）。
-- 响应：发送成功后的 `MailMessage`（发件人为共享 Gmail 账号，`folder=sent`）。
+- 响应：发送成功后的 `MailMessage`（发件人为**当前用户自己的** Gmail 账号，`folder=sent`）。
 
 #### 5.3.4 更新标记 `PATCH /api/mail/messages/{message_id}`
 
@@ -551,8 +557,8 @@ App 的聊天页若想支持"帮我删掉促销邮件"这类请求，走的是**
 
 ## 7. 移动端注意事项汇总（避坑清单）
 
-1. **共享邮箱**：所有用户操作的是同一个 Gmail 账号；不要在产品文案里暗示"我的私人邮箱"。
-2. **Bearer 只查前缀**：服务端不验 JWT 真伪。若将来后端加强校验（如接 Java 端 JWKS），移动端行为不变——始终传真实 JWT 即可。
+1. **按用户绑定 Gmail**：每个用户操作的是**自己授权的 Gmail 账号**；未绑定前自己的邮件接口返回 409（带自己的 `auth_url`）。文案上可以放心说"我的邮箱"，但注意聊天通道与 Web 通道的绑定键不同（§4.3）。
+2. **Bearer 验签**：服务端验签用户 JWT（HS256，`JWT_SECRET` 与后端一致），无效 token → 401。移动端始终传真实登录 JWT 即可。
 3. **`GET` 详情有副作用**：打开详情即标已读。做"预取"或缓存时要小心。
 4. **`total_elements` 是估算**：分页 UI 以 `last` 为准。
 5. **0 起始页码**：`page=0` 是第一页；`page` 与 `size` 超出范围会 422。
@@ -570,11 +576,12 @@ App 的聊天页若想支持"帮我删掉促销邮件"这类请求，走的是**
 
 | 现象 | 原因/解法 |
 |---|---|
-| 所有邮件接口 409 `GMAIL_NOT_CONNECTED` | 还没做 Gmail 授权；调 `/api/mail/oauth/url` 打开 `auth_url` 完成授权 |
+| 邮件接口 409 `GMAIL_NOT_CONNECTED` | **当前用户**还没做 Gmail 授权；调 `/api/mail/oauth/url` 打开自己的 `auth_url` 完成授权（每个用户各自授权一次） |
 | Google 报 `redirect_uri_mismatch` | 访问域名与 Console 注册的回调不一致；生产必须走 `https://campuslink.tokeninf.xyz/callback` |
+| 401 `UNAUTHORIZED` | Bearer 缺失/格式错/JWT 验签失败（`JWT_SECRET` 与后端不一致或已过期） |
 | 列表接口很慢 | Gmail API 本身延迟 + 批量元数据拉取；分页缓存只在服务端进程内，重启后首屏会慢一点 |
 | `q` 搜中文整句没结果 | 中文无空格，模糊匹配走子串/相似度；太长的句子建议拆关键词 |
-| 日历事件"不见了" | 重新登录换了新 token → `user_id` 变化；需保持同一登录态（见 §4.3） |
+| 日历事件"不见了" | 换了一个身份键（重新登录/不同通道）→ `user_id` 变化；见 §4.3 |
 | extract 超时 | LLM 抽取慢；确认服务端已配 `MAIL_LLM_API_KEY`（否则自动走规则模式会快很多），移动端用 ≥180s 超时 |
 | agent chat 503 | `MAIL_LLM_API_KEY` / `DEEPSEEK_API_KEY` 未配置 |
 

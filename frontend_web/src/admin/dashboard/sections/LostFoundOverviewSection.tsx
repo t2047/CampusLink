@@ -22,6 +22,59 @@ function MetricCard({ label, value }: MetricCardProps) {
   )
 }
 
+interface ReportStatusChartProps {
+  open: number
+  claimed: number
+  closed: number
+}
+
+function ReportStatusChart({ open, claimed, closed }: ReportStatusChartProps) {
+  const statuses = [
+    { label: 'Open', count: open, color: 'primary.main' },
+    { label: 'Claimed', count: claimed, color: 'warning.main' },
+    { label: 'Closed', count: closed, color: 'success.main' },
+  ]
+  const maxCount = Math.max(0, ...statuses.map(({ count }) => count))
+
+  return (
+    <Card component="section" variant="outlined" aria-labelledby="lost-found-status-heading">
+      <CardContent>
+        <Stack spacing={3}>
+          <Typography id="lost-found-status-heading" component="h3" variant="h6" fontWeight={700}>
+            Lost & Found Report Status
+          </Typography>
+          <Stack spacing={2.5}>
+            {statuses.map(({ label, count, color }) => {
+              const width = maxCount === 0 ? 0 : (count / maxCount) * 100
+              return (
+                <Box key={label} role="group" aria-label={`${label}: ${count}`}>
+                  <Stack direction="row" justifyContent="space-between" spacing={2} sx={{ mb: 0.75 }}>
+                    <Typography fontWeight={600}>{label}</Typography>
+                    <Typography aria-label={`${label} report count`}>{count}</Typography>
+                  </Stack>
+                  <Box sx={{ height: 12, borderRadius: 999, bgcolor: 'action.hover', overflow: 'hidden' }}>
+                    <Box
+                      role="img"
+                      aria-label={`${label} reports: ${count}`}
+                      sx={{
+                        height: '100%',
+                        width: `${width}%`,
+                        minWidth: count > 0 ? 4 : 0,
+                        borderRadius: 999,
+                        bgcolor: color,
+                      }}
+                    />
+                  </Box>
+                </Box>
+              )
+            })}
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function LostFoundOverviewSection() {
   const [overview, setOverview] = useState<AdminLostFoundOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -89,39 +142,18 @@ export function LostFoundOverviewSection() {
 
       {!loading && overview && (
         <>
-          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' } }}>
+          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' } }}>
             <MetricCard label="Total Reports" value={overview.totalReports} />
             <MetricCard label="Open Reports" value={overview.openReports} />
             <MetricCard label="Pending Claims" value={overview.submittedClaims} />
+            <MetricCard label="Hidden Reports" value={overview.hiddenReports} />
           </Box>
 
-          <Card
-            component="section"
-            variant="outlined"
-            aria-labelledby="action-required-heading"
-          >
-            <CardContent>
-              <Stack spacing={1}>
-                <Typography id="action-required-heading" component="h2" variant="h6" fontWeight={700}>
-                  Action Required
-                </Typography>
-                {overview.submittedClaims === 0 ? (
-                  <Typography color="text.secondary">No pending claims require review.</Typography>
-                ) : (
-                  <>
-                    <Typography color="text.secondary">
-                      {overview.submittedClaims === 1
-                        ? '1 pending claim requires review.'
-                        : `${overview.submittedClaims} pending claims require review.`}
-                    </Typography>
-                    <Typography color="text.secondary">
-                      Claim review actions are not available in this read-only dashboard yet.
-                    </Typography>
-                  </>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
+          <ReportStatusChart
+            open={overview.openReports}
+            claimed={overview.claimedReports}
+            closed={overview.closedReports}
+          />
         </>
       )}
     </Box>
