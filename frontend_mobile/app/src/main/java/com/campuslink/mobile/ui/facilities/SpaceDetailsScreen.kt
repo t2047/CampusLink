@@ -11,35 +11,40 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.EventAvailable
+import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.campuslink.mobile.core.model.CreateBookingRequest
 import com.campuslink.mobile.core.model.Space
+import com.campuslink.mobile.ui.CampusEmptyState
+import com.campuslink.mobile.ui.CampusErrorState
+import com.campuslink.mobile.ui.CampusIconContainer
+import com.campuslink.mobile.ui.CampusInfoRow
+import com.campuslink.mobile.ui.CampusLoadingState
+import com.campuslink.mobile.ui.CampusSectionHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusStatusChip
+import com.campuslink.mobile.ui.CampusStatusTone
+import com.campuslink.mobile.ui.CampusSurfaceCard
+import com.campuslink.mobile.ui.CampusTopAppBar
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpaceDetailsScreen(
     viewModel: SpaceDetailsViewModel,
@@ -53,50 +58,56 @@ fun SpaceDetailsScreen(
     val availability by viewModel.availabilityState.collectAsStateWithLifecycle()
     val booking by viewModel.bookingState.collectAsStateWithLifecycle()
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Space Details") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to search")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar("Space Details", onBack, "Back to search") },
     ) { padding ->
         when (val current = details) {
-            SpaceDetailsUiState.Loading -> Column(
-                Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
+            SpaceDetailsUiState.Loading -> CampusLoadingState(
+                label = "Loading space details…",
+                modifier = Modifier.padding(padding),
+            )
             is SpaceDetailsUiState.Error -> Column(
-                Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.fillMaxSize().padding(padding).padding(CampusSpacing.ExtraLarge),
             ) {
-                Text(if (current.notFound) "Space not found" else "Unable to load space", fontWeight = FontWeight.Bold)
-                Text(current.message)
-                OutlinedButton(onClick = viewModel::retry) { Text("Retry") }
+                CampusErrorState(
+                    title = if (current.notFound) "Space not found" else "Unable to load space",
+                    message = current.message,
+                    retryLabel = "Retry",
+                    onRetry = viewModel::retry,
+                )
             }
             is SpaceDetailsUiState.Success -> Column(
-                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(CampusSpacing.ExtraLarge),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
             ) {
-                SpaceDetails(current.space)
+                SpaceOverview(current.space)
+                SpaceFacts(current.space)
+                CampusSurfaceCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+                        verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+                    ) {
+                        Text("Equipment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            current.space.equipment.sorted().joinToString().ifEmpty { "None listed" },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 OutlinedButton(
                     onClick = { onReportIssue(current.space.spaceId) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Report a facility issue") }
-                HorizontalDivider()
                 AvailabilitySection(
                     selection = selection,
                     state = availability,
                     bookingState = booking,
                     viewModel = viewModel,
-                    bookingActions = BookingActions(
-                        onViewBooking = onViewBooking,
-                        onMyBookings = onMyBookings,
-                    ),
+                    bookingActions = BookingActions(onViewBooking, onMyBookings),
                 )
             }
         }
@@ -121,25 +132,51 @@ fun SpaceDetailsScreen(
 }
 
 @Composable
-private fun SpaceDetails(space: Space) {
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Text(space.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        DetailLine("Building", space.building)
-        DetailLine("Floor", space.floor)
-        DetailLine("Room", space.roomNumber)
-        DetailLine("Type", space.spaceType.replace('_', ' '))
-        DetailLine("Capacity", space.capacity.toString())
-        DetailLine("Equipment", space.equipment.sorted().joinToString().ifEmpty { "None listed" })
-        DetailLine("Opening hours", "${space.openingTime} – ${space.closingTime}")
-        DetailLine("Status", space.status)
+private fun SpaceOverview(space: Space) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(CampusSpacing.ExtraLarge),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CampusIconContainer(
+                    icon = Icons.Default.MeetingRoom,
+                    contentDescription = null,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(space.name, style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        "${space.building} · ${space.roomNumber}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                CampusStatusChip(space.status, spaceTone(space.status))
+            }
+            Text(space.spaceType.replace('_', ' '), style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
 @Composable
-private fun DetailLine(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, modifier = Modifier.padding(start = 16.dp))
+private fun SpaceFacts(space: Space) {
+    CampusSectionHeader("Key facts")
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Large)) {
+                CampusInfoRow("Capacity", space.capacity.toString(), Modifier.weight(1f))
+                CampusInfoRow("Floor", space.floor, Modifier.weight(1f))
+            }
+            CampusInfoRow("Opening hours", "${space.openingTime} – ${space.closingTime}")
+        }
     }
 }
 
@@ -152,42 +189,61 @@ private fun AvailabilitySection(
     bookingActions: BookingActions,
 ) {
     val context = LocalContext.current
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Check Availability", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        OutlinedButton(
-            onClick = {
-                val initial = selection.date ?: LocalDate.now()
-                DatePickerDialog(
-                    context,
-                    { _, year, month, day -> viewModel.updateDate(LocalDate.of(year, month + 1, day)) },
-                    initial.year,
-                    initial.monthValue - 1,
-                    initial.dayOfMonth,
-                ).show()
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(selection.date?.format(DATE_DISPLAY) ?: "Choose date") }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TimeButton("Start time", selection.startTime, Modifier.weight(1f), viewModel::updateStartTime)
-            TimeButton("End time", selection.endTime, Modifier.weight(1f), viewModel::updateEndTime)
-        }
-        Button(
-            onClick = viewModel::checkAvailability,
-            enabled = state !is AvailabilityUiState.Checking,
-            modifier = Modifier.fillMaxWidth(),
+    CampusSectionHeader("Availability")
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
         ) {
-            if (state is AvailabilityUiState.Checking) CircularProgressIndicator()
-            else Text("Check Availability")
-        }
-        AvailabilityResult(state)
-        if (state is AvailabilityUiState.Available && bookingState !is BookingCreationUiState.Success) {
-            Button(
-                onClick = viewModel::requestBooking,
-                enabled = bookingState !is BookingCreationUiState.Submitting,
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CampusIconContainer(Icons.Default.EventAvailable, contentDescription = null)
+                Column(Modifier.weight(1f)) {
+                    Text("Check Availability", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Choose a date and time before booking.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    val initial = selection.date ?: LocalDate.now()
+                    DatePickerDialog(
+                        context,
+                        { _, year, month, day -> viewModel.updateDate(LocalDate.of(year, month + 1, day)) },
+                        initial.year,
+                        initial.monthValue - 1,
+                        initial.dayOfMonth,
+                    ).show()
+                },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Book This Space") }
+            ) { Text(selection.date?.format(DATE_DISPLAY) ?: "Choose date") }
+            Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium)) {
+                TimeButton("Start time", selection.startTime, Modifier.weight(1f), viewModel::updateStartTime)
+                TimeButton("End time", selection.endTime, Modifier.weight(1f), viewModel::updateEndTime)
+            }
+            Button(
+                onClick = viewModel::checkAvailability,
+                enabled = state !is AvailabilityUiState.Checking,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (state is AvailabilityUiState.Checking) CircularProgressIndicator()
+                else Text("Check Availability")
+            }
+            AvailabilityResult(state)
+            if (state is AvailabilityUiState.Available && bookingState !is BookingCreationUiState.Success) {
+                Button(
+                    onClick = viewModel::requestBooking,
+                    enabled = bookingState !is BookingCreationUiState.Submitting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Book This Space") }
+            }
+            BookingCreationResult(bookingState, viewModel, bookingActions)
         }
-        BookingCreationResult(bookingState, viewModel, bookingActions)
     }
 }
 
@@ -202,22 +258,29 @@ private fun BookingCreationResult(
         is BookingCreationUiState.Confirming,
         is BookingCreationUiState.Submitting,
         -> Unit
-        is BookingCreationUiState.Success -> Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Booking confirmed", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("Booking ID: ${state.booking.bookingId}")
+        is BookingCreationUiState.Success -> CampusSurfaceCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+            ) {
+                CampusStatusChip("CONFIRMED", CampusStatusTone.SUCCESS)
+                Text("Booking confirmed", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Booking ID: ${state.booking.bookingId}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(state.booking.space.name)
                 Text("${formatBookingDate(state.booking.startDateTime)} · ${formatBookingRange(state.booking)}")
-                Text("Status: ${state.booking.status.name}")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
                     Button(onClick = { actions.onViewBooking(state.booking.bookingId) }) { Text("View Booking") }
                     OutlinedButton(onClick = actions.onMyBookings) { Text("My Bookings") }
                 }
             }
         }
-        is BookingCreationUiState.Error -> Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Booking not completed", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+        is BookingCreationUiState.Error -> CampusSurfaceCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+            ) {
+                CampusStatusChip("NOT COMPLETED", CampusStatusTone.ERROR)
+                Text("Booking not completed", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(state.message)
                 TextButton(onClick = viewModel::clearBookingFeedback) { Text("Dismiss") }
             }
@@ -228,7 +291,7 @@ private fun BookingCreationResult(
 @Composable
 private fun BookingConfirmationDialog(
     space: Space?,
-    request: com.campuslink.mobile.core.model.CreateBookingRequest,
+    request: CreateBookingRequest,
     submitting: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -238,7 +301,7 @@ private fun BookingConfirmationDialog(
         onDismissRequest = { if (!submitting) onDismiss() },
         title = { Text("Book ${space.name}?") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
                 Text("${space.building} / ${space.roomNumber}")
                 Text(formatBookingDate(request.startDateTime))
                 Text(formatBookingRange(request.startDateTime, request.endDateTime))
@@ -277,32 +340,36 @@ private fun TimeButton(label: String, value: LocalTime?, modifier: Modifier, onS
 private fun AvailabilityResult(state: AvailabilityUiState) {
     when (state) {
         AvailabilityUiState.Idle, AvailabilityUiState.Checking -> Unit
-        is AvailabilityUiState.Available -> ResultCard(
-            title = "Available",
-            message = "This space is available for the selected time.",
-            isError = false,
+        is AvailabilityUiState.Available -> AvailabilityResultCard(
+            "Available",
+            "This space is available for the selected time.",
+            CampusStatusTone.SUCCESS,
         )
-        is AvailabilityUiState.Unavailable -> ResultCard(
-            title = "Unavailable",
-            message = state.response.reasonCode?.replace('_', ' ') ?: "This time is not available.",
-            isError = true,
+        is AvailabilityUiState.Unavailable -> AvailabilityResultCard(
+            "Unavailable",
+            state.response.reasonCode?.replace('_', ' ') ?: "This time is not available.",
+            CampusStatusTone.ERROR,
         )
-        is AvailabilityUiState.Error -> ResultCard("Could not check availability", state.message, true)
+        is AvailabilityUiState.Error -> AvailabilityResultCard(
+            "Could not check availability",
+            state.message,
+            CampusStatusTone.ERROR,
+        )
     }
 }
 
 @Composable
-private fun ResultCard(title: String, message: String, isError: Boolean) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                title,
-                fontWeight = FontWeight.Bold,
-                color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            )
-            Text(message)
-        }
+private fun AvailabilityResultCard(title: String, message: String, tone: CampusStatusTone) {
+    Column(verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
+        CampusStatusChip(title.uppercase(), tone)
+        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+private fun spaceTone(status: String): CampusStatusTone = when (status.uppercase()) {
+    "ACTIVE", "AVAILABLE", "OPEN" -> CampusStatusTone.SUCCESS
+    "INACTIVE", "UNAVAILABLE", "CLOSED" -> CampusStatusTone.ERROR
+    else -> CampusStatusTone.NEUTRAL
 }
 
 private val DATE_DISPLAY = DateTimeFormatter.ofPattern("dd MMM yyyy")

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.campuslink.mobile.core.model.AvailabilityResponse
 import com.campuslink.mobile.core.model.BookingResponse
@@ -63,7 +64,7 @@ class FacilitiesMaintenanceUiTest {
             viewModel.updatePriority(MaintenancePriority.HIGH)
         }
 
-        rule.onNodeWithText("Submit Request").performClick()
+        rule.onNodeWithText("Submit Request").performScrollTo().performClick()
         rule.onNodeWithText("Submit maintenance request?").assertIsDisplayed()
         assertEquals(0, repository.submitCalls)
     }

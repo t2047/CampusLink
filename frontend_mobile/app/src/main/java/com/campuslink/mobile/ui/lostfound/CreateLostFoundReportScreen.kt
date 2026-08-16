@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,16 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -31,7 +29,6 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,19 +38,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.campuslink.mobile.core.model.ItemCategory
 import com.campuslink.mobile.core.model.ReportType
 import com.campuslink.mobile.core.model.UploadImage
+import com.campuslink.mobile.ui.CampusErrorState
+import com.campuslink.mobile.ui.CampusPageHeader
+import com.campuslink.mobile.ui.CampusSectionHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusSurfaceCard
+import com.campuslink.mobile.ui.CampusTopAppBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+internal const val CREATE_REPORT_LIST_TAG = "create-report-list"
+
 @Composable
 fun CreateLostFoundReportScreen(
     reportType: ReportType,
@@ -68,9 +74,9 @@ fun CreateLostFoundReportScreen(
     val imageUris = remember { mutableStateListOf<Uri>() }
     var imageReadError by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected ->
-        imageReadError = if (selected.size > 5) "Only the first 5 images were selected." else null
+        imageReadError = if (selected.size > MAX_IMAGES) "Only the first 5 images were selected." else null
         imageUris.clear()
-        imageUris.addAll(selected.take(5))
+        imageUris.addAll(selected.take(MAX_IMAGES))
     }
     val success = state as? CreateReportUiState.Success
     LaunchedEffect(success?.report?.id) {
@@ -80,82 +86,148 @@ fun CreateLostFoundReportScreen(
         }
     }
 
+    val pageTitle = if (reportType == ReportType.LOST) "Report Lost Item" else "Report Found Item"
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (reportType == ReportType.LOST) "Report lost item" else "Report found item") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Lost & Found")
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar(pageTitle, onBack, "Back to Lost & Found") },
+    ) { padding ->
+        CreateReportContent(
+            data = CreateReportUiData(pageTitle, form, state, imageUris, imageReadError),
+            actions = CreateReportUiActions(
+                pickImages = { picker.launch("image/*") },
+                removeImage = imageUris::remove,
+                dismissImageError = { imageReadError = null },
+                dismissReportError = viewModel::clearFeedback,
+                publish = {
+                    scope.launch {
+                        val images = runCatching { readImages(context, imageUris) }
+                            .onFailure { imageReadError = "One of the selected images could not be read." }
+                            .getOrNull()
+                        if (images != null) viewModel.submit(images)
                     }
                 },
+            ),
+            viewModel = viewModel,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+@Composable
+private fun CreateReportContent(
+    data: CreateReportUiData,
+    actions: CreateReportUiActions,
+    viewModel: CreateLostFoundReportViewModel,
+    modifier: Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize().testTag(CREATE_REPORT_LIST_TAG),
+        contentPadding = PaddingValues(
+            start = CampusSpacing.ExtraLarge,
+            top = CampusSpacing.Small,
+            end = CampusSpacing.ExtraLarge,
+            bottom = CampusSpacing.Huge,
+        ),
+        verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
+    ) {
+        item {
+            CampusPageHeader(
+                title = data.pageTitle,
+                subtitle = "Share clear details to help the campus community respond.",
             )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item { ReportFormFields(form, viewModel) }
+        }
+        item {
+            CampusSectionHeader("Item details")
+            CampusSurfaceCard(Modifier.fillMaxWidth().padding(top = CampusSpacing.Medium)) {
+                ReportFormFields(data.form, viewModel)
+            }
+        }
+        item { CampusSectionHeader("Photos", supportingText = "Optional · up to 5") }
+        item {
+            OutlinedButton(onClick = actions.pickImages, modifier = Modifier.fillMaxWidth()) {
+                Text("Choose images (${data.images.size}/$MAX_IMAGES)")
+            }
+        }
+        data.imageError?.let { message ->
             item {
-                OutlinedButton(onClick = { picker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Choose images (${imageUris.size}/5)")
+                CampusErrorState("Image selection issue", message, "Dismiss", actions.dismissImageError)
+            }
+        }
+        if (data.images.isNotEmpty()) item { SelectedImages(data.images, actions.removeImage) }
+        item { CreateReportSubmitState(data.state, actions) }
+    }
+}
+
+@Composable
+private fun SelectedImages(images: List<Uri>, onRemove: (Uri) -> Unit) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium)) {
+        items(images, key = Uri::toString) { uri ->
+            OutlinedCard {
+                Column {
+                    AsyncImage(
+                        model = uri,
+                        contentDescription = "Selected report image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .height(120.dp)
+                            .fillParentMaxWidth(0.42f)
+                            .clip(RoundedCornerShape(CampusSpacing.Medium)),
+                    )
+                    OutlinedButton(
+                        onClick = { onRemove(uri) },
+                        modifier = Modifier.padding(CampusSpacing.Small),
+                    ) { Text("Remove") }
                 }
             }
-            imageReadError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
-            if (imageUris.isNotEmpty()) {
-                item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(imageUris, key = Uri::toString) { uri ->
-                            OutlinedCard {
-                                Column {
-                                    AsyncImage(
-                                        model = uri,
-                                        contentDescription = "Selected report image",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.height(120.dp).fillParentMaxWidth(0.42f),
-                                    )
-                                    OutlinedButton(onClick = { imageUris.remove(uri) }) { Text("Remove") }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                when (val current = state) {
-                    CreateReportUiState.Idle -> Button(
-                        onClick = {
-                            scope.launch {
-                                val images = runCatching { readImages(context, imageUris) }
-                                    .onFailure { imageReadError = "One of the selected images could not be read." }
-                                    .getOrNull()
-                                if (images != null) viewModel.submit(images)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Publish report") }
-                    CreateReportUiState.Submitting -> Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) { CircularProgressIndicator() }
-                    is CreateReportUiState.Error -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(current.message, color = MaterialTheme.colorScheme.error)
-                        OutlinedButton(onClick = viewModel::clearFeedback) { Text("Dismiss") }
-                    }
-                    is CreateReportUiState.Success -> Unit
-                }
-            }
-            item { Text("") }
         }
     }
 }
+
+@Composable
+private fun CreateReportSubmitState(state: CreateReportUiState, actions: CreateReportUiActions) {
+    when (state) {
+        CreateReportUiState.Idle -> Button(
+            onClick = actions.publish,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Publish report") }
+        CreateReportUiState.Submitting -> Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) { CircularProgressIndicator() }
+        is CreateReportUiState.Error -> CampusErrorState(
+            title = "Report not published",
+            message = state.message,
+            retryLabel = "Dismiss",
+            onRetry = actions.dismissReportError,
+        )
+        is CreateReportUiState.Success -> Unit
+    }
+}
+
+private data class CreateReportUiData(
+    val pageTitle: String,
+    val form: CreateReportForm,
+    val state: CreateReportUiState,
+    val images: List<Uri>,
+    val imageError: String?,
+)
+
+private data class CreateReportUiActions(
+    val pickImages: () -> Unit,
+    val removeImage: (Uri) -> Unit,
+    val dismissImageError: () -> Unit,
+    val dismissReportError: () -> Unit,
+    val publish: () -> Unit,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReportFormFields(form: CreateReportForm, viewModel: CreateLostFoundReportViewModel) {
     var categoryExpanded by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+    ) {
         OutlinedTextField(
             value = form.itemName,
             onValueChange = viewModel::updateItemName,
@@ -191,29 +263,29 @@ private fun ReportFormFields(form: CreateReportForm, viewModel: CreateLostFoundR
             value = form.description,
             onValueChange = viewModel::updateDescription,
             label = { Text("Description*") },
+            supportingText = { Text("Include identifying details without sharing sensitive information") },
             minLines = 4,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(
-                value = form.colour,
-                onValueChange = viewModel::updateColour,
-                label = { Text("Colour") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedTextField(
-                value = form.location,
-                onValueChange = viewModel::updateLocation,
-                label = { Text("Location*") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        OutlinedTextField(
+            value = form.colour,
+            onValueChange = viewModel::updateColour,
+            label = { Text("Colour") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = form.location,
+            onValueChange = viewModel::updateLocation,
+            label = { Text("Location*") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         OutlinedTextField(
             value = form.eventDate,
             onValueChange = viewModel::updateEventDate,
-            label = { Text("Date* (YYYY-MM-DD)") },
+            label = { Text("Date*") },
+            supportingText = { Text("YYYY-MM-DD") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -239,3 +311,5 @@ private suspend fun readImages(context: Context, uris: List<Uri>): List<UploadIm
         )
     }
 }
+
+private const val MAX_IMAGES = 5

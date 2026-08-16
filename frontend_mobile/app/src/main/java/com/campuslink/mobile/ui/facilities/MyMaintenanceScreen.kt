@@ -1,8 +1,8 @@
 package com.campuslink.mobile.ui.facilities
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,30 +10,33 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campuslink.mobile.core.model.MaintenanceResponse
 import com.campuslink.mobile.core.model.MaintenanceStatus
+import com.campuslink.mobile.ui.CampusEmptyState
+import com.campuslink.mobile.ui.CampusErrorState
+import com.campuslink.mobile.ui.CampusLoadingState
+import com.campuslink.mobile.ui.CampusPageHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusStatusChip
+import com.campuslink.mobile.ui.CampusStatusTone
+import com.campuslink.mobile.ui.CampusTopAppBar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyMaintenanceScreen(
     viewModel: MyMaintenanceViewModel,
@@ -43,41 +46,48 @@ fun MyMaintenanceScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.onScreenVisible() }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("My Maintenance Requests") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to facilities")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar("My Maintenance", onBack, "Back to Facilities") },
     ) { padding ->
         when (val current = state) {
-            MyMaintenanceUiState.Loading -> Column(
-                Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
-            MyMaintenanceUiState.Empty -> MessageState(
-                "No maintenance requests",
-                "Requests you submit will appear here.",
-                Modifier.padding(padding),
-            )
-            is MyMaintenanceUiState.Error -> MessageState(
-                "Unable to load requests",
-                current.message,
-                Modifier.padding(padding),
-                retry = viewModel::refresh,
-            )
-            is MyMaintenanceUiState.Success -> LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            MyMaintenanceUiState.Loading -> CampusLoadingState("Loading requests…", Modifier.padding(padding))
+            MyMaintenanceUiState.Empty -> Column(
+                Modifier.fillMaxSize().padding(padding).padding(CampusSpacing.ExtraLarge),
             ) {
+                CampusEmptyState(
+                    title = "No maintenance requests",
+                    message = "Requests you submit will appear here.",
+                    icon = Icons.AutoMirrored.Filled.Assignment,
+                )
+            }
+            is MyMaintenanceUiState.Error -> Column(
+                Modifier.fillMaxSize().padding(padding).padding(CampusSpacing.ExtraLarge),
+            ) {
+                CampusErrorState(
+                    title = "Unable to load requests",
+                    message = current.message,
+                    retryLabel = "Retry",
+                    onRetry = viewModel::refresh,
+                )
+            }
+            is MyMaintenanceUiState.Success -> LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(
+                    start = CampusSpacing.ExtraLarge,
+                    top = CampusSpacing.Small,
+                    end = CampusSpacing.ExtraLarge,
+                    bottom = CampusSpacing.Huge,
+                ),
+                verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+            ) {
+                item {
+                    CampusPageHeader(
+                        title = "Maintenance requests",
+                        subtitle = "Track issue status and Facilities updates.",
+                    )
+                }
                 items(current.requests, key = MaintenanceResponse::ticketId) { request ->
-                    MaintenanceCard(request, onOpenRequest)
+                    MaintenanceCard(request) { onOpenRequest(request.ticketId) }
                 }
             }
         }
@@ -85,19 +95,45 @@ fun MyMaintenanceScreen(
 }
 
 @Composable
-private fun MaintenanceCard(request: MaintenanceResponse, onOpen: (Long) -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable { onOpen(request.ticketId) }) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Ticket #${request.ticketId}", fontWeight = FontWeight.Bold)
+internal fun MaintenanceCard(request: MaintenanceResponse, onOpen: () -> Unit) {
+    Card(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) { role = Role.Button },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(request.facilityType, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        request.spaceName ?: "${request.building} / ${request.roomNumber}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 MaintenanceStatusLabel(request.status)
             }
-            Text(request.spaceName ?: "${request.building} / ${request.roomNumber}")
-            Text(request.facilityType, style = MaterialTheme.typography.titleMedium)
             Text(request.description, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("Priority: ${request.priority.displayName()}")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Priority · ${request.priority.displayName()}", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Updated ${formatMaintenanceDateTime(request.updatedAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
-                "Updated ${formatMaintenanceDateTime(request.updatedAt)}",
+                "Ticket #${request.ticketId}",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -106,29 +142,15 @@ private fun MaintenanceCard(request: MaintenanceResponse, onOpen: (Long) -> Unit
 
 @Composable
 internal fun MaintenanceStatusLabel(status: MaintenanceStatus) {
-    Text(
-        status.displayName(),
-        color = when (status) {
-            MaintenanceStatus.RESOLVED -> MaterialTheme.colorScheme.primary
-            MaintenanceStatus.CANCELLED -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.tertiary
-        },
-        fontWeight = FontWeight.Bold,
-    )
-}
-
-@Composable
-private fun MessageState(title: String, message: String, modifier: Modifier, retry: (() -> Unit)? = null) {
-    Column(
-        modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(title, fontWeight = FontWeight.Bold)
-        Text(message, modifier = Modifier.padding(vertical = 8.dp))
-        retry?.let { OutlinedButton(onClick = it) { Text("Retry") } }
-    }
+    CampusStatusChip(status.displayName(), maintenanceStatusTone(status))
 }
 
 internal fun MaintenanceStatus.displayName(): String = name.lowercase().split('_')
     .joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+
+internal fun maintenanceStatusTone(status: MaintenanceStatus): CampusStatusTone = when (status) {
+    MaintenanceStatus.SUBMITTED -> CampusStatusTone.INFO
+    MaintenanceStatus.IN_PROGRESS -> CampusStatusTone.WARNING
+    MaintenanceStatus.RESOLVED -> CampusStatusTone.SUCCESS
+    MaintenanceStatus.CANCELLED -> CampusStatusTone.ERROR
+}

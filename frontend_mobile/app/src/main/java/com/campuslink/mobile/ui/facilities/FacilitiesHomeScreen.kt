@@ -1,27 +1,27 @@
 package com.campuslink.mobile.ui.facilities
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.EventNote
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import com.campuslink.mobile.ui.CampusActionCard
+import com.campuslink.mobile.ui.CampusActionCopy
+import com.campuslink.mobile.ui.CampusPageHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusTopAppBar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FacilitiesHomeScreen(
     onBack: () -> Unit,
@@ -31,46 +31,61 @@ fun FacilitiesHomeScreen(
     onMyMaintenance: () -> Unit,
 ) {
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Facilities") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Home")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar("Facilities", onBack, "Back to Home") },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp)) {
-            Text(
-                "Find campus spaces that fit your needs.",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            ListItem(
-                headlineContent = { Text("Search Spaces") },
-                supportingContent = { Text("Browse rooms and check their availability") },
-                leadingContent = { Icon(Icons.Default.Search, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onSearchSpaces),
-            )
-            ListItem(
-                headlineContent = { Text("My Bookings") },
-                supportingContent = { Text("View and manage your space bookings") },
-                leadingContent = { Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onMyBookings),
-            )
-            ListItem(
-                headlineContent = { Text("Report Maintenance") },
-                supportingContent = { Text("Report an issue with a campus space") },
-                leadingContent = { Icon(Icons.Default.Build, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onReportMaintenance),
-            )
-            ListItem(
-                headlineContent = { Text("My Maintenance Requests") },
-                supportingContent = { Text("Track the status of submitted requests") },
-                leadingContent = { Icon(Icons.AutoMirrored.Filled.Assignment, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onMyMaintenance),
-            )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(
+                start = CampusSpacing.ExtraLarge,
+                top = CampusSpacing.Medium,
+                end = CampusSpacing.ExtraLarge,
+                bottom = CampusSpacing.Huge,
+            ),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
+        ) {
+            item {
+                CampusPageHeader(
+                    title = "Facilities",
+                    subtitle = "Find spaces, manage bookings and report issues.",
+                )
+            }
+            item {
+                CampusActionCard(
+                    copy = CampusActionCopy("Find a Space", "Search campus rooms and check real availability."),
+                    icon = Icons.Default.Search,
+                    onClick = onSearchSpaces,
+                    modifier = Modifier.fillMaxWidth(),
+                    prominent = true,
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+                ) {
+                    CampusActionCard(
+                        copy = CampusActionCopy("My Bookings", "View and manage reservations."),
+                        icon = Icons.AutoMirrored.Filled.EventNote,
+                        onClick = onMyBookings,
+                        modifier = Modifier.weight(1f),
+                    )
+                    CampusActionCard(
+                        copy = CampusActionCopy("Report Maintenance", "Tell Facilities about an issue."),
+                        icon = Icons.Default.Build,
+                        onClick = onReportMaintenance,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            item {
+                CampusActionCard(
+                    copy = CampusActionCopy("My Maintenance", "Track your submitted Facilities requests."),
+                    icon = Icons.AutoMirrored.Filled.Assignment,
+                    onClick = onMyMaintenance,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

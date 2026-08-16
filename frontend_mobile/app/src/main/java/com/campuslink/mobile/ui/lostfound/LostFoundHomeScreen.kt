@@ -1,29 +1,28 @@
 package com.campuslink.mobile.ui.lostfound
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Inventory
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.campuslink.mobile.core.model.ReportType
+import com.campuslink.mobile.ui.CampusActionCard
+import com.campuslink.mobile.ui.CampusActionCopy
+import com.campuslink.mobile.ui.CampusPageHeader
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.CampusTopAppBar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LostFoundHomeScreen(
     onBack: () -> Unit,
@@ -32,44 +31,61 @@ fun LostFoundHomeScreen(
     onClaims: () -> Unit,
 ) {
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Lost & Found") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Home")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { CampusTopAppBar("Lost & Found", onBack, "Back to Home") },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            ListItem(
-                headlineContent = { Text("Browse reports") },
-                supportingContent = { Text("Search open lost and found records") },
-                leadingContent = { Icon(Icons.Default.FindInPage, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onBrowse),
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("Report a lost item") },
-                supportingContent = { Text("Publish details and up to five images") },
-                leadingContent = { Icon(Icons.Default.AddCircle, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth().clickable { onCreate(ReportType.LOST) },
-            )
-            ListItem(
-                headlineContent = { Text("Report a found item") },
-                supportingContent = { Text("Help an owner find an item you picked up") },
-                leadingContent = { Icon(Icons.Default.Inventory, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth().clickable { onCreate(ReportType.FOUND) },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("Claims") },
-                supportingContent = { Text("Track your claims and review received claims") },
-                leadingContent = { Icon(Icons.Default.AssignmentTurnedIn, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onClaims),
-            )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(
+                start = CampusSpacing.ExtraLarge,
+                top = CampusSpacing.Medium,
+                end = CampusSpacing.ExtraLarge,
+                bottom = CampusSpacing.Huge,
+            ),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
+        ) {
+            item {
+                CampusPageHeader(
+                    title = "Lost & Found",
+                    subtitle = "Find, report and recover campus items.",
+                )
+            }
+            item {
+                CampusActionCard(
+                    copy = CampusActionCopy("Browse Reports", "Search real open lost and found reports."),
+                    icon = Icons.Default.FindInPage,
+                    onClick = onBrowse,
+                    modifier = Modifier.fillMaxWidth(),
+                    prominent = true,
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+                ) {
+                    CampusActionCard(
+                        copy = CampusActionCopy("Report Lost Item", "Publish details and images."),
+                        icon = Icons.Default.AddCircle,
+                        onClick = { onCreate(ReportType.LOST) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    CampusActionCard(
+                        copy = CampusActionCopy("Report Found Item", "Help return an item to its owner."),
+                        icon = Icons.Default.Inventory,
+                        onClick = { onCreate(ReportType.FOUND) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            item {
+                CampusActionCard(
+                    copy = CampusActionCopy("Claims", "Track your claims and review received requests."),
+                    icon = Icons.Default.AssignmentTurnedIn,
+                    onClick = onClaims,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
