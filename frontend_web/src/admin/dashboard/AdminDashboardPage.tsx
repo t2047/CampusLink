@@ -1,7 +1,6 @@
 import { Box, Button, Card, CardActionArea, CardContent, Chip, Divider, Stack, Typography } from '@mui/material'
 import { useState, type ReactNode } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
-import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { DashboardReportDialog } from './reports/DashboardReportDialog'
 import { FacilitiesOverviewSection } from './sections/FacilitiesOverviewSection'
@@ -13,8 +12,11 @@ import { RecentLostFoundReportsSection } from './sections/RecentLostFoundReports
 import { UpcomingReservationsSection } from './sections/UpcomingReservationsSection'
 import { UserOverviewSection } from './sections/UserOverviewSection'
 
-function FacilityMetric({ label, value }: { label: string; value: number }) {
-  return <Card variant="outlined"><CardContent><Stack spacing={1}><Typography color="text.secondary">{label}</Typography><Typography variant="h4" fontWeight={700}>{value}</Typography></Stack></CardContent></Card>
+interface AdminModuleCardProps {
+  title: string
+  description: string
+  path: string
+  available?: boolean
 }
 
 function AdminModuleCard({ title, description, path, available = false }: AdminModuleCardProps) {
