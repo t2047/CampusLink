@@ -49,7 +49,8 @@ import com.campuslink.mobile.BuildConfig
 import com.campuslink.mobile.core.model.ChatMessage
 import com.campuslink.mobile.core.model.MatchResult
 import com.campuslink.mobile.core.model.MessageRole
-import kotlinx.serialization.json.Json
+import com.campuslink.mobile.core.model.PendingConfirmation
+import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,12 +69,10 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit, on
             onDismissRequest = {},
             title = { Text(text.confirmAction) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(pending.message ?: pending.agent, fontWeight = FontWeight.Bold)
-                    Text(Json { prettyPrint = true }.encodeToString(
-                        kotlinx.serialization.json.JsonObject.serializer(), pending.details,
-                    ))
-                }
+                Text(
+                    confirmationDisplayText(pending, text.confirmAction),
+                    fontWeight = FontWeight.Bold,
+                )
             },
             confirmButton = {
                 Button(
@@ -135,6 +134,20 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit, on
         }
     }
 }
+
+/**
+ * 确认详情中的 confirmation_id、action、expires_at 等字段仅供内部流程使用，
+ * 移动端只向用户展示 Agent 生成的可读说明或业务摘要。
+ */
+internal fun confirmationDisplayText(pending: PendingConfirmation, fallback: String): String =
+    pending.message
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?: listOf("message", "summary")
+            .asSequence()
+            .mapNotNull { key -> (pending.details[key] as? JsonPrimitive)?.content?.trim() }
+            .firstOrNull(String::isNotEmpty)
+        ?: fallback
 
 @Composable
 private fun ErrorBanner(message: String, dismissLabel: String, onDismiss: () -> Unit) {
