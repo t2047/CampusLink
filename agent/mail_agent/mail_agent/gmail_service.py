@@ -366,7 +366,11 @@ def _iso(internal_date: str | None) -> datetime:
     return datetime.fromtimestamp(int(internal_date) / 1000, tz=timezone.utc)
 
 
-def _to_message(msg: dict[str, Any], include_body: bool) -> MailMessage:
+def _to_message(
+    msg: dict[str, Any],
+    include_body: bool,
+    category: str | None = None,
+) -> MailMessage:
     payload = msg.get("payload") or {}
     headers = payload.get("headers") or []
     label_ids = msg.get("labelIds") or []
@@ -388,17 +392,61 @@ def _to_message(msg: dict[str, Any], include_body: bool) -> MailMessage:
         body=body,
         body_html=body_html,
         folder=_folder_from_labels(label_ids),
-        category=classifier.classify(
-            str(msg["id"]),
-            subject=subject,
-            body=body,
-            sender=sender,
+        category=(
+            category
+            if category is not None
+            else classifier.classify(
+                str(msg["id"]),
+                subject=subject,
+                body=body,
+                sender=sender,
+            )
         ),
         read=_LABEL_UNREAD not in label_ids,
         starred=_LABEL_STARRED in label_ids,
         created_at=_iso(msg.get("internalDate")),
         updated_at=_iso(msg.get("internalDate")),
     )
+
+
+def _classify_record(msg: dict[str, Any]) -> dict[str, Any]:
+    """Build a classifier input record from a raw Gmail message dict.
+
+    Uses the same header/body extraction as ``_to_message`` on the metadata
+    path (body = snippet) so batch classification and the per-message fallback
+    agree on the inputs.
+    """
+    payload = msg.get("payload") or {}
+    headers = payload.get("headers") or []
+    return {
+        "message_id": str(msg["id"]),
+        "subject": _header(headers, "Subject") or "(no subject)",
+        "body": msg.get("snippet", ""),
+        "sender": _header(headers, "From"),
+    }
+
+
+def _stamp_categories(messages: list[MailMessage]) -> None:
+    """Batch-classify ``messages`` (LLM first, ML fallback) and stamp them.
+
+    One LLM round trip for the whole batch; anything the LLM does not answer
+    falls back to the ML model inside :func:`classifier.classify_many`.
+    """
+    if not messages:
+        return
+    categories = classifier.classify_many(
+        {
+            "message_id": message.id,
+            "subject": message.subject,
+            "body": message.body,
+            "sender": message.sender,
+        }
+        for message in messages
+    )
+    for message in messages:
+        message.category = categories.get(
+            message.id, classifier.FALLBACK_CATEGORY
+        )
 
 
 def _build_query(
@@ -501,13 +549,20 @@ def _folder_label_ids(folder: MailFolder) -> list[str] | None:
 # ---------------------------------------------------------------------------
 
 def _fetch_metadata(
-    service: Any, ids: list[str]
+    service: Any, ids: list[str], classify: bool = True
 ) -> list[MailMessage]:
     """Fetch message metadata for ``ids`` via Gmail's API-specific batch endpoint.
 
     Gmail API v1 has no ``users.messages.batchGet``, so the metadata fetches are
     batched over a single multipart HTTP request per chunk. Gmail also caps
     concurrent requests per user, so each batch is kept modest (10 requests).
+
+    When ``classify`` is true (default) the whole page is classified in one
+    batch call (LLM first, ML fallback); when false the messages come back
+    tagged ``other`` as a placeholder and the caller is responsible for
+    stamping categories with :func:`_stamp_categories` on the messages it
+    actually returns (large candidate walks should not pay per-message LLM
+    calls for messages that never reach the page).
     """
     if not ids:
         return []
@@ -541,10 +596,23 @@ def _fetch_metadata(
         batch.execute()
     if failures:
         raise failures[0]
+    raw_messages = [
+        fetched[message_id] for message_id in ids if message_id in fetched
+    ]
+    categories: dict[str, str] = {}
+    if classify:
+        categories = classifier.classify_many(
+            _classify_record(msg) for msg in raw_messages
+        )
     return [
-        _to_message(fetched[message_id], include_body=False)
-        for message_id in ids
-        if message_id in fetched
+        _to_message(
+            msg,
+            include_body=False,
+            category=categories.get(
+                str(msg["id"]), classifier.FALLBACK_CATEGORY
+            ),
+        )
+        for msg in raw_messages
     ]
 
 
@@ -749,7 +817,9 @@ def _fuzzy_search(
     candidate_ids = _fuzzy_candidate_ids(
         service, folder, q, unread, starred, label_ids
     )
-    messages = _fetch_metadata(service, candidate_ids)
+    # classify=False: the candidate walk can pull far more messages than the
+    # returned page; classify only the page that is actually returned.
+    messages = _fetch_metadata(service, candidate_ids, classify=False)
     ranked: list[tuple[float, MailMessage]] = []
     for message in messages:
         score = _fuzzy_score(q, message.subject, message.sender, message.preview)
@@ -762,6 +832,7 @@ def _fuzzy_search(
     start = page * size
     page_messages = [message for _score, message in ranked[start : start + size]]
     has_next = start + size < total
+    _stamp_categories(page_messages)
     return page_messages, total, has_next
 
 
@@ -807,7 +878,9 @@ def list_recent_messages(
     )
     if not ids:
         return []
-    fetched = _fetch_metadata(service, ids)
+    # classify=False: only the messages inside the window get classified
+    # (below), not every candidate walked by the pre-filter.
+    fetched = _fetch_metadata(service, ids, classify=False)
     in_window = [
         message
         for message in fetched
@@ -817,6 +890,7 @@ def list_recent_messages(
     in_window = in_window[:max_results]
     if not in_window:
         return []
+    _stamp_categories(in_window)
     # Metadata-only messages carry the snippet as body; upgrade them to full
     # bodies so schedule parsing sees the real content.
     full: list[MailMessage] = []
@@ -913,7 +987,9 @@ def _list_by_received_date(
     ids = _fetch_recent_ids(service, query, label_ids, _DATE_FILTER_MAX_CANDIDATES)
     if not ids:
         return [], 0, False
-    messages = _fetch_metadata(service, ids)
+    # classify=False: the candidate walk can cover far more messages than the
+    # returned page; classify only the page that is actually returned.
+    messages = _fetch_metadata(service, ids, classify=False)
     filtered = [
         message
         for message in messages
@@ -926,6 +1002,7 @@ def _list_by_received_date(
     start = page * size
     page_messages = filtered[start : start + size]
     has_next = start + size < total
+    _stamp_categories(page_messages)
     return page_messages, total, has_next
 
 
