@@ -426,6 +426,15 @@ def _date_arg_to_utc_bound(
 # newest-first, so pulling this many recent messages covers a week+ of mail.
 _DATE_FILTER_MAX_CANDIDATES = 500
 
+# Calendar extraction pre-filter: Gmail's ``after:``/``before:`` match the
+# header send date, so widen the bound by this buffer and still filter exactly
+# on ``internalDate`` locally. Newest-first list order guarantees every
+# in-window message is among the first candidates.
+_DATE_PREFILTER_BUFFER_DAYS = 7
+# Calendar extraction never needs more than a handful of candidates (it only
+# keeps ``max_results``), so cap the walk instead of scanning 500 messages.
+_DATE_PREFILTER_MIN_CANDIDATES = 50
+
 
 def _folder_label_ids(folder: MailFolder) -> list[str] | None:
     if folder == MailFolder.inbox:
@@ -721,7 +730,8 @@ def list_recent_messages(
 
     The window is applied locally on the received date (internalDate), because
     Gmail's ``after:``/``before:`` match the header send date and would miss
-    forwarded messages.
+    forwarded messages; the Gmail query only pre-filters with a widened
+    ``after:`` bound so the candidate walk stays small.
     """
     if days < 0:
         days = 0
@@ -734,7 +744,18 @@ def list_recent_messages(
     before_utc = datetime(
         today.year, today.month, today.day
     ).astimezone(timezone.utc) + timedelta(days=1)
-    ids = _fetch_recent_ids(service, "", [_LABEL_INBOX], _DATE_FILTER_MAX_CANDIDATES)
+    # Pre-filter with Gmail's ``after:`` (header send date) widened by a buffer,
+    # so "today only" stops walking the whole mailbox; the exact window is still
+    # applied locally on internalDate below.
+    prefetch_after = after_utc - timedelta(
+        days=max(_DATE_PREFILTER_BUFFER_DAYS, days)
+    )
+    ids = _fetch_recent_ids(
+        service,
+        f"after:{int(prefetch_after.timestamp())}",
+        [_LABEL_INBOX],
+        max(max_results * 3, _DATE_PREFILTER_MIN_CANDIDATES),
+    )
     if not ids:
         return []
     fetched = _fetch_metadata(service, ids)
