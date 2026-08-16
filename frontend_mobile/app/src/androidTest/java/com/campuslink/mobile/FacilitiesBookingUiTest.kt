@@ -1,10 +1,12 @@
 package com.campuslink.mobile
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.campuslink.mobile.core.model.AvailabilityResponse
 import com.campuslink.mobile.core.model.BookingResponse
@@ -15,10 +17,14 @@ import com.campuslink.mobile.core.model.SpaceSearchFilters
 import com.campuslink.mobile.facilities.FacilitiesDataSource
 import com.campuslink.mobile.ui.facilities.BookingDetailsScreen
 import com.campuslink.mobile.ui.facilities.BookingDetailsViewModel
+import com.campuslink.mobile.ui.facilities.FacilitiesHomeScreen
 import com.campuslink.mobile.ui.facilities.MyBookingsScreen
 import com.campuslink.mobile.ui.facilities.MyBookingsViewModel
 import com.campuslink.mobile.ui.facilities.SpaceDetailsScreen
 import com.campuslink.mobile.ui.facilities.SpaceDetailsViewModel
+import com.campuslink.mobile.ui.facilities.SpaceSearchScreen
+import com.campuslink.mobile.ui.facilities.SpaceSearchViewModel
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -30,6 +36,42 @@ import java.time.LocalTime
 class FacilitiesBookingUiTest {
     @get:Rule
     val rule = createComposeRule()
+
+    @Test
+    fun facilitiesHomeCardsExposeRealRoutes() {
+        var openedSearch = false
+        rule.setContent {
+            MaterialTheme {
+                FacilitiesHomeScreen(
+                    onBack = {},
+                    onSearchSpaces = { openedSearch = true },
+                    onMyBookings = {},
+                    onReportMaintenance = {},
+                    onMyMaintenance = {},
+                )
+            }
+        }
+
+        rule.onNodeWithText("Find a Space").assertHasClickAction().performClick()
+        rule.onNodeWithText("My Bookings").assertHasClickAction()
+        rule.onNodeWithText("Report Maintenance").assertHasClickAction()
+        rule.onNodeWithText("My Maintenance").assertHasClickAction()
+        rule.runOnIdle { assertTrue(openedSearch) }
+    }
+
+    @Test
+    fun spaceSearchResultShowsFactsAndStatusChip() {
+        val viewModel = SpaceSearchViewModel(FakeFacilitiesDataSource())
+        rule.setContent {
+            MaterialTheme { SpaceSearchScreen(viewModel, onBack = {}, onOpenSpace = {}) }
+        }
+
+        rule.onNodeWithText("COM3-01-20 Project Room").assertIsDisplayed()
+        rule.onNodeWithText("AVAILABLE").assertIsDisplayed()
+        rule.onNodeWithText("TV, Whiteboard").assertIsDisplayed()
+        rule.onNodeWithText("Advanced filters").performClick()
+        rule.onNodeWithText("Building").assertIsDisplayed()
+    }
 
     @Test
     fun myBookingsRendersRealModelFields() {
@@ -61,9 +103,23 @@ class FacilitiesBookingUiTest {
             viewModel.checkAvailability()
         }
 
-        rule.onNodeWithText("Book This Space").performClick()
+        rule.onNodeWithText("Book This Space").performScrollTo().performClick()
         rule.onNodeWithText("Book COM3-01-20 Project Room?").assertIsDisplayed()
         assertEquals(0, repository.createCalls)
+    }
+
+    @Test
+    fun spaceDetailsShowsStructuredSections() {
+        val viewModel = SpaceDetailsViewModel(4, FakeFacilitiesDataSource())
+        rule.setContent {
+            MaterialTheme {
+                SpaceDetailsScreen(viewModel, onBack = {}, onViewBooking = {}, onMyBookings = {})
+            }
+        }
+
+        rule.onNodeWithText("Key facts").assertIsDisplayed()
+        rule.onNodeWithText("Equipment").assertIsDisplayed()
+        rule.onNodeWithText("Availability").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -76,7 +132,7 @@ class FacilitiesBookingUiTest {
             }
         }
 
-        rule.onNodeWithText("Cancel Booking").performClick()
+        rule.onNodeWithText("Cancel Booking").performScrollTo().performClick()
         rule.onNodeWithText("Cancel this booking?").assertIsDisplayed()
         assertEquals(0, repository.cancelCalls)
     }
