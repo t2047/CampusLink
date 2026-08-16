@@ -62,7 +62,7 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT));
+            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT, null, null));
 
             mockMvc.perform(post("/api/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -80,7 +80,7 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, "STUDENT"));
+            when(authService.register(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, "STUDENT", null, null));
 
             mockMvc.perform(post("/api/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -149,7 +149,7 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT));
+            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT, null, null));
 
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -198,7 +198,7 @@ class AuthControllerTest {
             request.setEmail(VALID_EMAIL);
             request.setPassword(VALID_PASSWORD);
 
-            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT));
+            when(authService.login(any())).thenReturn(new AuthResponse(JWT_TOKEN, VALID_EMAIL, ROLE_STUDENT, null, null));
 
             mockMvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)

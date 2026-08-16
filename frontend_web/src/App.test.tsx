@@ -208,34 +208,34 @@ describe('admin application routes', () => {
     ['Lost & Found', '/admin/lost-found', 'Lost & Found'],
     ['Facilities', '/admin/facilities', 'Facilities Dashboard'],
     ['User Management', '/admin/users', 'User Management'],
-  ])('navigates from the %s dashboard card to its page', async (label, path, heading) => {
+  ])('navigates from the Administration sidebar to the %s page', async (label, path, heading) => {
     storeSession('ADMIN')
     renderApp('/admin/dashboard')
 
     expect(await screen.findByRole('heading', { name: 'Dashboard Overview' })).toBeInTheDocument()
-    fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: label }))
+    fireEvent.click(screen.getByRole('link', { name: label }))
 
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent(path)
     expect(screen.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page')
   })
 
-  it('navigates from the Facilities dashboard card to the Facilities dashboard', async () => {
+  it('navigates from the Administration sidebar to the Facilities dashboard', async () => {
     storeSession('ADMIN')
     renderApp('/admin/dashboard')
 
-    fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Facilities' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Facilities' }))
 
     expect(await screen.findByRole('heading', { name: 'Facilities Dashboard' })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/facilities')
   })
 
-  it('navigates from the dashboard to the Lost & Found administration page', async () => {
+  it('navigates from the Administration sidebar to the Lost & Found administration page', async () => {
     storeSession('ADMIN')
     renderApp('/admin/dashboard')
 
     expect(await screen.findByRole('heading', { name: 'Dashboard Overview' })).toBeInTheDocument()
-    fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Lost & Found' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Lost & Found' }))
 
     await waitFor(() => expect(screen.getByLabelText('Current path')).toHaveTextContent('/admin/lost-found'))
     expect(await screen.findByRole('heading', { name: 'Lost & Found' })).toBeInTheDocument()

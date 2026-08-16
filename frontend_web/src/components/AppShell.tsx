@@ -8,10 +8,13 @@ import SearchIcon from '@mui/icons-material/Search'
 import { AppBar, Box, Button, Container, Toolbar, Typography } from '@mui/material'
 import { Link as RouterLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { displayName } from '../auth/displayName'
+import { UserAvatar } from './UserAvatar'
 
 export function AppShell() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const profileName = user ? displayName(user.nickname, user.email) : ''
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f1f5f9' }}>
@@ -29,7 +32,15 @@ export function AppShell() {
           <Button variant="outlined" color="inherit" component={RouterLink} to="/claims/mine" startIcon={<InboxIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Claims</Button>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/mail" startIcon={<MailOutlineIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Mail</Button>
           <Button variant="outlined" color="inherit" component={RouterLink} to="/mail/calendar" startIcon={<CalendarMonthIcon />} sx={{ borderColor: '#e2e8f0', color: '#334155' }}>Calendar</Button>
-          <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' }, mx: 1, color: '#475569' }}>{user?.email}</Typography>
+          <Button
+            component={RouterLink}
+            to="/lost-found/profile"
+            sx={{ borderColor: '#e2e8f0', color: '#334155', textTransform: 'none', px: 1, gap: 1 }}
+            aria-label="Personal center"
+          >
+            <UserAvatar name={profileName} avatarUrl={user?.avatarUrl} size={28} />
+            <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' }, color: '#475569' }}>{profileName}</Typography>
+          </Button>
           <Button
             color="inherit"
             variant="outlined"

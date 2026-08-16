@@ -27,6 +27,7 @@ function report(overrides: Partial<LostFoundReport> = {}): LostFoundReport {
     status: 'OPEN',
     images: [],
     createdByMe: true,
+    adminHidden: false,
     createdAt: '2026-08-09T13:00:00Z',
     updatedAt: '2026-08-09T13:00:00Z',
     ...overrides,

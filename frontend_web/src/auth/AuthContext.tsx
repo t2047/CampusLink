@@ -1,10 +1,13 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { login as loginRequest, register as registerRequest } from '../api/auth'
 import { TOKEN_KEY, USER_KEY } from '../api/client'
+import type { UserProfile } from '../types'
 
 interface SessionUser {
   email: string
   role: string
+  nickname: string | null
+  avatarUrl: string | null
 }
 
 interface AuthContextValue {
@@ -12,6 +15,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string) => Promise<void>
   logout: () => void
+  /** 个人中心编辑昵称/头像后同步全站（顶部导航、个人中心，个人中心需求 §10.3）。 */
+  updateProfile: (profile: UserProfile) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -21,7 +26,8 @@ function storedUser(): SessionUser | null {
   const raw = sessionStorage.getItem(USER_KEY)
   if (!raw) return null
   try {
-    return JSON.parse(raw) as SessionUser
+    const parsed = JSON.parse(raw) as SessionUser
+    return { ...parsed, nickname: parsed.nickname ?? null, avatarUrl: parsed.avatarUrl ?? null }
   } catch {
     sessionStorage.removeItem(TOKEN_KEY)
     sessionStorage.removeItem(USER_KEY)
@@ -34,11 +40,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function authenticate(action: typeof loginRequest, email: string, password: string) {
     const response = await action(email, password)
-    const nextUser = { email: response.email, role: response.role }
+    const nextUser: SessionUser = {
+      email: response.email,
+      role: response.role,
+      nickname: response.nickname ?? null,
+      avatarUrl: response.avatarUrl ?? null,
+    }
     sessionStorage.setItem(TOKEN_KEY, response.token)
     sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser))
     setUser(nextUser)
   }
+
+  const updateProfile = useCallback((profile: UserProfile) => {
+    setUser((current) => {
+      if (!current) return current
+      const nextUser: SessionUser = {
+        email: profile.email,
+        role: profile.role,
+        nickname: profile.nickname ?? null,
+        avatarUrl: profile.avatarUrl ?? null,
+      }
+      sessionStorage.setItem(USER_KEY, JSON.stringify(nextUser))
+      return nextUser
+    })
+  }, [])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -50,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.removeItem(USER_KEY)
         setUser(null)
       },
+      updateProfile,
     }),
     [user],
   )

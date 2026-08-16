@@ -6,16 +6,21 @@ import { categoryLabels, reportTypeLabels } from '../labels'
 import type { LostFoundReport } from '../types'
 import { StatusChip } from './StatusChip'
 
-export function ReportCard({ report }: { report: LostFoundReport }) {
+export function ReportCard({ report, showAdminHidden = false }: { report: LostFoundReport; showAdminHidden?: boolean }) {
   const navigate = useNavigate()
   return (
     <Card sx={{ height: '100%' }}>
       <CardActionArea onClick={() => navigate(`/lost-found/${report.id}`)} sx={{ height: '100%', alignItems: 'stretch' }}>
-        {report.images[0] ? (
-          <CardMedia component="img" height="180" image={report.images[0].url} alt={report.itemName} sx={{ objectFit: 'cover' }} />
-        ) : (
-          <Box sx={{ height: 180, bgcolor: 'grey.200', display: 'grid', placeItems: 'center' }}><Typography color="text.secondary">No image</Typography></Box>
-        )}
+        <Box sx={{ position: 'relative' }}>
+          {report.images[0] ? (
+            <CardMedia component="img" height="180" image={report.images[0].url} alt={report.itemName} sx={{ objectFit: 'cover' }} />
+          ) : (
+            <Box sx={{ height: 180, bgcolor: 'grey.200', display: 'grid', placeItems: 'center' }}><Typography color="text.secondary">No image</Typography></Box>
+          )}
+          {showAdminHidden && report.adminHidden && (
+            <Chip size="small" label="Removed by admin" color="error" sx={{ position: 'absolute', top: 8, left: 8 }} />
+          )}
+        </Box>
         <CardContent>
           <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
             <Chip size="small" label={reportTypeLabels[report.reportType]} color={report.reportType === 'FOUND' ? 'success' : 'warning'} />
