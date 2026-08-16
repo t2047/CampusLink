@@ -15,8 +15,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -31,6 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,12 +89,20 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
         )
     }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("CampusLink AI") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
-        )
-    }) { padding ->
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(text.home.agentName) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = text.back)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+            )
+        },
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             state.error?.let {
                 ErrorBanner(message = it, dismissLabel = text.dismiss, onDismiss = viewModel::clearError)
@@ -170,7 +179,10 @@ private fun ChatComposer(
     onSend: (String) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(12.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -181,6 +193,7 @@ private fun ChatComposer(
             minLines = 1,
             maxLines = 5,
             enabled = !streaming && !confirmationPending,
+            shape = RoundedCornerShape(CampusCorners.ExtraLarge),
             modifier = Modifier.weight(1f),
         )
         if (streaming) {
@@ -190,7 +203,7 @@ private fun ChatComposer(
                 onClick = { onSend(input) },
                 enabled = input.isNotBlank() && !confirmationPending,
                 modifier = Modifier.height(56.dp),
-            ) { Icon(Icons.Default.Send, text.send) }
+            ) { Icon(Icons.AutoMirrored.Filled.Send, text.send) }
         }
     }
 }

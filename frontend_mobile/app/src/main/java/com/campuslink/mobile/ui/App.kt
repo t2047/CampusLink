@@ -153,10 +153,15 @@ private fun RootTabRoute(
         Screen.Profile -> AppTab.PROFILE
         else -> return
     }
-    CampusLinkShell(selectedTab = tab, onTabSelected = { actions.navigate(it.screen()) }) {
+    val text = strings(state.language)
+    CampusLinkShell(
+        selectedTab = tab,
+        text = text.shell,
+        onTabSelected = { actions.navigate(it.screen()) },
+    ) {
         when (active) {
             Screen.Home -> HomeScreen(
-                HomeActions(
+                actions = HomeActions(
                     openAgentCore = { actions.navigate(Screen.Conversations) },
                     openFacilities = { actions.navigate(Screen.FacilitiesHome) },
                     openLostFound = { actions.navigate(Screen.LostFoundHome) },
@@ -164,11 +169,12 @@ private fun RootTabRoute(
                     openMyMaintenance = { actions.navigate(Screen.MyMaintenance) },
                     openMyClaims = { actions.navigate(Screen.LostFoundClaims) },
                 ),
+                text = text.home,
             )
             Screen.Conversations -> ConversationListRoute(
                 container = container,
                 email = state.session.email,
-                text = strings(state.language),
+                text = text,
                 navigate = actions.navigate,
             )
             Screen.Profile -> ProfileScreen(
@@ -185,6 +191,7 @@ private fun RootTabRoute(
                     clearHistory = actions.clearHistory,
                     logout = container.sessionStore::clear,
                 ),
+                text = text.profile,
             )
             else -> Unit
         }

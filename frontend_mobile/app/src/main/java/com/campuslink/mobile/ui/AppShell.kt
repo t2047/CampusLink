@@ -8,29 +8,36 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 
-internal enum class AppTab(val label: String) {
-    HOME("Home"),
-    AGENT_CORE("Agent Core"),
-    PROFILE("Profile"),
+internal enum class AppTab {
+    HOME,
+    AGENT_CORE,
+    PROFILE,
 }
 
 @Composable
 internal fun CampusLinkShell(
     selectedTab: AppTab,
+    text: ShellStrings,
     onTabSelected: (AppTab) -> Unit,
     content: @Composable () -> Unit,
 ) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             CampusLinkBottomNavigation(
                 selectedTab = selectedTab,
+                text = text,
                 onTabSelected = onTabSelected,
             )
         },
@@ -42,9 +49,18 @@ internal fun CampusLinkShell(
 }
 
 @Composable
-internal fun CampusLinkBottomNavigation(selectedTab: AppTab, onTabSelected: (AppTab) -> Unit) {
-    NavigationBar {
+internal fun CampusLinkBottomNavigation(
+    selectedTab: AppTab,
+    text: ShellStrings,
+    onTabSelected: (AppTab) -> Unit,
+) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = CampusSpacing.ExtraSmall,
+        windowInsets = NavigationBarDefaults.windowInsets,
+    ) {
         AppTab.entries.forEach { tab ->
+            val label = tab.label(text)
             NavigationBarItem(
                 selected = tab == selectedTab,
                 onClick = { onTabSelected(tab) },
@@ -55,13 +71,34 @@ internal fun CampusLinkBottomNavigation(selectedTab: AppTab, onTabSelected: (App
                             AppTab.AGENT_CORE -> Icons.Default.SmartToy
                             AppTab.PROFILE -> Icons.Default.Person
                         },
-                        contentDescription = tab.label,
+                        contentDescription = label,
                     )
                 },
-                label = { Text(tab.label) },
+                label = {
+                    Text(
+                        text = label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                alwaysShowLabel = true,
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
             )
         }
     }
+}
+
+private fun AppTab.label(text: ShellStrings): String = when (this) {
+    AppTab.HOME -> text.home
+    AppTab.AGENT_CORE -> text.agentCore
+    AppTab.PROFILE -> text.profile
 }
 
 internal fun AppTab.screen(): Screen = when (this) {

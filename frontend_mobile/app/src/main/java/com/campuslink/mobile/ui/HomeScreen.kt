@@ -1,13 +1,12 @@
 package com.campuslink.mobile.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,24 +15,32 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.EventNote
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.campuslink.mobile.core.settings.AppLanguage
+import java.time.LocalTime
 
 internal data class HomeActions(
     val openAgentCore: () -> Unit,
@@ -47,79 +54,72 @@ internal data class HomeActions(
 internal const val HOME_LIST_TAG = "home-list"
 
 @Composable
-internal fun HomeScreen(actions: HomeActions) {
+internal fun HomeScreen(
+    actions: HomeActions,
+    text: HomeStrings,
+) {
+    val greeting = remember(text) { greetingForHour(LocalTime.now().hour, text) }
     LazyColumn(
-        modifier = Modifier.testTag(HOME_LIST_TAG),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.fillMaxSize().testTag(HOME_LIST_TAG),
+        contentPadding = PaddingValues(
+            start = CampusSpacing.ExtraLarge,
+            top = CampusSpacing.Huge,
+            end = CampusSpacing.ExtraLarge,
+            bottom = CampusSpacing.Huge,
+        ),
+        verticalArrangement = Arrangement.spacedBy(CampusSpacing.Large),
     ) {
+        item { HomeHeader(greeting, text) }
+        item { AgentHeroCard(text, actions.openAgentCore) }
+        item { CampusSectionHeader(text.campusServices, Modifier.padding(top = CampusSpacing.Small)) }
         item {
-            Text(
-                text = "Welcome back",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "CampusLink",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "Your campus, connected in one place",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        item { AgentHeroCard(actions.openAgentCore) }
-
-        item { SectionTitle("Campus Services") }
-        item {
-            HomeActionCard(
-                title = "Facilities",
-                subtitle = "Find spaces, bookings, and maintenance",
-                icon = Icons.Default.MeetingRoom,
-                onClick = actions.openFacilities,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+            ) {
+                CampusServiceCard(
+                    copy = ServiceCardCopy(text.facilities, text.facilitiesSubtitle),
+                    icon = Icons.Default.MeetingRoom,
+                    onClick = actions.openFacilities,
+                    modifier = Modifier.weight(1f),
+                )
+                CampusServiceCard(
+                    copy = ServiceCardCopy(text.lostFound, text.lostFoundSubtitle),
+                    icon = Icons.Default.Search,
+                    onClick = actions.openLostFound,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         item {
-            HomeActionCard(
-                title = "Lost & Found",
-                subtitle = "Browse, report, and manage campus items",
-                icon = Icons.Default.Search,
-                onClick = actions.openLostFound,
-            )
-        }
-        item {
-            HomeActionCard(
-                title = "Mail",
-                subtitle = "Managed by Agent",
+            CampusServiceCard(
+                copy = ServiceCardCopy(text.mail, text.mailSubtitle, text.agentBadge),
                 icon = Icons.Default.Email,
                 onClick = actions.openAgentCore,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
-
-        item { SectionTitle("Quick Access") }
+        item { CampusSectionHeader(text.quickAccess, Modifier.padding(top = CampusSpacing.Small)) }
         item {
-            HomeActionCard(
-                title = "My Bookings",
-                subtitle = "View and manage your space bookings",
+            QuickActionCard(
+                title = text.myBookings,
+                subtitle = text.bookingsSubtitle,
                 icon = Icons.AutoMirrored.Filled.EventNote,
                 onClick = actions.openMyBookings,
             )
         }
         item {
-            HomeActionCard(
-                title = "My Maintenance",
-                subtitle = "Track your submitted maintenance requests",
+            QuickActionCard(
+                title = text.myMaintenance,
+                subtitle = text.maintenanceSubtitle,
                 icon = Icons.Default.Build,
                 onClick = actions.openMyMaintenance,
             )
         }
         item {
-            HomeActionCard(
-                title = "My Claims",
-                subtitle = "Review your Lost & Found claims",
+            QuickActionCard(
+                title = text.myClaims,
+                subtitle = text.claimsSubtitle,
                 icon = Icons.AutoMirrored.Filled.Assignment,
                 onClick = actions.openMyClaims,
             )
@@ -128,33 +128,60 @@ internal fun HomeScreen(actions: HomeActions) {
 }
 
 @Composable
-private fun AgentHeroCard(onClick: () -> Unit) {
+private fun HomeHeader(greeting: String, text: HomeStrings) {
+    Column(verticalArrangement = Arrangement.spacedBy(CampusSpacing.ExtraSmall)) {
+        Text(
+            text = greeting,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(text = text.appName, style = MaterialTheme.typography.headlineLarge)
+        Text(
+            text = text.subtitle,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AgentHeroCard(text: HomeStrings, onClick: () -> Unit) {
     Card(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(CampusCorners.ExtraLarge),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth().padding(CampusSpacing.ExtraLarge),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
         ) {
-            Icon(
-                imageVector = Icons.Default.SmartToy,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp),
-            )
-            Text("CampusAgent", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(CampusCorners.Medium),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.padding(CampusSpacing.Medium).size(24.dp),
+                )
+            }
+            Text(text.agentName, style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Your AI-powered campus assistant",
+                text = text.agentTagline,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            Spacer(Modifier.height(2.dp))
-            Button(onClick = onClick) {
-                Text("Ask Agent")
+            Text(
+                text = text.agentDescription,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Button(onClick = onClick, modifier = Modifier.padding(top = CampusSpacing.ExtraSmall)) {
+                Text(text.askAgent)
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = CampusSpacing.Small),
                 )
             }
         }
@@ -162,29 +189,91 @@ private fun AgentHeroCard(onClick: () -> Unit) {
 }
 
 @Composable
-private fun HomeActionCard(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
+private fun CampusServiceCard(
+    copy: ServiceCardCopy,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = if (copy.badge != null) 136.dp else 172.dp)
+            .semantics(mergeDescendants = true) { role = Role.Button },
+        shape = RoundedCornerShape(CampusCorners.Large),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                CampusIconContainer(icon = icon, contentDescription = null)
+                copy.badge?.let { AgentBadge(it) }
+            }
+            Text(copy.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                text = copy.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private data class ServiceCardCopy(
+    val title: String,
+    val subtitle: String,
+    val badge: String? = null,
+)
+
+@Composable
+private fun AgentBadge(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(CampusCorners.ExtraLarge),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = CampusSpacing.Medium, vertical = CampusSpacing.ExtraSmall),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun QuickActionCard(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) { role = Role.Button },
+        shape = RoundedCornerShape(CampusCorners.Medium),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = CardDefaults.outlinedCardBorder(),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(CampusSpacing.Large),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
         ) {
-            Icon(
-                imageVector = icon,
+            CampusIconContainer(
+                icon = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(40.dp),
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.primary,
             )
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -197,12 +286,20 @@ private fun HomeActionCard(title: String, subtitle: String, icon: ImageVector, o
     }
 }
 
+internal fun greetingForHour(hour: Int, text: HomeStrings): String = when (hour) {
+    in 5..11 -> text.goodMorning
+    in 12..17 -> text.goodAfternoon
+    else -> text.goodEvening
+}
+
+@Preview(name = "Home - small phone", widthDp = 320, heightDp = 640)
 @Composable
-private fun SectionTitle(title: String) {
-    Text(
-        text = title,
-        modifier = Modifier.padding(top = 8.dp),
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold,
-    )
+@Suppress("UnusedPrivateMember")
+private fun HomeSmallPreview() {
+    CampusLinkTheme(darkTheme = false) {
+        HomeScreen(
+            actions = HomeActions({}, {}, {}, {}, {}, {}),
+            text = strings(AppLanguage.ENGLISH).home,
+        )
+    }
 }

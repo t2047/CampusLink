@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/mobile-app-shell`
+> 当前开发分支：`feature/mobile-ui-polish`
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat、Facilities Mobile Phase 1/2/3、Lost & Found Native Phase 1 与 Mobile App Shell 已完成开发和本地自动化验证
+> 当前阶段：Core Chat、Facilities Mobile Phase 1/2/3、Lost & Found Native Phase 1、Mobile App Shell 与一级页面 UI Polish 已完成开发和本地自动化验证
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -218,7 +218,7 @@ Lost & Found 原生详情页已经开发，但 Chat 内匹配卡片尚未接入�
 - 支持中文和英文；
 - 设置页支持退出登录和清理本地历史。
 
-当前 UI 以功能验证为主，尚未进行完整品牌设计、动画、无障碍和多尺寸视觉优化。
+Home、Agent Core、Profile 与 Bottom Navigation 已完成第一轮品牌视觉、明暗主题、动态字体和多尺寸优化；Facilities、Lost & Found 等业务内页仍以功能验证为主，尚未完成同等级的视觉一致性改造。
 
 ### 3.9 Facilities Mobile Phase 1
 
@@ -345,6 +345,23 @@ API 与分层：
 - 原 Services/Settings route 暂时保留用于旧保存状态兼容，新入口不再依赖它们；
 - 主题增加统一的 CampusLink mint/green 明暗配色，保留现有 dark mode。
 
+### 3.14 Mobile UI Polish Phase 2（一级页面）
+
+状态：**已完成开发、自动化验证和 Pixel 7 模拟器视觉审计；业务内页尚未纳入本阶段**
+
+- 新增 `CampusSpacing`、`CampusCorners`、统一 Typography/Shapes、Section Header 与 Icon Container 等轻量 design tokens/components；
+- Home 使用本地时间问候、CampusAgent Hero、两列 Campus Services 与次级 Quick Access；只展示 Facilities、Lost & Found、Agent Mail 和三个已有真实快捷入口；
+- Agent Core 建立 Page Title → New Chat → Recent Conversations → List 的视觉层级，空状态提供明确说明和 Start New Chat；会话卡只展示真实 title 与更新时间；
+- Profile 使用真实 email/role、邮箱前缀 initials、统一 Settings Row、真实 BuildConfig 版本，并为本地聊天记录清理和退出登录增加确认；
+- Bottom Navigation 接入应用内中英文文案，统一选中 indicator、未选中颜色、icon/label 对齐及系统导航 inset；
+- Light/Dark color scheme 分别定义 background、surface、surface variant、outline 与 error 层级；状态栏和导航栏图标随应用主题切换；
+- Home、Agent Core、Profile、Bottom Navigation 新增文案已接入项目既有 `UiStrings + AppLanguage` 运行时中英文机制；历史业务内页尚未在本阶段全量本地化；
+- 可点击服务卡和设置行补充 button role/整行触控语义，交互 icon 补充 content description；Home/Profile 保持滚动，新增 320dp small phone Preview；
+- Pixel 7 API 36 已检查浅色、深色、横屏、滚动与 1.3× 动态字体；首屏、两列 grid、Hero、Quick Access 和底栏标签未发现裁切或遮挡；
+- Chat 仅统一背景、TopAppBar、返回语义和输入框圆角；SSE、HITL、Retry、Room、ViewModel、Repository 与业务契约均未修改。
+
+下一阶段视觉工作：Facilities / Lost & Found 业务内页视觉一致性，不应将当前状态描述为整个 Mobile UI 已全部 polish。
+
 ## 4. 本地数据与安全
 
 ### 4.1 已完成的安全措施
@@ -440,8 +457,8 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 81 个通过 |
-| 模拟器测试 | 23 个通过 |
+| JVM 单元测试 | 84 个通过 |
+| 模拟器测试 | 28 个通过 |
 | `assembleLocalDebug` | 通过 |
 | `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
@@ -449,7 +466,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 | Docker Compose 配置 | 通过 |
 | GitHub Actions YAML | 通过 |
 
-JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、Home/Profile/底部导航回调、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
+JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态；新增覆盖 Home 时间问候、Profile initials 与一级页面中英文关键文案。设备测试覆盖登录页启动、Room v1 架构创建、Home Hero/Services/Agent Mail/Quick Access 与回调、Agent Core 空/列表状态、Profile identity/preferences/危险操作确认、Bottom Navigation 选中行为、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
 
 Pixel 7 API 36 模拟器已使用 `demoDebug` 保留真实登录态完成运行时 smoke：Home → Agent Core → Profile → Home、Facilities/Lost & Found → Back → Home、Mail → Agent Core、三个 Quick Access、Conversation → Chat → Back，以及 Home/Profile/Agent Core 横竖屏状态恢复均通过。为避免删除现有模拟器聊天与凭据，Clear Chat History 和 Log Out 使用 Compose 回调测试验证，未在 smoke 中实际执行破坏性操作。
 
