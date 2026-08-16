@@ -70,12 +70,12 @@ class TestSerializationLock:
                 with active_lock:
                     active -= 1
 
-        monkeypatch.setattr(gmail_service, "_service", lambda: FakeService())
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: FakeService())
 
         results: list[int] = []
 
         def worker(ids: list[str]) -> None:
-            results.append(gmail_service.trash_messages(ids))
+            results.append(gmail_service.trash_messages("user-1", ids))
 
         threads = [
             threading.Thread(target=worker, args=([f"id-{i}" for i in range(5)],))
@@ -113,7 +113,7 @@ class TestSerializationLock:
             def execute(self):
                 return {"messages": [], "resultSizeEstimate": 0}
 
-        monkeypatch.setattr(gmail_service, "_service", lambda: FakeService())
+        monkeypatch.setattr(gmail_service, "_service", lambda user_id: FakeService())
         monkeypatch.setattr(gmail_service, "_list_page", lambda *args, **kwargs: FakeRequest().execute())
 
         def fake_fuzzy_search(*args, **kwargs):
@@ -129,7 +129,7 @@ class TestSerializationLock:
         monkeypatch.setattr(gmail_service, "_fuzzy_search", fake_fuzzy_search)
 
         def worker() -> None:
-            gmail_service.list_messages(MailFolder.inbox, q="exam", page=0, size=5)
+            gmail_service.list_messages("user-1", MailFolder.inbox, q="exam", page=0, size=5)
             calls.append("done")
 
         threads = [threading.Thread(target=worker) for _ in range(5)]

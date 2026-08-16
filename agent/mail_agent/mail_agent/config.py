@@ -4,9 +4,10 @@ The mail service talks to Gmail directly via the Gmail API (v1) using a web
 OAuth2 flow. Credentials are read from environment variables, defaulting to the
 project's Google Cloud web client so the service works out of the box.
 
-A single shared Gmail account is authorised once (one-time ``/callback``
-exchange); the resulting refresh token is persisted to ``token.json`` and reused
-by every mail operation.
+Each CampusLink user authorises **their own** Gmail account: the resulting
+refresh token is persisted per user (keyed by the verified user identity, e.g.
+the email from the user JWT) under ``GMAIL_TOKEN_DIR`` and every mail operation
+uses the requesting user's own credentials.
 """
 
 from __future__ import annotations
@@ -55,9 +56,26 @@ GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 
+# ---- Identity / auth ---------------------------------------------------------
+# CampusLink 用户 JWT（HS256）的共享密钥，必须与后端 Java 的 ``JWT_SECRET``
+# 完全一致（Java 侧把 secret 截断/补零为 32 字节后做 HMAC-SHA256，本服务用
+# 相同派生方式验签）。未配置时用户 JWT 通道不可用（fail-closed，返回 401）。
+JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
+
+# 内部服务令牌（HS256）：供 mail MCP 网关等受信内部组件代用户调用本服务
+# （聊天路径的 delegation token 只携带数字 userId，无法直接当作用户 JWT）。
+# 显式配置 MAIL_INTERNAL_SECRET；未配置时回退到 AGENT_SHARED_SECRET
+# （与 LostFoundAgentGateway -> L&F agent 的 Java↔Python 共享密钥同一惯例）。
+MAIL_INTERNAL_SECRET = (
+    os.environ.get("MAIL_INTERNAL_SECRET", "").strip()
+    or os.environ.get("AGENT_SHARED_SECRET", "").strip()
+)
+
 # ---- Token persistence -------------------------------------------------------
-TOKEN_PATH = Path(
-    os.environ.get("GMAIL_TOKEN_PATH", str(SERVICE_DIR / "token.json"))
+# 每个用户一个 token 文件：``<GMAIL_TOKEN_DIR>/<sha256(user_id)>.json``。
+# user_id = 用户 JWT 的 sub（邮箱）；聊天/MCP 通道经内部令牌传入时为其 sub。
+GMAIL_TOKEN_DIR = Path(
+    os.environ.get("GMAIL_TOKEN_DIR", str(SERVICE_DIR / "gmail_tokens"))
 )
 
 # Frontend origin to bounce back to after the OAuth callback completes.
