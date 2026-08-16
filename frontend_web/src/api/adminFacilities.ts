@@ -44,7 +44,7 @@ export async function searchAdminFacilityBookings(
   params: AdminFacilityBookingSearchParams,
 ): Promise<PageResponse<AdminFacilityBooking>> {
   const response = await apiClient.get<PageResponse<AdminFacilityBooking>>(
-    '/admin/facilities/bookings',
+    '/admin/facilities/bookings/search',
     { params },
   )
   return response.data
@@ -72,7 +72,7 @@ export async function searchAdminFacilityMaintenance(
   append('sort', params.sort)
 
   const response = await apiClient.get<PageResponse<AdminFacilityMaintenance>>(
-    '/admin/facilities/maintenance',
+    '/admin/facilities/maintenance/search',
     { params: query },
   )
   return response.data
@@ -80,7 +80,7 @@ export async function searchAdminFacilityMaintenance(
 
 export async function getAdminFacilityMaintenance(ticketId: number): Promise<AdminFacilityMaintenance> {
   const response = await apiClient.get<AdminFacilityMaintenance>(
-    `/admin/facilities/maintenance/${ticketId}`,
+    `/admin/facilities/maintenance/search/${ticketId}`,
   )
   return response.data
 }
