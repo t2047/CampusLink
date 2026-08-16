@@ -27,6 +27,7 @@
 ┌────────────────────────── mail-service (FastAPI :5000) ──────────────┐
 │  agent/mail_agent/mail_agent/                                       │
 │  ├─ main.py          所有 REST 路由 /api/mail/**                     │
+│  ├─ auth.py          请求身份解析（用户 JWT 验签 + 内部令牌）          │
 │  ├─ gmail_service.py Gmail API 操作（OAuth、列表、读写、归档、删除）   │
 │  ├─ calendar_service.py SQLite 日历 CRUD + 邮件日程抽取               │
 │  ├─ agent.py          LangChain ReAct Agent（自然语言操作邮件）        │
@@ -46,12 +47,13 @@
 | 文件 | 职责 |
 |---|---|
 | `agent/mail_agent/mail_agent/main.py` | FastAPI 路由定义、统一错误处理（`MailApiError`）、OAuth 回调 |
-| `agent/mail_agent/mail_agent/gmail_service.py` | Gmail API 封装：OAuth 流程、消息列表/详情/发送/标记/归档/删除、模糊搜索、分页 token 缓存、60s 消息缓存 |
+| `agent/mail_agent/mail_agent/auth.py` | 请求身份解析：验签用户 JWT（HS256，`JWT_SECRET`）或内部令牌（`MAIL_INTERNAL_SECRET`），返回用户身份 |
+| `agent/mail_agent/mail_agent/gmail_service.py` | Gmail API 封装（**按用户**）：OAuth 流程、消息列表/详情/发送/标记/归档/删除、模糊搜索、分页 token 缓存、60s 消息缓存 |
 | `agent/mail_agent/mail_agent/calendar_service.py` | SQLite 日历（`calendar.db`）事件 CRUD、从邮件正文抽取日程（规则解析器 + LLM 两种模式）、导入去重 |
 | `agent/mail_agent/mail_agent/agent.py` | LangChain ReAct Agent：7 个工具（搜索/读/删/批量删/加星/归档/发送），多轮会话记忆 |
 | `agent/mail_agent/mail_agent/classifier.py` | 邮件分类模型封装（懒加载 + 按 message_id 缓存，失败回退 `other`） |
 | `agent/mail_agent/mail_agent/models.py` | `MailMessage`、`PageResponse`、`SendMailRequest`、`UpdateMailRequest`、OAuth 响应等 Pydantic 模型 |
-| `agent/mail_agent/mail_agent/config.py` | 环境变量读取：Gmail 客户端、token 路径、LLM 配置 |
+| `agent/mail_agent/mail_agent/config.py` | 环境变量读取：Gmail 客户端、每个用户的 token 目录（`GMAIL_TOKEN_DIR`）、身份密钥（`JWT_SECRET`/`MAIL_INTERNAL_SECRET`）、LLM 配置 |
 | `agent/mail_agent/ml/` | 训练好的分类模型 `email_classifier.joblib` 及加载器 |
 | `agent/mcp_servers/mail_server.py` | MCP 网关（聊天场景），REST 客户端 + 关键词规则回退 |
 | `agent/schemas/mail-agent.json` | mail agent 的 MCP 契约（invoke 输入/输出 schema） |
@@ -134,7 +136,7 @@ Authorization: Bearer <CampusLink JWT>
 
 | HTTP | code | 触发场景 |
 |---|---|---|
-| 401 | `UNAUTHORIZED` | 缺 Authorization / 前缀不对 |
+| 401 | `UNAUTHORIZED` | 缺 Authorization / 前缀不对 / JWT 验签失败（密钥不一致或已过期） |
 | 409 | `GMAIL_NOT_CONNECTED` | 未授权 Gmail；**响应里带 `auth_url` 字段**，可直接拿去跳转授权 |
 | 400 | `OAUTH_ERROR` | OAuth 回调缺 code/state 或 state 无效 |
 | 422 | `CALENDAR_VALIDATION` | 日历事件时间非法（如 end < start、非 ISO 格式） |
@@ -227,7 +229,7 @@ Authorization: Bearer <CampusLink JWT>
 |---|---|---|---|
 | GET | `/api/mail/oauth/url` | 获取 Google 授权链接 | `OAuthUrlResponse {auth_url, connected}` |
 | GET | `/api/mail/oauth/status` | 查询连接状态 | `OAuthStatusResponse {connected, email: string\|null}` |
-| POST | `/api/mail/oauth/disconnect` | 断开并删除 token | `OAuthStatusResponse {connected:false, email:null}` |
+| POST | `/api/mail/oauth/disconnect` | 断开并删除**当前用户**的 token | `OAuthStatusResponse {connected:false, email:null}` |
 | GET | `/callback` | Google 回调（浏览器直连，App 不直接调） | 302 → `{frontend}/mail?connected=1` |
 
 ### 5.3 邮件
@@ -306,7 +308,7 @@ Query 参数：
 
 ### 5.4 日历
 
-日历数据存在服务端 SQLite（`calendar.db`），**与 Gmail 无关**，按 `user_id`（= Bearer token 字符串）隔离。
+日历数据存在服务端 SQLite（`calendar.db`），**与 Gmail 无关**，按 `user_id`（= 验签后的用户身份，Web/移动端为邮箱，见 §4.3）隔离。
 
 #### 5.4.1 事件列表 `GET /api/mail/calendar/events`
 
@@ -424,7 +426,7 @@ Query 参数：`days`（0..30，默认 0 = 仅今天；`days=2` = 最近 3 个�
 ```json
 {
   "id": "9f3c2a1b...32hex",
-  "user_id": "<bearer token 字符串>",
+  "user_id": "<验签后的用户身份，Web/移动端为邮箱>",
   "title": "CS2103 期末考试",
   "description": "",
   "location": "LT19",
@@ -589,9 +591,9 @@ App 的聊天页若想支持"帮我删掉促销邮件"这类请求，走的是**
 
 ## 9. 相关文件索引
 
-- 后端实现：`agent/mail_agent/`（入口 `mail_agent/main.py`）
+- 后端实现：`agent/mail_agent/`（入口 `mail_agent/main.py`，身份解析 `mail_agent/auth.py`）
 - MCP 网关：`agent/mcp_servers/mail_server.py`、契约 `agent/schemas/mail-agent.json`
 - Web 端调用范例：`frontend_web/src/api/mail.ts`、`mailCalendar.ts`、`mailAgent.ts`；类型定义 `frontend_web/src/types.ts`
 - 部署：`docker-compose.yml`（`mail-service` :5000、`mail-agent-mcp` :8081）、`frontend_web/nginx.conf`（`/api/mail/` 与 `/callback` 代理）、`agent/mail_agent/Dockerfile`、`agent/mail_agent/docker-compose.yml`
-- 环境变量：仓库根 `.env.example`（`GMAIL_*`、`MAIL_LLM_*` 段）
+- 环境变量：仓库根 `.env.example`（`GMAIL_*`、`MAIL_LLM_*` 段，以及身份密钥 `JWT_SECRET` / `MAIL_INTERNAL_SECRET`）
 - 服务自述文档：`agent/mail_agent/README.md`
