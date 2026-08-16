@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-16
 >
-> 当前开发分支：`feature/mobile-app-shell`
+> 当前开发分支：`feature/mobile-mail`
 >
 > Android 包名：`com.campuslink.mobile`
 >
@@ -25,7 +25,7 @@ Android Core Chat
 → Mail / Facilities / Lost & Found / Utility Agents
 ```
 
-Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从设备选择图片。聊天图片/文件/语音、推送通知以及 Mail 完整原生页面仍未实现。
+Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从设备选择图片。聊天图片/文件/语音和推送通知仍未实现。Mail 原生页面已完成第一轮 REST 对接，Gmail OAuth 和云端真实联调仍取决于环境配置。
 
 ## 2. 已完成的工程基础
 
@@ -333,12 +333,52 @@ API 与分层：
 - 日期选择器、本地化文案和无障碍专项优化；
 - 真机和云端 HTTPS 环境的完整人工验收。
 
-### 3.13 Mobile App Shell
+### 3.13 Mail Mobile Phase 1
+
+状态：**已完成第一轮开发、自动化验证；Gmail OAuth 云端联调待完成**
+
+本阶段以 `docs/mail/MOBILE_DEVELOPMENT_cn.md` 为后端契约，新增独立的 Mail Repository、API、ViewModel 和 Compose 页面，未修改现有 Chat、Facilities、Lost & Found 业务规则。
+
+#### 已完成内容
+
+- Home、Services 和 Mail 页面入口已经接入统一导航；Mail 页面不会再把用户误导到 Agent Core；
+- Gmail 连接状态查询、授权链接获取和断开接口已接入；未连接时能够识别 409 `GMAIL_NOT_CONNECTED`，自动打开服务端返回的 `auth_url`；
+- 授权链接通过系统浏览器打开，回调由服务端完成，回到 App 后会自动轮询当前用户状态，超时后仍可使用 `Check again`；App 不保存 Google code/state；
+- 收件箱、已发送、归档、回收站和垃圾邮件文件夹；
+- 关键字搜索、未读筛选、加星筛选、0 起始页码分页和加载更多；
+- 邮件列表卡片、详情页、打开详情自动标记已读、标记已读/未读、加星/取消加星、归档和移入回收站；
+- 新建邮件：多个收件人、主题和正文校验，发送中按钮锁定，成功后返回上一页；
+- 日历事件列表、新建、编辑、删除；删除正确处理 HTTP 204 空响应；
+- 从邮件抽取日程建议，支持逐条勾选后再导入，避免服务端在用户确认前写入日历；抽取和导入使用长超时；
+- 邮件 API 使用独立 `MAIL_API_BASE_URL`：`localDebug` 直连 `http://10.0.2.2:5000/`，`demoDebug/prodRelease` 使用 `https://campuslink.tokeninf.xyz/`；登录、Chat、Facilities、Lost & Found 仍使用原 `API_BASE_URL`；
+- 网络层增加 DELETE、逐请求读写超时、204 空响应和 `auth_url` 错误字段解析；动态 ID 使用编码路径段，防止斜杠破坏路由；
+- 不渲染 `body_html` 原始 HTML，详情页只显示纯文本正文；不在 Logcat、本地数据库或 UI 中输出 JWT、OAuth code、密码或完整请求头；
+- 新增 Mail API 契约测试和 Mail ViewModel 测试，覆盖分页筛选、授权错误、204 删除、收件人校验、日历时间范围校验和状态刷新。
+
+#### 当前待完成内容
+
+- 使用真实 Gmail OAuth 配置完成 Android 模拟器和真机云端验收；
+- 授权浏览器返回 App 后已具备最多 60 次、每 2 秒一次的基础轮询；系统杀进程、跨设备回调和更完整的生命周期恢复仍待完成；
+- 日历月视图/周视图、日期时间选择器和时区显示，目前使用 ISO 文本输入和列表视图；
+- 邮件正文附件、图片、HTML 安全富文本和附件下载，目前只支持纯文本正文；
+- 批量操作、草稿、永久删除、邮件分类筛选和本地邮件缓存；
+- 断网重试队列、分页下拉刷新、后台同步与推送通知；
+- 邮件 Agent 自然语言操作仍通过现有 Core Chat SSE/MCP 链路，Mail 原生页不直接调用 `POST /api/mail/agent/chat`；
+- 真实账号隔离、OAuth 断开/重新授权、Gmail API 限流和超时场景的真机验收；
+- 完整中英文 UI 文案、TalkBack、动态字体、平板和横屏适配。
+
+#### 已执行验证
+
+- `compileDemoDebugKotlin`：通过；
+- `testDemoDebugUnitTest`：87 个测试通过（包含新增 Mail API/ViewModel 测试）；
+- `detekt`、`lintDemoDebug`、`assembleDemoDebug`：通过；具备 Gmail 配置的云端人工验收仍待完成。
+
+### 3.14 Mobile App Shell
 
 状态：**已完成开发、自动化验证和 Pixel 7 模拟器 smoke**
 
 - 登录后一级信息架构统一为 Home、Agent Core、Profile 三个 Material 3 底部导航项；
-- Home 聚合 CampusAgent、Facilities、Lost & Found、由 Agent 管理的 Mail，以及 My Bookings、My Maintenance、My Claims 快捷入口；
+- Home 聚合 CampusAgent、Facilities、Lost & Found、原生 Mail，以及 My Bookings、My Maintenance、My Claims 快捷入口；
 - Agent Core 继续使用原 Conversation List → Chat 架构，未改动 Chat SSE、Room、HITL、ViewModel 或 Repository；
 - Profile 复用现有语言、深色模式、清聊天记录和退出登录逻辑，并展示 SessionStore 中真实存在的邮箱和角色；
 - `NavigationState`、route key、System Back 和 recreation 保存已扩展到三个一级 tab；Chat 和业务深层页面不显示底部导航；
@@ -451,7 +491,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 
 JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态。设备测试覆盖登录页启动、Room v1 架构创建、Home/Profile/底部导航回调、My Bookings 展示、预约创建/取消确认、维修表单/提交确认/列表/只读状态详情、Lost & Found 首页/详情，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
 
-Pixel 7 API 36 模拟器已使用 `demoDebug` 保留真实登录态完成运行时 smoke：Home → Agent Core → Profile → Home、Facilities/Lost & Found → Back → Home、Mail → Agent Core、三个 Quick Access、Conversation → Chat → Back，以及 Home/Profile/Agent Core 横竖屏状态恢复均通过。为避免删除现有模拟器聊天与凭据，Clear Chat History 和 Log Out 使用 Compose 回调测试验证，未在 smoke 中实际执行破坏性操作。
+Pixel 7 API 36 模拟器已使用 `demoDebug` 保留真实登录态完成运行时 smoke：Home → Agent Core → Profile → Home、Facilities/Lost & Found → Back → Home、Mail 入口 → 原生 Mail 页面、三个 Quick Access、Conversation → Chat → Back，以及 Home/Profile/Agent Core 横竖屏状态恢复均通过。由于该 smoke 账号未配置 Gmail OAuth，邮件真实列表、发信和日历云端操作仍需单独授权验收。为避免删除现有模拟器聊天与凭据，Clear Chat History 和 Log Out 使用 Compose 回调测试验证，未在 smoke 中实际执行破坏性操作。
 
 ### 6.3 CI/CD
 
@@ -563,9 +603,10 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.11 Mail 原生页面
 
-- 状态：**未开始**
-- 依赖：云端 Gmail OAuth 稳定配置和移动端授权边界确认。
-- 需要开发：邮件列表、搜索、详情、分类和管理操作。
+- 状态：**第一轮原生页面已完成，云端 OAuth 和产品化功能进行中**
+- 已完成：Gmail 连接入口、邮件文件夹、搜索、未读/加星筛选、分页、详情、已读/未读、加星、归档、回收站、发信、日历 CRUD、邮件日程抽取与确认导入。
+- 依赖：云端 Gmail OAuth、正式设备验收和邮件服务稳定性。
+- 下一阶段：OAuth 回调自动轮询、日历月/周视图、附件、草稿、批量操作、离线缓存、推送通知和完整无障碍适配。
 
 ### P3：产品化与发布
 

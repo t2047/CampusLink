@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MeetingRoom
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -19,7 +20,7 @@ import androidx.compose.ui.Modifier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServicesScreen(onBack: () -> Unit, onFacilities: () -> Unit, onLostFound: () -> Unit) {
+fun ServicesScreen(onBack: () -> Unit, onFacilities: () -> Unit, onLostFound: () -> Unit, onMail: () -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -44,6 +45,12 @@ fun ServicesScreen(onBack: () -> Unit, onFacilities: () -> Unit, onLostFound: ()
                 supportingContent = { Text("Browse, report, and claim campus items") },
                 leadingContent = { Icon(Icons.Default.Search, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth().clickable(onClick = onLostFound),
+            )
+            ListItem(
+                headlineContent = { Text("Mail") },
+                supportingContent = { Text("Read and manage your Gmail account") },
+                leadingContent = { Icon(Icons.Default.Email, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onMail),
             )
         }
     }

@@ -33,16 +33,19 @@ android {
             applicationIdSuffix = ".local"
             versionNameSuffix = "-local"
             buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/\"")
+            buildConfigField("String", "MAIL_API_BASE_URL", "\"http://10.0.2.2:5000/\"")
         }
         create("demo") {
             dimension = "environment"
             applicationIdSuffix = ".demo"
             versionNameSuffix = "-demo"
             buildConfigField("String", "API_BASE_URL", "\"https://campuslink.tokeninf.xyz/\"")
+            buildConfigField("String", "MAIL_API_BASE_URL", "\"https://campuslink.tokeninf.xyz/\"")
         }
         create("prod") {
             dimension = "environment"
             buildConfigField("String", "API_BASE_URL", "\"https://campuslink.tokeninf.xyz/\"")
+            buildConfigField("String", "MAIL_API_BASE_URL", "\"https://campuslink.tokeninf.xyz/\"")
         }
     }
 

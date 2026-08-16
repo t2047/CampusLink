@@ -5,4 +5,5 @@ class ApiException(
     override val message: String,
     val errorCode: String? = null,
     val validationErrors: Map<String, String> = emptyMap(),
+    val authUrl: String? = null,
 ) : Exception(message)

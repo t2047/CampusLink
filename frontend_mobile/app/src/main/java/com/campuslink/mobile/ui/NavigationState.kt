@@ -12,6 +12,10 @@ internal sealed interface Screen {
     data object Profile : Screen
     data object Settings : Screen
     data object Services : Screen
+    data object MailHome : Screen
+    data class MailDetails(val messageId: String) : Screen
+    data object ComposeMail : Screen
+    data object Calendar : Screen
     data object FacilitiesHome : Screen
     data object FacilitiesSearch : Screen
     data class SpaceDetails(val spaceId: Long) : Screen
@@ -56,6 +60,10 @@ internal data class NavigationState(
         is Screen.Chat -> Screen.Conversations
         Screen.Settings -> Screen.Profile
         Screen.Services -> servicesReturnScreen
+        Screen.MailHome -> Screen.Home
+        is Screen.MailDetails -> Screen.MailHome
+        Screen.ComposeMail -> Screen.MailHome
+        Screen.Calendar -> Screen.MailHome
         Screen.FacilitiesHome -> Screen.Home
         Screen.FacilitiesSearch -> Screen.FacilitiesHome
         is Screen.SpaceDetails -> Screen.FacilitiesSearch
@@ -114,6 +122,10 @@ internal fun Screen.routeKey(): String = when (this) {
     Screen.Profile -> "profile"
     Screen.Settings -> "settings"
     Screen.Services -> "services"
+    Screen.MailHome -> "mail-home"
+    is Screen.MailDetails -> "mail-details|$messageId"
+    Screen.ComposeMail -> "compose-mail"
+    Screen.Calendar -> "calendar"
     Screen.FacilitiesHome -> "facilities-home"
     Screen.FacilitiesSearch -> "facilities-search"
     is Screen.SpaceDetails -> "space-details|$spaceId"
@@ -138,6 +150,10 @@ internal fun screenFromRouteKey(routeKey: String?): Screen {
         "profile" -> Screen.Profile
         "settings" -> Screen.Settings
         "services" -> Screen.Services
+        "mail-home" -> Screen.MailHome
+        "mail-details" -> parts.getOrNull(1)?.takeIf(String::isNotBlank)?.let(Screen::MailDetails)
+        "compose-mail" -> Screen.ComposeMail
+        "calendar" -> Screen.Calendar
         "facilities-home" -> Screen.FacilitiesHome
         "facilities-search" -> Screen.FacilitiesSearch
         "space-details" -> parts.longArgument(1)?.let(Screen::SpaceDetails)

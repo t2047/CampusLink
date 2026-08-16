@@ -42,6 +42,7 @@ internal data class HomeActions(
     val openMyBookings: () -> Unit,
     val openMyMaintenance: () -> Unit,
     val openMyClaims: () -> Unit,
+    val openMail: () -> Unit = {},
 )
 
 internal const val HOME_LIST_TAG = "home-list"
@@ -93,9 +94,9 @@ internal fun HomeScreen(actions: HomeActions) {
         item {
             HomeActionCard(
                 title = "Mail",
-                subtitle = "Managed by Agent",
+                subtitle = "Read, search, and manage your Gmail",
                 icon = Icons.Default.Email,
-                onClick = actions.openAgentCore,
+                onClick = actions.openMail,
             )
         }
 
