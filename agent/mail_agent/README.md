@@ -2,8 +2,8 @@
 
 Gmail-backed REST service for the web mail module. Messages are fetched and
 operated on directly through the Gmail API using OAuth2, and every message is
-automatically tagged with an ML-predicted category (`campus`, `career`,
-`finance` or `other`).
+automatically tagged with a category (`campus`, `career`, `finance` or
+`other`) — classified by the LLM first, with the trained ML model as fallback.
 
 **Each CampusLink user binds their own Gmail account**: the caller identity is
 resolved from the `Authorization` header (user JWT `sub` = email for the web
@@ -20,7 +20,7 @@ agent/mail_agent/
 │   ├── agent.py                   # LangChain agent + 7 tools (per-user bound)
 │   ├── gmail_service.py           # Per-user Gmail API operations -> MailMessage
 │   ├── models.py                  # Pydantic models + MailCategory enum
-│   ├── classifier.py              # ML classifier wrapper (lazy load + cache)
+│   ├── classifier.py              # Classification: LLM first, ML fallback (lazy + cache)
 │   └── config.py                  # OAuth client / token dir / env config
 ├── gmail_tokens/                  # Per-user Gmail OAuth tokens (<sha256(user_id)>.json)
 ├── ml/                            # Trained email classifier
@@ -142,7 +142,7 @@ To re-authorize or switch accounts: call `POST /api/mail/oauth/disconnect`
 ## Email classification
 
 Every message returned by the service is automatically tagged with one of four
-categories predicted by the trained model in `agent/mail_agent/ml`:
+categories:
 
 | Category | Meaning                                    |
 |----------|--------------------------------------------|
@@ -155,13 +155,23 @@ The tag is exposed as the `category` field on each `MailMessage` and rendered
 as a colored chip in the web Mail page (list and detail view); the MCP mail
 gateway also shows it in chat summaries.
 
+Classification is **LLM-first with ML fallback**:
+
+1. the LLM (DeepSeek, configured via `MAIL_LLM_*` / `DEEPSEEK_*`) classifies
+   each page of messages in a single call (batches of up to 50);
+2. messages the LLM does not answer (missing entry, invalid category, call
+   failure) fall back to the trained ML model in `agent/mail_agent/ml`;
+3. anything still unclassified falls back to `other`.
+
 Classification is best-effort:
 
-* the model is loaded lazily once per process and predictions are cached per
-  message id for a bounded window;
-* if the model is missing or a single message cannot be classified, the
-  service keeps working and that message falls back to `other`;
-* the model path can be overridden with the `MAIL_CLASSIFIER_MODEL` env var
+* the LLM/model are used lazily and predictions are cached per message id for a
+  bounded window, so repeated page loads cost nothing;
+* if the LLM and the model are both unavailable, the service keeps working and
+  every message falls back to `other`;
+* the strategy can be pinned with `MAIL_CLASSIFIER_MODE` (`auto` = LLM first,
+  ML fallback, default; `llm` = LLM only; `ml` = ML only);
+* the ML model path can be overridden with the `MAIL_CLASSIFIER_MODEL` env var
   (default: `ml/models/email_classifier.joblib`).
 
 ## Mail agent (LangChain)
@@ -193,6 +203,7 @@ Model configuration comes from the repository root `.env`:
 | `MAIL_LLM_BASE_URL`     | falls back to `DEEPSEEK_BASE_URL` (api.deepseek.com)|
 | `MAIL_LLM_MODEL`        | falls back to `DEEPSEEK_MODEL` (deepseek-v4-flash)  |
 | `MAIL_AGENT_MAX_TOKENS` | 2000                                                |
+| `MAIL_CLASSIFIER_MODE`  | `auto` (LLM first, ML fallback); `llm` / `ml` to pin |
 
 Chat endpoint (same `Authorization: Bearer <jwt>` contract as the rest of the
 service):

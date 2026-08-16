@@ -31,7 +31,7 @@
 │  ├─ gmail_service.py Gmail API 操作（OAuth、列表、读写、归档、删除）   │
 │  ├─ calendar_service.py SQLite 日历 CRUD + 邮件日程抽取               │
 │  ├─ agent.py          LangChain ReAct Agent（自然语言操作邮件）        │
-│  ├─ classifier.py     ML 邮件分类（campus/career/finance/other）      │
+│  ├─ classifier.py     邮件分类（LLM 优先，ML 模型兜底；campus/career/finance/other）│
 │  ├─ models.py         Pydantic 数据模型                               │
 │  └─ config.py         环境变量 / Gmail OAuth 客户端配置               │
 └────────────────────────────────────────────────────────────────────┘
@@ -51,7 +51,7 @@
 | `agent/mail_agent/mail_agent/gmail_service.py` | Gmail API 封装（**按用户**）：OAuth 流程、消息列表/详情/发送/标记/归档/删除、模糊搜索、分页 token 缓存、60s 消息缓存 |
 | `agent/mail_agent/mail_agent/calendar_service.py` | SQLite 日历（`calendar.db`）事件 CRUD、从邮件正文抽取日程（规则解析器 + LLM 两种模式）、导入去重 |
 | `agent/mail_agent/mail_agent/agent.py` | LangChain ReAct Agent：7 个工具（搜索/读/删/批量删/加星/归档/发送），多轮会话记忆 |
-| `agent/mail_agent/mail_agent/classifier.py` | 邮件分类模型封装（懒加载 + 按 message_id 缓存，失败回退 `other`） |
+| `agent/mail_agent/mail_agent/classifier.py` | 邮件分类：**LLM 优先**（`MAIL_LLM_*`/`DEEPSEEK_*`，整页一次调用），未命中回退 ML 模型（懒加载 + 按 message_id 缓存，最终回退 `other`）；`MAIL_CLASSIFIER_MODE` 可固定为 `llm`/`ml` |
 | `agent/mail_agent/mail_agent/models.py` | `MailMessage`、`PageResponse`、`SendMailRequest`、`UpdateMailRequest`、OAuth 响应等 Pydantic 模型 |
 | `agent/mail_agent/mail_agent/config.py` | 环境变量读取：Gmail 客户端、每个用户的 token 目录（`GMAIL_TOKEN_DIR`）、身份密钥（`JWT_SECRET`/`MAIL_INTERNAL_SECRET`）、LLM 配置 |
 | `agent/mail_agent/ml/` | 训练好的分类模型 `email_classifier.joblib` 及加载器 |
