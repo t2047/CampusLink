@@ -47,4 +47,30 @@ class ChatRepositoryTest {
         assertEquals("Hi", messages.last().content)
         assertEquals("COMPLETE", messages.last().status.name)
     }
+
+    @Test
+    fun `retry reuses original turn without inserting another user message`() = runTest {
+        val conversationId = repository.createConversation("student@nus.edu.sg")
+        val failedAssistantId = repository.beginTurn(conversationId, "Hello")
+        repository.applyEvent(
+            conversationId,
+            failedAssistantId,
+            SseEvent("error", buildJsonObject { put("message", "Disconnected") }),
+        )
+
+        val retry = repository.beginRetry(conversationId, failedAssistantId)
+        repository.applyEvent(
+            conversationId,
+            retry.assistantId,
+            SseEvent("token", buildJsonObject { put("content", "Recovered") }),
+        )
+        repository.applyEvent(conversationId, retry.assistantId, SseEvent("done", buildJsonObject {}))
+
+        val messages = repository.messages(conversationId).first()
+        assertEquals("Hello", retry.message)
+        assertEquals(1, messages.count { it.role.name == "USER" })
+        assertEquals(3, messages.size)
+        assertEquals("Recovered", messages.last().content)
+        assertEquals("COMPLETE", messages.last().status.name)
+    }
 }

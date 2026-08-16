@@ -14,6 +14,9 @@ class SseParser(
     private var buffer = ""
     private var terminalEventSeen = false
 
+    val isTerminal: Boolean
+        get() = terminalEventSeen
+
     fun feed(chunk: String) {
         buffer += chunk
         // 保留分片末尾的单个 \r；下一分片可能以 \n 开始，不能提前制造空事件边界。
@@ -27,11 +30,11 @@ class SseParser(
         }
     }
 
-    fun finish() {
+    fun finish(): Boolean {
         buffer = buffer.replace('\r', '\n')
         if (buffer.isNotBlank()) parseBlock(buffer)?.let(::emit)
         buffer = ""
-        if (!terminalEventSeen) emit(SseEvent("done", JsonObject(emptyMap())))
+        return terminalEventSeen
     }
 
     private fun emit(event: SseEvent) {

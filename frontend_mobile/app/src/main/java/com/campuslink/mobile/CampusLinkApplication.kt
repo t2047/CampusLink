@@ -5,6 +5,7 @@ import com.campuslink.mobile.core.network.AuthApi
 import com.campuslink.mobile.core.network.AuthenticatedHttpClient
 import com.campuslink.mobile.core.network.ChatSseClient
 import com.campuslink.mobile.core.network.FacilitiesApi
+import com.campuslink.mobile.core.network.HttpClientFactory
 import com.campuslink.mobile.core.network.LostFoundApi
 import com.campuslink.mobile.core.security.CryptoManager
 import com.campuslink.mobile.core.security.DatabaseKeyStore
@@ -19,8 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 
 class CampusLinkApplication : Application() {
     lateinit var container: AppContainer
@@ -46,15 +45,17 @@ class AppContainer(application: Application) {
     val settings = AppSettings(application)
     private val database = CampusDatabase.create(application, DatabaseKeyStore(application, crypto))
     val chatRepository = ChatRepository(database.chatDao(), json)
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
-    val authApi = AuthApi(httpClient, BuildConfig.API_BASE_URL, json)
-    val chatClient = ChatSseClient(httpClient, BuildConfig.API_BASE_URL, sessionStore, json)
+    private val httpClients = HttpClientFactory.create()
+    val authApi = AuthApi(httpClients.rest, BuildConfig.API_BASE_URL, json)
+    val chatClient = ChatSseClient(
+        httpClients.sse,
+        BuildConfig.API_BASE_URL,
+        json,
+        tokenProvider = { sessionStore.session.value?.token },
+        onUnauthorized = sessionStore::clear,
+    )
     private val authenticatedHttpClient = AuthenticatedHttpClient(
-        httpClient,
+        httpClients.rest,
         BuildConfig.API_BASE_URL,
         json,
         tokenProvider = { sessionStore.session.value?.token },
