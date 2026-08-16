@@ -21,6 +21,13 @@ interface ChatDao {
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun message(id: String): MessageEntity?
 
+    @Query(
+        """SELECT * FROM messages
+            WHERE conversationId = :conversationId AND role = 'USER' AND timestamp < :beforeTimestamp
+            ORDER BY timestamp DESC LIMIT 1""",
+    )
+    suspend fun precedingUserMessage(conversationId: String, beforeTimestamp: Long): MessageEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertConversation(value: ConversationEntity)
 

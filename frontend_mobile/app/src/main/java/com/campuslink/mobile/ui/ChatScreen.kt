@@ -77,13 +77,13 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit, on
             confirmButton = {
                 Button(
                     onClick = { viewModel.resolveConfirmation(true) },
-                    enabled = !state.resolvingConfirmation,
+                    enabled = !state.streaming,
                 ) { Text(text.approve) }
             },
             dismissButton = {
                 TextButton(
                     onClick = { viewModel.resolveConfirmation(false) },
-                    enabled = !state.resolvingConfirmation,
+                    enabled = !state.streaming,
                 ) { Text(text.cancel) }
             },
         )
@@ -115,7 +115,7 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit, on
                         text = text,
                         onRetry = retryContent
                             ?.takeIf { message.status.name == "FAILED" || message.status.name == "INTERRUPTED" }
-                            ?.let { content -> ({ viewModel.send(content) }) },
+                            ?.let { { viewModel.retry(message.id) } },
                     )
                 }
             }
