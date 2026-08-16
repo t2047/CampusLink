@@ -25,26 +25,55 @@ class AuthenticatedHttpClient(
     private val tokenProvider: () -> String?,
     private val onUnauthorized: () -> Unit,
 ) {
-    suspend fun get(path: String, query: List<Pair<String, String>> = emptyList()): String =
-        execute("GET", path, query, jsonBody = null)
+    suspend fun get(
+        path: String,
+        query: List<Pair<String, String>> = emptyList(),
+        timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    ): String = execute("GET", path, query, jsonBody = null, timeoutSeconds = timeoutSeconds)
 
-    suspend fun post(path: String, jsonBody: String): String = execute("POST", path, emptyList(), jsonBody)
+    suspend fun post(
+        path: String,
+        jsonBody: String,
+        timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    ): String = execute("POST", path, emptyList(), jsonBody, timeoutSeconds)
 
-    suspend fun postMultipart(path: String, body: RequestBody): String =
-        execute("POST", path, emptyList(), body)
+    suspend fun post(
+        path: String,
+        query: List<Pair<String, String>>,
+        jsonBody: String,
+        timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    ): String = execute("POST", path, query, jsonBody, timeoutSeconds)
 
-    suspend fun patch(path: String, jsonBody: String? = null): String = execute("PATCH", path, emptyList(), jsonBody)
+    suspend fun postMultipart(
+        path: String,
+        body: RequestBody,
+        timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    ): String = execute("POST", path, emptyList(), body, timeoutSeconds)
+
+    suspend fun patch(
+        path: String,
+        jsonBody: String? = null,
+        timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    ): String = execute("PATCH", path, emptyList(), jsonBody, timeoutSeconds)
+
+    suspend fun delete(
+        path: String,
+        query: List<Pair<String, String>> = emptyList(),
+        timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    ): String = execute("DELETE", path, query, jsonBody = null, timeoutSeconds = timeoutSeconds)
 
     private suspend fun execute(
         method: String,
         path: String,
         query: List<Pair<String, String>>,
         jsonBody: String?,
+        timeoutSeconds: Long,
     ): String = execute(
         method = method,
         path = path,
         query = query,
         body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE),
+        timeoutSeconds = timeoutSeconds,
     )
 
     private suspend fun execute(
@@ -52,10 +81,12 @@ class AuthenticatedHttpClient(
         path: String,
         query: List<Pair<String, String>>,
         body: RequestBody?,
+        timeoutSeconds: Long,
     ): String {
         val token = tokenProvider()?.takeIf(String::isNotBlank)
             ?: throw ApiException(401, "Not authenticated")
-        val urlBuilder = baseUrl.toHttpUrl().newBuilder().addPathSegments(path.trim('/'))
+        // 调用方可以把动态 ID 预先编码成单个路径段，避免 ID 中的斜杠被误拆成多段。
+        val urlBuilder = baseUrl.toHttpUrl().newBuilder().addEncodedPathSegments(path.trim('/'))
         query.forEach { (name, value) -> urlBuilder.addQueryParameter(name, value) }
         val requestBuilder = Request.Builder()
             .url(urlBuilder.build())
@@ -65,13 +96,18 @@ class AuthenticatedHttpClient(
             "GET" -> requestBuilder.get()
             "POST" -> requestBuilder.post(requireNotNull(body))
             "PATCH" -> requestBuilder.patch(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+            "DELETE" -> requestBuilder.delete()
             else -> error("Unsupported HTTP method: $method")
         }
-        return await(requestBuilder.build())
+        return await(requestBuilder.build(), timeoutSeconds)
     }
 
-    private suspend fun await(request: Request): String = suspendCancellableCoroutine { continuation ->
-        val call = client.newCall(request)
+    private suspend fun await(request: Request, timeoutSeconds: Long): String = suspendCancellableCoroutine { continuation ->
+        val call = client.newBuilder()
+            .readTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+            .newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, exception: IOException) {
@@ -80,7 +116,7 @@ class AuthenticatedHttpClient(
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
-                    val body = response.body.string()
+                    val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
                         if (response.code == 401) onUnauthorized()
                         if (continuation.isActive) {
@@ -91,6 +127,7 @@ class AuthenticatedHttpClient(
                                     backendError.message,
                                     backendError.code,
                                     backendError.validationErrors,
+                                    backendError.authUrl,
                                 ),
                             )
                         }
@@ -114,16 +151,19 @@ class AuthenticatedHttpClient(
             ?: validationMessage
             ?: code
             ?: "HTTP $statusCode"
-        BackendError(message, code, validationErrors)
+        val authUrl = value["auth_url"]?.jsonPrimitive?.contentOrNull
+        BackendError(message, code, validationErrors, authUrl)
     }.getOrNull() ?: BackendError("HTTP $statusCode", null, emptyMap())
 
     private data class BackendError(
         val message: String,
         val code: String?,
         val validationErrors: Map<String, String>,
+        val authUrl: String? = null,
     )
 
     companion object {
+        private const val DEFAULT_TIMEOUT_SECONDS = 30L
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

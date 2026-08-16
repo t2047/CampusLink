@@ -6,6 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.campuslink.mobile.AppContainer
@@ -37,6 +40,14 @@ import com.campuslink.mobile.ui.lostfound.LostFoundClaimsViewModel
 import com.campuslink.mobile.ui.lostfound.LostFoundDetailsScreen
 import com.campuslink.mobile.ui.lostfound.LostFoundDetailsViewModel
 import com.campuslink.mobile.ui.lostfound.LostFoundHomeScreen
+import com.campuslink.mobile.ui.mail.CalendarScreen
+import com.campuslink.mobile.ui.mail.CalendarViewModel
+import com.campuslink.mobile.ui.mail.ComposeMailScreen
+import com.campuslink.mobile.ui.mail.ComposeMailViewModel
+import com.campuslink.mobile.ui.mail.MailDetailsScreen
+import com.campuslink.mobile.ui.mail.MailDetailsViewModel
+import com.campuslink.mobile.ui.mail.MailHomeScreen
+import com.campuslink.mobile.ui.mail.MailHomeViewModel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -87,6 +98,10 @@ fun CampusLinkApp(container: AppContainer) {
                     },
                 )
                 Screen.Services -> ServicesRoute(goBack, navigate)
+                Screen.MailHome -> MailHomeRoute(container, goBack, navigate)
+                is Screen.MailDetails -> MailDetailsRoute(container, active.messageId, goBack)
+                Screen.ComposeMail -> ComposeMailRoute(container, goBack)
+                Screen.Calendar -> CalendarRoute(container, goBack)
                 Screen.FacilitiesHome -> FacilitiesHomeRoute(goBack, navigate)
                 Screen.FacilitiesSearch -> FacilitiesSearchRoute(container, goBack, navigate)
                 is Screen.SpaceDetails -> SpaceDetailsRoute(container, active.spaceId, goBack, navigate) {
@@ -166,8 +181,9 @@ private fun RootTabRoute(
                     openFacilities = { actions.navigate(Screen.FacilitiesHome) },
                     openLostFound = { actions.navigate(Screen.LostFoundHome) },
                     openMyBookings = { actions.navigate(Screen.MyBookings) },
-                    openMyMaintenance = { actions.navigate(Screen.MyMaintenance) },
-                    openMyClaims = { actions.navigate(Screen.LostFoundClaims) },
+                        openMyMaintenance = { actions.navigate(Screen.MyMaintenance) },
+                        openMyClaims = { actions.navigate(Screen.LostFoundClaims) },
+                        openMail = { actions.navigate(Screen.MailHome) },
                 ),
                 text = text.home,
             )
@@ -236,7 +252,54 @@ private fun ServicesRoute(onBack: () -> Unit, navigate: (Screen) -> Unit) {
         onBack = onBack,
         onFacilities = { navigate(Screen.FacilitiesHome) },
         onLostFound = { navigate(Screen.LostFoundHome) },
+        onMail = { navigate(Screen.MailHome) },
     )
+}
+
+@Composable
+private fun MailHomeRoute(container: AppContainer, onBack: () -> Unit, navigate: (Screen) -> Unit) {
+    val context = LocalContext.current
+    val viewModel: MailHomeViewModel = viewModel(
+        key = "mail-home",
+        factory = ContainerViewModelFactory { MailHomeViewModel(container.mailRepository) },
+    )
+    MailHomeScreen(
+        viewModel = viewModel,
+        onBack = onBack,
+        onOpenMessage = { navigate(Screen.MailDetails(it)) },
+        onCompose = { navigate(Screen.ComposeMail) },
+        onCalendar = { navigate(Screen.Calendar) },
+        openAuthorization = { url ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        },
+    )
+}
+
+@Composable
+private fun MailDetailsRoute(container: AppContainer, messageId: String, onBack: () -> Unit) {
+    val viewModel: MailDetailsViewModel = viewModel(
+        key = "mail-details-$messageId",
+        factory = ContainerViewModelFactory { MailDetailsViewModel(messageId, container.mailRepository) },
+    )
+    MailDetailsScreen(viewModel, onBack)
+}
+
+@Composable
+private fun ComposeMailRoute(container: AppContainer, onBack: () -> Unit) {
+    val viewModel: ComposeMailViewModel = viewModel(
+        key = "compose-mail",
+        factory = ContainerViewModelFactory { ComposeMailViewModel(container.mailRepository) },
+    )
+    ComposeMailScreen(viewModel, onBack)
+}
+
+@Composable
+private fun CalendarRoute(container: AppContainer, onBack: () -> Unit) {
+    val viewModel: CalendarViewModel = viewModel(
+        key = "calendar",
+        factory = ContainerViewModelFactory { CalendarViewModel(container.mailRepository) },
+    )
+    CalendarScreen(viewModel, onBack)
 }
 
 @Composable

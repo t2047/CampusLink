@@ -49,6 +49,7 @@ internal data class HomeActions(
     val openMyBookings: () -> Unit,
     val openMyMaintenance: () -> Unit,
     val openMyClaims: () -> Unit,
+    val openMail: () -> Unit = {},
 )
 
 internal const val HOME_LIST_TAG = "home-list"
@@ -95,7 +96,7 @@ internal fun HomeScreen(
             CampusServiceCard(
                 copy = ServiceCardCopy(text.mail, text.mailSubtitle, text.agentBadge),
                 icon = Icons.Default.Email,
-                onClick = actions.openAgentCore,
+                onClick = actions.openMail,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

@@ -63,3 +63,7 @@ agent/mail_agent/calendar.db
 # Local docker-compose overrides (never commit)
 docker-compose.override.yml
 .claude/
+
+# 本机专用启动/关闭脚本，不上传到远程仓库
+/scripts/local-mobile-start.sh
+/scripts/local-mobile-stop.sh
