@@ -4,6 +4,7 @@ import base64
 import math
 import re
 import struct
+from dataclasses import dataclass
 from datetime import date
 from difflib import SequenceMatcher
 from typing import Any
@@ -25,6 +26,154 @@ DEFAULT_CALIBRATION = {
     "visual": (0.50, 0.95),
     "cross_modal": (0.15, 0.40),
 }
+
+# 纯 ASCII 表面形式用词边界匹配；含 CJK 的表面形式用子串匹配（避免 "black"
+# 误命中 "backpack"、"red" 误命中 "redemption"）。
+COLOUR_FORM_ASCII_PATTERN = re.compile(r"[a-z0-9]")
+
+
+@dataclass(frozen=True)
+class ColourGroup:
+    """一组同义/跨语言颜色：code 为 canonical 标识，en/zh 为展示形式。
+
+    与后端 {@code ColourNormalizer} 保持同步（后端新增颜色时两端一起改）。
+    """
+
+    code: str
+    en: str
+    zh: str
+    forms: tuple[str, ...]
+
+
+# 保守合并：只合并跨语言 + 明确同义词（gray/grey、ivory/cream→White、
+# navy/dark blue→Blue、gold/golden→Gold）；silver 与 grey、gold 与 yellow
+# 保持分开，避免近义色误召回。单字中文形式（白/黑/蓝…）故意不收录，
+# 防止子串命中 "明白"、"黑板" 等无关词。
+COLOUR_GROUPS: tuple[ColourGroup, ...] = (
+    ColourGroup(
+        "WHITE",
+        "White",
+        "白色",
+        ("white", "ivory", "cream", "白色", "米白", "乳白", "纯白", "象牙白", "奶白"),
+    ),
+    ColourGroup("BLACK", "Black", "黑色", ("black", "charcoal", "黑色", "纯黑", "墨黑", "乌黑")),
+    ColourGroup("GREY", "Grey", "灰色", ("grey", "gray", "灰色", "银灰", "浅灰", "深灰")),
+    ColourGroup(
+        "BLUE",
+        "Blue",
+        "蓝色",
+        (
+            "blue",
+            "navy",
+            "navy blue",
+            "dark blue",
+            "light blue",
+            "sky blue",
+            "cyan",
+            "teal",
+            "azure",
+            "蓝色",
+            "深蓝",
+            "浅蓝",
+            "天蓝",
+            "藏蓝",
+            "宝蓝",
+            "淡蓝",
+            "湖蓝",
+        ),
+    ),
+    ColourGroup(
+        "RED",
+        "Red",
+        "红色",
+        (
+            "red",
+            "maroon",
+            "crimson",
+            "scarlet",
+            "红色",
+            "深红",
+            "浅红",
+            "酒红",
+            "枣红",
+            "朱红",
+            "大红",
+        ),
+    ),
+    ColourGroup(
+        "GREEN",
+        "Green",
+        "绿色",
+        (
+            "green",
+            "olive",
+            "emerald",
+            "jade",
+            "绿色",
+            "深绿",
+            "浅绿",
+            "翠绿",
+            "墨绿",
+            "草绿",
+            "橄榄绿",
+        ),
+    ),
+    ColourGroup("YELLOW", "Yellow", "黄色", ("yellow", "amber", "黄色", "杏黄", "米黄", "淡黄")),
+    ColourGroup("GOLD", "Gold", "金色", ("gold", "golden", "金色", "金黄", "金黄色")),
+    ColourGroup("SILVER", "Silver", "银色", ("silver", "银色", "银白")),
+    ColourGroup(
+        "PURPLE",
+        "Purple",
+        "紫色",
+        ("purple", "violet", "lavender", "紫色", "淡紫", "紫罗兰"),
+    ),
+    ColourGroup("PINK", "Pink", "粉色", ("pink", "粉色", "粉红", "桃红", "浅粉")),
+    ColourGroup("ORANGE", "Orange", "橙色", ("orange", "橙色", "橘色", "桔色")),
+    ColourGroup(
+        "BROWN",
+        "Brown",
+        "棕色",
+        ("brown", "tan", "beige", "bronze", "棕色", "褐色", "咖啡色", "茶色", "卡其色", "驼色"),
+    ),
+    ColourGroup("TRANSPARENT", "Transparent", "透明", ("transparent", "clear", "透明", "无色")),
+)
+
+
+def contains_colour_form(text: str, form: str) -> bool:
+    """颜色表面形式是否出现在 text 中（text 需已 lowercase）。
+
+    纯 ASCII 形式用词边界正则；含 CJK 的形式用子串匹配。
+    """
+    if COLOUR_FORM_ASCII_PATTERN.search(form):
+        return re.search(rf"(?<![a-z0-9]){re.escape(form)}(?![a-z0-9])", text) is not None
+    return form in text
+
+
+def colour_codes(value: str) -> frozenset[str]:
+    """返回 value 中命中的 canonical 颜色 code 集合；空值/未命中返回空集。
+
+    复合色如 "blue lid black bottle" → {"BLUE", "BLACK"}。
+    """
+    if not value:
+        return frozenset()
+    text = value.lower()
+    return frozenset(
+        group.code
+        for group in COLOUR_GROUPS
+        if any(contains_colour_form(text, form) for form in group.forms)
+    )
+
+
+def colour_similarity(left: str, right: str) -> float:
+    """颜色相似度：两侧都命中 canonical 颜色时按 code 集合判同色（white↔白色
+    → 1.0、white vs black → 0.0）；任一侧未命中则回退 short_text_similarity，
+    保留未知颜色/拼写变体的旧行为。
+    """
+    left_codes = colour_codes(left)
+    right_codes = colour_codes(right)
+    if left_codes and right_codes:
+        return 1.0 if left_codes & right_codes else 0.0
+    return short_text_similarity(left, right)
 
 
 def rank_candidates(
@@ -125,7 +274,7 @@ def _score_candidate_detailed(
             (
                 "colour",
                 WEIGHTS["colour"],
-                short_text_similarity(str(query["colour"]), str(candidate.get("colour", ""))),
+                colour_similarity(str(query["colour"]), str(candidate.get("colour", ""))),
             )
         )
     if query.get("location"):
