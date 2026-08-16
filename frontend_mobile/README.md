@@ -1,8 +1,10 @@
 # CampusLink Android Core Chat
 
-Native Kotlin / Jetpack Compose client focused on the unified Core Chat. It consumes
+Native Kotlin / Jetpack Compose client built around the unified Core Chat, with native
+Facilities and Lost & Found service flows. It consumes
 `/api/chat/stream` and `/api/chat/resume`, rendering SSE tokens, Agent/Utility activity,
-Lost & Found match cards, and HITL confirmations.
+Lost & Found match cards, and HITL confirmations. The native Lost & Found module supports
+browsing, filtering, details, LOST/FOUND multipart reports, and the claim review workflow.
 
 ## Build
 
@@ -24,5 +26,5 @@ The demo APK is produced at `app/build/outputs/apk/demo/debug/app-demo-debug.apk
 four values must come from local secure storage or CI secrets, never Git.
 
 JWTs and the SQLCipher Room passphrase are protected by Android Keystore. Chat history is local,
-encrypted, and isolated by account. The first release is text-only and does not include full native
-Mail, Facilities, or Lost & Found screens.
+encrypted, and isolated by account. Core Chat remains text-only. Mail does not yet have native
+screens; Facilities and Lost & Found are being delivered in phased native modules.
