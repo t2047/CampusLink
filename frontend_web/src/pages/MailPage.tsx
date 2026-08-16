@@ -271,7 +271,7 @@ export function MailPage() {
   }
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2} sx={{ height: 'calc(100vh - 3rem)', overflow: 'hidden' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}>
         <Box>
           <Typography variant="h4" fontWeight={700}>Mail</Typography>
@@ -318,9 +318,9 @@ export function MailPage() {
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
-      <Paper sx={{ overflow: 'hidden' }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} sx={{ minHeight: 620 }}>
-          <Box sx={{ width: { xs: '100%', md: 380 }, borderRight: { md: 1 }, borderColor: 'divider' }}>
+      <Paper sx={{ minHeight: 0, flex: 1, overflow: 'hidden' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} sx={{ height: '100%', minHeight: '100%' }}>
+          <Box sx={{ display: 'flex', width: { xs: '100%', md: 380 }, flexDirection: 'column', borderRight: { md: 1 }, borderColor: 'divider' }}>
             <Tabs
               value={folder}
               onChange={(_, value: MailFolder) => setFolder(value)}
@@ -377,7 +377,7 @@ export function MailPage() {
                 ))}
               </List>
             ) : (
-              <Box sx={{ p: 4, textAlign: 'center' }}>
+              <Box sx={{ display: 'grid', flex: 1, placeItems: 'center', p: 4, textAlign: 'center' }}>
                 <Typography variant="h6">No messages</Typography>
                 <Typography color="text.secondary">Try another folder or search term.</Typography>
               </Box>
@@ -403,7 +403,7 @@ export function MailPage() {
             )}
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ display: 'flex', minWidth: 0, flex: 1, flexDirection: 'column' }}>
             {detailLoading ? (
               <Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress /></Box>
             ) : selected ? (
@@ -471,7 +471,7 @@ export function MailPage() {
                 )}
               </Stack>
             ) : (
-              <Box sx={{ minHeight: 520, display: 'grid', placeItems: 'center', p: 4, textAlign: 'center' }}>
+              <Box sx={{ display: 'grid', minHeight: 0, flex: 1, placeItems: 'center', p: 4, textAlign: 'center' }}>
                 <Box>
                   <MailOutlineIcon color="disabled" sx={{ fontSize: 56 }} />
                   <Typography variant="h6">Select a message</Typography>

@@ -21,7 +21,6 @@ export function FacilitiesLayout() {
         <Tabs value={activeSection} aria-label="Facilities sections" variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
         <Tab label="Search Spaces" value="spaces" component={RouterLink} to="/facilities" />
         <Tab label="My Bookings" value="bookings" component={RouterLink} to="/facilities/bookings" />
-        <Tab label="Report Maintenance" value="maintenance-new" component={RouterLink} to="/facilities/maintenance/new" />
         <Tab label="My Maintenance Requests" value="maintenance" component={RouterLink} to="/facilities/maintenance" />
         </Tabs>
       </Paper>

@@ -93,7 +93,7 @@ export function CreateReportPage({ reportType }: { reportType: ReportType }) {
   }
 
   return (
-    <Stack spacing={3} component="form" onSubmit={submit}>
+    <Stack spacing={3} component="form" onSubmit={submit} sx={{ minHeight: 'calc(100vh - 3rem)', justifyContent: 'center', py: 2 }}>
       <Box><Typography variant="h4" fontWeight={700}>Report a {reportType === 'LOST' ? 'lost' : 'found'} item</Typography><Typography color="text.secondary">Provide details that will help another campus member identify the item.</Typography></Box>
       {error && <Alert severity="error">{error}</Alert>}
       <Card sx={{ p: 3 }}>

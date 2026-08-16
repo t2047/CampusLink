@@ -239,7 +239,7 @@ export function CalendarPage() {
   const hasEvents = events.length > 0
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2} sx={{ minHeight: 'calc(100vh - 3rem)', justifyContent: 'center' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}>
         <Box>
           <Typography variant="h4" fontWeight={700}>Calendar</Typography>
@@ -268,7 +268,7 @@ export function CalendarPage() {
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
-      <Paper>
+      <Paper sx={{ display: 'flex', height: 'calc(100vh - 320px)', minHeight: 520, flexDirection: 'column' }}>
         <Stack
           direction="row"
           alignItems="center"
@@ -298,7 +298,7 @@ export function CalendarPage() {
           {loading ? <CircularProgress size={20} /> : <Box sx={{ width: 20 }} />}
         </Stack>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+        <Box sx={{ display: 'grid', flex: 1, gridTemplateColumns: 'repeat(7, 1fr)', gridAutoRows: 'minmax(0, 1fr)' }}>
           {WEEKDAY_LABELS.map((label) => (
             <Box
               key={label}
@@ -325,7 +325,7 @@ export function CalendarPage() {
                 key={key}
                 onClick={() => openCreate(cell)}
                 sx={{
-                  minHeight: { xs: 84, md: 108 },
+                  minHeight: { xs: 84, md: 0 },
                   p: 0.5,
                   borderRight: 1,
                   borderBottom: 1,

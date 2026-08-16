@@ -4,7 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminLayout } from './admin/layout/AdminLayout'
 import { AdminRoute } from './auth/AdminRoute'
 import { ProtectedRoute } from './auth/ProtectedRoute'
-import { AppShell } from './components/AppShell'
+import { WorkspaceShell } from './components/WorkspaceShell'
 import ChatProtectedRoute from './components/ProtectedRoute'
 import ChatPage from './pages/ChatPage'
 
@@ -34,6 +34,7 @@ const MyMaintenancePage = lazy(() => import('./pages/facilities/MyMaintenancePag
 const MaintenanceDetailsPage = lazy(() => import('./pages/facilities/MaintenanceDetailsPage').then((module) => ({ default: module.MaintenanceDetailsPage })))
 const MailPage = lazy(() => import('./pages/MailPage').then((module) => ({ default: module.MailPage })))
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
 const MyReportsPage = lazy(() => import('./pages/MyReportsPage').then((module) => ({ default: module.MyReportsPage })))
 const LostFoundFaqPage = lazy(() => import('./pages/LostFoundFaqPage').then((module) => ({ default: module.LostFoundFaqPage })))
 const ReportDetailPage = lazy(() => import('./pages/ReportDetailPage').then((module) => ({ default: module.ReportDetailPage })))
@@ -70,10 +71,10 @@ export default function App() {
           <Route path="/admin/*" element={<AdminNotFoundPage />} />
         </Route>
       </Route>
-      <Route path="/chat" element={<ChatProtectedRoute><ChatPage /></ChatProtectedRoute>} />
       <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
+        <Route element={<WorkspaceShell />}>
+          <Route path="/chat" element={<ChatProtectedRoute><ChatPage /></ChatProtectedRoute>} />
           <Route path="/facilities" element={<FacilitiesLayout />}>
             <Route index element={<SpacesPage />} />
             <Route path="spaces/:spaceId" element={<SpaceDetailsPage />} />
@@ -95,6 +96,7 @@ export default function App() {
           <Route path="/claims/received" element={<ClaimsPage view="received" />} />
           <Route path="/mail" element={<MailPage />} />
           <Route path="/mail/calendar" element={<CalendarPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />

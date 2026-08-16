@@ -144,7 +144,7 @@ const SUGGESTIONS: Record<Lang, string[]> = {
   zh: ['帮我找一下最近的邮件', '明天下午有没有空的研讨室', '现在几点'],
 };
 
-export default function ChatPage() {
+export default function ChatPage({ compact = false }: { compact?: boolean }) {
   const navigate = useNavigate();
   const { user, logout: authLogout } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -167,7 +167,6 @@ export default function ChatPage() {
     if (saved) return saved === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
-
   // ── 界面语言（en/zh）：localStorage 持久化，默认 en（优先英文）──
   const [lang, setLang] = useState<Lang>(() => {
     const saved = localStorage.getItem('lang');
@@ -206,7 +205,10 @@ export default function ChatPage() {
 
   // ── 自动滚动到底部 ──
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const element = messagesEndRef.current;
+    if (element && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   // ── 状态工具 ────────────────────────────────
@@ -575,7 +577,7 @@ export default function ChatPage() {
   // ── Render ──────────────────────────────────
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100 text-slate-800 transition-colors dark:bg-slate-900 dark:text-slate-100">
+    <div className={`${compact ? 'h-full min-h-0' : 'h-screen'} flex flex-col bg-slate-100 text-slate-800 transition-colors dark:bg-slate-900 dark:text-slate-100`}>
       {/* ── Header ── */}
       <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-3">
@@ -608,7 +610,7 @@ export default function ChatPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className={`${compact ? 'hidden' : 'flex'} items-center gap-2`}>
           {/* 语言切换（en/zh） */}
           <button
             type="button"
@@ -634,7 +636,7 @@ export default function ChatPage() {
           </button>
 
           {/* 前往各子系统入口（折叠为下拉，避免顶部拥挤） */}
-          <div className="relative" ref={submenuRef}>
+          <div className="relative hidden" ref={submenuRef}>
             <button
               type="button"
               onClick={() => setSubmenuOpen((o) => !o)}
@@ -706,7 +708,7 @@ export default function ChatPage() {
           <button
             type="button"
             onClick={handleLogout}
-             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-indigo-500/10"
+             className="hidden flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-indigo-500/10"
           >
             退出
           </button>
@@ -922,8 +924,8 @@ export default function ChatPage() {
               autoResize();
             }}
             onKeyDown={handleKeyDown}
-            placeholder={t('placeholder')}
-            className="max-h-40 min-h-[44px] flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
+            placeholder={compact ? 'Type a message' : t('placeholder')}
+            className="max-h-40 min-h-[44px] min-w-0 flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
           />
           {streaming ? (
             <button
