@@ -30,6 +30,7 @@ import {
   clearToken,
   type SseEvent,
 } from '../services/api';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 // ── Types ────────────────────────────────────
 
@@ -95,6 +96,9 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     placeholder: 'Type a message, Enter to send, Shift+Enter for newline…',
     stop: 'Stop',
     send: 'Send',
+    micStart: 'Voice input',
+    micStop: 'Stop voice input',
+    micUnsupported: 'Voice input requires Chrome or Edge',
     needConfirm: 'needs confirmation:',
     confirm: 'Confirm',
     cancel: 'Cancel',
@@ -125,6 +129,9 @@ const TEXTS: Record<Lang, Record<string, string>> = {
     placeholder: '输入消息，Enter 发送，Shift+Enter 换行…',
     stop: '停止',
     send: '发送',
+    micStart: '语音输入',
+    micStop: '停止语音输入',
+    micUnsupported: '语音输入需要 Chrome 或 Edge 浏览器',
     needConfirm: '需要确认：',
     confirm: '确认',
     cancel: '取消',
@@ -176,6 +183,26 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
     localStorage.setItem('lang', lang);
   }, [lang]);
   const t = useCallback((key: string) => TEXTS[lang][key] ?? key, [lang]);
+
+  // 语音输入（STT）：浏览器 Web Speech API，识别结果填入输入框
+  const speech = useSpeechRecognition(lang === 'zh' ? 'zh-CN' : 'en-US');
+  const toggleMic = useCallback(() => {
+    if (speech.listening) {
+      speech.stop();
+      return;
+    }
+    speech.start({
+      onFinal: (text) => {
+        setInput((prev) => (prev ? `${prev} ${text}` : text));
+        // 内联 autoResize（taRef 始终可用；autoResize 定义在下方，避免 TDZ）
+        const el = taRef.current;
+        if (el) {
+          el.style.height = 'auto';
+          el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+        }
+      },
+    });
+  }, [speech]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -915,6 +942,37 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
       {/* ── 输入区 ── */}
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+          {speech.supported && (
+            <button
+              type="button"
+              onClick={toggleMic}
+              title={speech.listening ? t('micStop') : t('micStart')}
+              aria-label={speech.listening ? t('micStop') : t('micStart')}
+              className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl transition-colors ${
+                speech.listening
+                  ? 'animate-pulse bg-red-500 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+              }`}
+            >
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3z"
+                />
+                <path
+                  strokeLinecap="round"
+                  d="M19 11a7 7 0 0 1-14 0M12 18v3"
+                />
+              </svg>
+            </button>
+          )}
           <textarea
             ref={taRef}
             rows={1}
