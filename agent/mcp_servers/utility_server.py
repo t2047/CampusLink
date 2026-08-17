@@ -545,9 +545,7 @@ def _parse_rss_items(xml_text: str, max_results: int = 5) -> list[dict[str, str]
             continue
         link = re.search(r"<link>(.*?)</link>", item, re.DOTALL)
         pub = re.search(r"<pubDate>(.*?)</pubDate>", item, re.DOTALL)
-        desc = re.search(
-            r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", item, re.DOTALL
-        )
+        desc = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", item, re.DOTALL)
         items.append(
             {
                 "title": _clean(title.group(1)),
