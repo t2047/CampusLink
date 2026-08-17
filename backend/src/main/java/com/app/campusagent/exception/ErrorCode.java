@@ -26,7 +26,19 @@ public enum ErrorCode {
     NICKNAME_REQUIRED("NICKNAME_REQUIRED", "昵称不能为空"),
 
     /** 昵称长度超限（个人中心需求 §11.2：去除首尾空白后 1-30 字符）。 */
-    NICKNAME_INVALID_LENGTH("NICKNAME_INVALID_LENGTH", "昵称长度须为 1-30 个字符");
+    NICKNAME_INVALID_LENGTH("NICKNAME_INVALID_LENGTH", "昵称长度须为 1-30 个字符"),
+
+    /** 修改密码：当前密码或新密码为空。 */
+    PASSWORD_REQUIRED("PASSWORD_REQUIRED", "密码不能为空"),
+
+    /** 修改密码：新密码长度超限（至少 6 字符，且 UTF-8 不超过 72 字节，BCrypt 上限）。 */
+    PASSWORD_INVALID_LENGTH("PASSWORD_INVALID_LENGTH", "新密码长度须为 6 个字符以上，且不超过 72 字节"),
+
+    /** 修改密码：当前密码与库中不一致。 */
+    PASSWORD_CURRENT_INCORRECT("PASSWORD_CURRENT_INCORRECT", "当前密码不正确"),
+
+    /** 修改密码：新密码与当前密码相同。 */
+    PASSWORD_SAME_AS_CURRENT("PASSWORD_SAME_AS_CURRENT", "新密码不能与当前密码相同");
 
     private final String code;
     private final String defaultMessage;

@@ -36,7 +36,9 @@ import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -438,6 +440,7 @@ fun ComposeMailScreen(viewModel: ComposeMailViewModel, onBack: () -> Unit) {
 @Composable
 fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var pendingDelete by remember { mutableStateOf<CalendarEvent?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -493,9 +496,28 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit) {
             } else if (state.events.isEmpty()) {
                 item { Text("No calendar events yet.", color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant) }
             } else {
-                items(state.events, key = CalendarEvent::id) { event -> CalendarEventCard(event, viewModel::beginEdit, viewModel::delete) }
+                items(state.events, key = CalendarEvent::id) { event ->
+                    CalendarEventCard(event, viewModel::beginEdit) { pendingDelete = it }
+                }
             }
         }
+    }
+    pendingDelete?.let { event ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete this event?") },
+            text = { Text("${event.title} will be permanently removed.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.delete(event)
+                        pendingDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
     }
 }
 

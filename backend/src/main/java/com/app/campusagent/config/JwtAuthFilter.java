@@ -15,6 +15,10 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -55,7 +59,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             User user = userRepository.findByEmail(email).orElse(null);
 
-            if (user != null && role != null) {
+            if (user != null && role != null && tokenIssuedAfterPasswordChange(user, token)) {
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
                                 user, null,
@@ -74,5 +78,29 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return bearer.substring(7);
         }
         return null;
+    }
+
+    /**
+     * 改密失效检查：用户改过密码（passwordChangedAt 非空）且 token 签发时间早于改密时间时，
+     * 判定该 token 为改密前的旧 token，拒绝放行（ChangePassWord.md）。
+     * 未改过密码或 token 未携带 iat 时保持原有行为。
+     *
+     * <p>JWT 的 iat 按规范是秒级精度（NumericDate），而 passwordChangedAt 是微秒级，
+     * 故把改密时间对齐到秒再比较——避免同一秒内新签发的 token 因毫秒差被误拒；
+     * 代价是同一秒内（改密前）签发的 token 最多残留有效 1 秒，相比原 24 小时窗口可忽略。</p>
+     */
+    private boolean tokenIssuedAfterPasswordChange(User user, String token) {
+        LocalDateTime passwordChangedAt = user.getPasswordChangedAt();
+        if (passwordChangedAt == null) {
+            return true;
+        }
+        Date issuedAt = jwtTokenProvider.getIssuedAtFromToken(token);
+        if (issuedAt == null) {
+            return true;
+        }
+        LocalDateTime changed = passwordChangedAt.truncatedTo(ChronoUnit.SECONDS);
+        return !changed.atZone(ZoneId.systemDefault())
+                .toInstant()
+                .isAfter(issuedAt.toInstant());
     }
 }

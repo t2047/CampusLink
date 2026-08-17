@@ -39,7 +39,7 @@ class AppShellUiTest {
             "Facilities",
             "Lost & Found",
             "Mail",
-            "Managed by Agent",
+            "Read mail & manage calendar",
             "Quick Access",
             "My Bookings",
             "My Maintenance",

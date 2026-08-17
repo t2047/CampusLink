@@ -1,12 +1,12 @@
 # CampusLink Android Core Chat 开发状态与后续路线
 
-> 最后更新：2026-08-16
+> 最后更新：2026-08-17
 >
-> 当前开发分支：`main`（已合并移动端 Mail 第一阶段）
+> 当前开发分支：`test/mobile-final-qa`（基于最新 `origin/main`）
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Core Chat、Facilities Mobile Phase 1/2/3、Lost & Found Native Phase 1、Mobile App Shell 与一级页面 UI Polish 已完成开发和本地自动化验证
+> 当前阶段：Android Mobile Final QA 已完成；小型验收问题已修复，云端 Agent 写操作与 Gmail OAuth 仍需演示前联调
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -509,7 +509,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 93 个通过 |
+| JVM 单元测试 | 96 个通过 |
 | 模拟器测试 | 37 个通过 |
 | `assembleLocalDebug` | 通过 |
 | `assembleDemoDebug` | 通过 |
@@ -520,9 +520,18 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 
 JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API、Mail API/ViewModel，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态；同时覆盖 Home 时间问候、Profile initials、一级页面中英文关键文案，以及预约/维修/Lost & Found status 到 semantic tone 的映射。设备测试覆盖登录页启动、Room v1 架构创建、Home Hero/Services/Agent Mail/Quick Access 与回调、Agent Core 空/列表状态、Profile identity/preferences/危险操作确认、Bottom Navigation 选中行为、Facilities 首页/搜索结果/空间详情/预约和维修状态、确认对话框、Lost & Found 首页/浏览卡/详情/创建表单/Claims/图片语义、共享 TopAppBar/状态/空错误组件，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
 
-Pixel 7 API 36 模拟器已使用 `demoDebug` 保留真实登录态完成运行时 smoke：Home → Agent Core → Profile → Home、Facilities/Lost & Found → Back → Home、Mail 入口 → 原生 Mail 页面、三个 Quick Access、Conversation → Chat → Back，以及 Home/Profile/Agent Core 横竖屏状态恢复均通过。本轮另行审阅 Facilities 首页、搜索、空间详情/可用性、预约空状态、维修表单/空状态，以及 Lost & Found 首页、LOST/FOUND 浏览、详情、创建和 Claims 空状态；浅色、深色、1.3× 动态字体、portrait 与关键 landscape 页面未发现文字裁切、卡片爆宽或对比度问题。真实 smoke 账号无预约、维修或 Claims 数据，详情状态和确认流程由 fake-data Compose tests 覆盖，未为截图向云端写入测试数据；截图仅存放在系统临时目录，未加入 Git。由于该 smoke 账号未配置 Gmail OAuth，邮件真实列表、发信和日历云端操作仍需单独授权验收。为避免删除现有模拟器聊天与凭据，Clear Chat History 和 Log Out 使用 Compose 回调测试验证，未在 smoke 中实际执行破坏性操作。
+Pixel 7 API 36 模拟器已使用 `demoDebug` 完成 Final QA：真实创建并取消 future booking、创建低优先级 maintenance ticket、双账号提交 Lost & Found claim、创建/删除 Calendar 事件、发送并完成 Chat 流式响应。真实 PNG 上传后，公开图片接口返回 `200 image/png`，下载字节哈希与源文件一致，Browse 与 Details 均成功显示；旧 placeholder 的根因是演示记录本身没有图片。360dp 等效小屏、1.3× 动态字体、深色模式、portrait/landscape、旋转恢复、System Back、TalkBack 服务遍历、断网 Error/Retry 与恢复均已 smoke。所有截图仅存放在临时目录并已清理，未加入 Git。
 
-### 6.3 CI/CD
+### 6.3 Final QA 已修复与剩余项
+
+- 图片选择会先读取 provider 声明大小，并在流读取超过 10 MB 时立即终止；单文件不再无上限 `readBytes()`；
+- 所有账号相关 route ViewModel key 加入账号维度，避免切换账号后复用上一账号的详情、归属或表单状态；
+- Home Mail 入口改为原生“邮件与日历”文案；Calendar 永久删除增加确认；
+- 普通用户 Received Claims 按真实后端契约显示“等待管理员审核”，不再展示必定返回 403 的批准/拒绝按钮；
+- 当前已知剩余项：Facilities/Lost & Found/Mail/Calendar 仍以英文硬编码为主；Mail/Calendar 视觉组件尚未完全迁移到共享 service UI；测试账号未配置 Gmail OAuth；云端 Chat 的 Facilities 写操作 smoke 返回服务暂不可用，未进入 HITL 确认。
+- Android UI 与原生服务可演示，但包含 Agent 写操作或真实 Gmail 内容的完整演示需先完成上述云端联调。
+
+### 6.4 CI/CD
 
 `.github/workflows/mobile-ci.yml` 已实现：
 
@@ -613,15 +622,17 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.8 无障碍和多设备适配
 
-- 状态：**未开始**
-- 验收标准：TalkBack、动态字体、横屏、平板、不同 DPI、深色对比度和触控区域检查通过。
+- 状态：**模拟器 Final QA 已完成；物理真机与平板仍待验收**
+- 已完成：TalkBack 高价值遍历、360dp 小屏、1.3× 动态字体、横屏、旋转恢复、深色对比度和语义标签抽查。
+- 后续：补物理真机、平板、更高字体比例和自动化 accessibility scanner。
 
 ### P2：原生业务页面
 
 #### 7.9 Lost & Found 原生页面
 
 - 状态：**Phase 1 功能已完成；Phase 3 视觉一致性已在当前分支完成，提交/PR 与物理真机验收待完成**
-- 已完成：Services 入口、浏览筛选、分页、详情、多图发布 LOST/FOUND、认领申请、My Claims、Received Claims 和批准/拒绝；首页、浏览、详情、创建和 Claims 已统一 CampusLink service UI，并通过真实 demo 只读 smoke 与自动化回归。
+- 已完成：Services 入口、浏览筛选、分页、详情、多图发布 LOST/FOUND、认领申请、My Claims 和 Received Claims；首页、浏览、详情、创建和 Claims 已统一 CampusLink service UI，并通过真实图片与双账号云端 smoke。
+- 真实契约：认领批准/拒绝只允许管理员执行，普通用户 Android 端为只读管理员审核状态。
 - 下一阶段：我的发布、编辑/关闭/删除、通知、Chat 卡片跳转、日期选择器、图片压缩/拍摄、完整中英文文案、更完整的 Compose UI 覆盖与真机验收。
 
 #### 7.10 Facilities 原生页面

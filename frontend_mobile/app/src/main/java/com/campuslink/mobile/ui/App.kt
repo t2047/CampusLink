@@ -86,6 +86,7 @@ fun CampusLinkApp(container: AppContainer) {
                     ChatRoute(
                         container = container,
                         conversationId = active.id,
+                        accountKey = session!!.email,
                         text = strings(language),
                         onBack = goBack,
                     )
@@ -98,47 +99,49 @@ fun CampusLinkApp(container: AppContainer) {
                     },
                 )
                 Screen.Services -> ServicesRoute(goBack, navigate)
-                Screen.MailHome -> MailHomeRoute(container, goBack, navigate)
-                is Screen.MailDetails -> MailDetailsRoute(container, active.messageId, goBack)
-                Screen.ComposeMail -> ComposeMailRoute(container, goBack)
-                Screen.Calendar -> CalendarRoute(container, goBack)
+                Screen.MailHome -> MailHomeRoute(container, session!!.email, goBack, navigate)
+                is Screen.MailDetails -> MailDetailsRoute(container, active.messageId, session!!.email, goBack)
+                Screen.ComposeMail -> ComposeMailRoute(container, session!!.email, goBack)
+                Screen.Calendar -> CalendarRoute(container, session!!.email, goBack)
                 Screen.FacilitiesHome -> FacilitiesHomeRoute(goBack, navigate)
-                Screen.FacilitiesSearch -> FacilitiesSearchRoute(container, goBack, navigate)
-                is Screen.SpaceDetails -> SpaceDetailsRoute(container, active.spaceId, goBack, navigate) {
+                Screen.FacilitiesSearch -> FacilitiesSearchRoute(container, session!!.email, goBack, navigate)
+                is Screen.SpaceDetails -> SpaceDetailsRoute(container, active.spaceId, session!!.email, goBack, navigate) {
                     navigation = navigation.openBookingDetails(it, Screen.MyBookings)
                 }
-                Screen.MyBookings -> MyBookingsRoute(container, goBack) {
+                Screen.MyBookings -> MyBookingsRoute(container, session!!.email, goBack) {
                     navigation = navigation.openBookingDetails(it, Screen.MyBookings)
                 }
-                is Screen.BookingDetails -> BookingDetailsRoute(container, active.bookingId, goBack)
+                is Screen.BookingDetails -> BookingDetailsRoute(container, active.bookingId, session!!.email, goBack)
                 is Screen.SubmitMaintenance -> SubmitMaintenanceRoute(
                     container,
                     active.preselectedSpaceId,
+                    session!!.email,
                     onBack = goBack,
                     navigate = navigate,
                     onViewRequest = {
                         navigation = navigation.openMaintenanceDetails(it, active)
                     },
                 )
-                Screen.MyMaintenance -> MyMaintenanceRoute(container, goBack) {
+                Screen.MyMaintenance -> MyMaintenanceRoute(container, session!!.email, goBack) {
                     navigation = navigation.openMaintenanceDetails(it, Screen.MyMaintenance)
                 }
-                is Screen.MaintenanceDetails -> MaintenanceDetailsRoute(container, active.ticketId, goBack)
+                is Screen.MaintenanceDetails -> MaintenanceDetailsRoute(container, active.ticketId, session!!.email, goBack)
                 Screen.LostFoundHome -> LostFoundHomeScreen(
                     onBack = goBack,
                     onBrowse = { navigate(Screen.LostFoundBrowse) },
                     onCreate = { navigate(Screen.CreateLostFoundReport(it)) },
                     onClaims = { navigate(Screen.LostFoundClaims) },
                 )
-                Screen.LostFoundBrowse -> LostFoundBrowseRoute(container, goBack, navigate)
-                is Screen.LostFoundDetails -> LostFoundDetailsRoute(container, active.reportId, goBack)
+                Screen.LostFoundBrowse -> LostFoundBrowseRoute(container, session!!.email, goBack, navigate)
+                is Screen.LostFoundDetails -> LostFoundDetailsRoute(container, active.reportId, session!!.email, goBack)
                 is Screen.CreateLostFoundReport -> CreateLostFoundReportRoute(
                     container = container,
                     reportType = active.reportType,
+                    accountKey = session!!.email,
                     onBack = goBack,
                     onCreated = { navigate(Screen.LostFoundDetails(it)) },
                 )
-                Screen.LostFoundClaims -> LostFoundClaimsRoute(container, goBack, navigate)
+                Screen.LostFoundClaims -> LostFoundClaimsRoute(container, session!!.email, goBack, navigate)
             }
         }
     }
@@ -236,11 +239,12 @@ private fun ConversationListRoute(
 private fun ChatRoute(
     container: AppContainer,
     conversationId: String,
+    accountKey: String,
     text: UiStrings,
     onBack: () -> Unit,
 ) {
     val viewModel: ChatViewModel = viewModel(
-        key = "chat-$conversationId",
+        key = sessionViewModelKey("chat-$conversationId", accountKey),
         factory = ContainerViewModelFactory { ChatViewModel(container, conversationId) },
     )
     ChatScreen(viewModel, text, onBack)
@@ -257,10 +261,10 @@ private fun ServicesRoute(onBack: () -> Unit, navigate: (Screen) -> Unit) {
 }
 
 @Composable
-private fun MailHomeRoute(container: AppContainer, onBack: () -> Unit, navigate: (Screen) -> Unit) {
+private fun MailHomeRoute(container: AppContainer, accountKey: String, onBack: () -> Unit, navigate: (Screen) -> Unit) {
     val context = LocalContext.current
     val viewModel: MailHomeViewModel = viewModel(
-        key = "mail-home",
+        key = sessionViewModelKey("mail-home", accountKey),
         factory = ContainerViewModelFactory { MailHomeViewModel(container.mailRepository) },
     )
     MailHomeScreen(
@@ -276,27 +280,27 @@ private fun MailHomeRoute(container: AppContainer, onBack: () -> Unit, navigate:
 }
 
 @Composable
-private fun MailDetailsRoute(container: AppContainer, messageId: String, onBack: () -> Unit) {
+private fun MailDetailsRoute(container: AppContainer, messageId: String, accountKey: String, onBack: () -> Unit) {
     val viewModel: MailDetailsViewModel = viewModel(
-        key = "mail-details-$messageId",
+        key = sessionViewModelKey("mail-details-$messageId", accountKey),
         factory = ContainerViewModelFactory { MailDetailsViewModel(messageId, container.mailRepository) },
     )
     MailDetailsScreen(viewModel, onBack)
 }
 
 @Composable
-private fun ComposeMailRoute(container: AppContainer, onBack: () -> Unit) {
+private fun ComposeMailRoute(container: AppContainer, accountKey: String, onBack: () -> Unit) {
     val viewModel: ComposeMailViewModel = viewModel(
-        key = "compose-mail",
+        key = sessionViewModelKey("compose-mail", accountKey),
         factory = ContainerViewModelFactory { ComposeMailViewModel(container.mailRepository) },
     )
     ComposeMailScreen(viewModel, onBack)
 }
 
 @Composable
-private fun CalendarRoute(container: AppContainer, onBack: () -> Unit) {
+private fun CalendarRoute(container: AppContainer, accountKey: String, onBack: () -> Unit) {
     val viewModel: CalendarViewModel = viewModel(
-        key = "calendar",
+        key = sessionViewModelKey("calendar", accountKey),
         factory = ContainerViewModelFactory { CalendarViewModel(container.mailRepository) },
     )
     CalendarScreen(viewModel, onBack)
@@ -328,9 +332,14 @@ private fun AuthRoute(container: AppContainer, language: AppLanguage) {
 }
 
 @Composable
-private fun LostFoundBrowseRoute(container: AppContainer, onBack: () -> Unit, navigate: (Screen) -> Unit) {
+private fun LostFoundBrowseRoute(
+    container: AppContainer,
+    accountKey: String,
+    onBack: () -> Unit,
+    navigate: (Screen) -> Unit,
+) {
     val viewModel: LostFoundBrowseViewModel = viewModel(
-        key = "lost-found-browse",
+        key = sessionViewModelKey("lost-found-browse", accountKey),
         factory = ContainerViewModelFactory { LostFoundBrowseViewModel(container.lostFoundRepository) },
     )
     LostFoundBrowseScreen(
@@ -341,9 +350,9 @@ private fun LostFoundBrowseRoute(container: AppContainer, onBack: () -> Unit, na
 }
 
 @Composable
-private fun LostFoundDetailsRoute(container: AppContainer, reportId: Long, onBack: () -> Unit) {
+private fun LostFoundDetailsRoute(container: AppContainer, reportId: Long, accountKey: String, onBack: () -> Unit) {
     val viewModel: LostFoundDetailsViewModel = viewModel(
-        key = "lost-found-details-$reportId",
+        key = sessionViewModelKey("lost-found-details-$reportId", accountKey),
         factory = ContainerViewModelFactory { LostFoundDetailsViewModel(reportId, container.lostFoundRepository) },
     )
     LostFoundDetailsScreen(viewModel = viewModel, onBack = onBack)
@@ -353,11 +362,12 @@ private fun LostFoundDetailsRoute(container: AppContainer, reportId: Long, onBac
 private fun CreateLostFoundReportRoute(
     container: AppContainer,
     reportType: ReportType,
+    accountKey: String,
     onBack: () -> Unit,
     onCreated: (Long) -> Unit,
 ) {
     val viewModel: CreateLostFoundReportViewModel = viewModel(
-        key = "create-lost-found-${reportType.name}",
+        key = sessionViewModelKey("create-lost-found-${reportType.name}", accountKey),
         factory = ContainerViewModelFactory {
             CreateLostFoundReportViewModel(reportType, container.lostFoundRepository)
         },
@@ -366,9 +376,14 @@ private fun CreateLostFoundReportRoute(
 }
 
 @Composable
-private fun LostFoundClaimsRoute(container: AppContainer, onBack: () -> Unit, navigate: (Screen) -> Unit) {
+private fun LostFoundClaimsRoute(
+    container: AppContainer,
+    accountKey: String,
+    onBack: () -> Unit,
+    navigate: (Screen) -> Unit,
+) {
     val viewModel: LostFoundClaimsViewModel = viewModel(
-        key = "lost-found-claims",
+        key = sessionViewModelKey("lost-found-claims", accountKey),
         factory = ContainerViewModelFactory { LostFoundClaimsViewModel(container.lostFoundRepository) },
     )
     LostFoundClaimsScreen(
@@ -379,9 +394,14 @@ private fun LostFoundClaimsRoute(container: AppContainer, onBack: () -> Unit, na
 }
 
 @Composable
-private fun FacilitiesSearchRoute(container: AppContainer, onBack: () -> Unit, navigate: (Screen) -> Unit) {
+private fun FacilitiesSearchRoute(
+    container: AppContainer,
+    accountKey: String,
+    onBack: () -> Unit,
+    navigate: (Screen) -> Unit,
+) {
     val viewModel: SpaceSearchViewModel = viewModel(
-        key = "facilities-search",
+        key = sessionViewModelKey("facilities-search", accountKey),
         factory = ContainerViewModelFactory { SpaceSearchViewModel(container.facilitiesRepository) },
     )
     SpaceSearchScreen(
@@ -392,15 +412,17 @@ private fun FacilitiesSearchRoute(container: AppContainer, onBack: () -> Unit, n
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun SpaceDetailsRoute(
     container: AppContainer,
     spaceId: Long,
+    accountKey: String,
     onBack: () -> Unit,
     navigate: (Screen) -> Unit,
     onViewBooking: (Long) -> Unit,
 ) {
     val viewModel: SpaceDetailsViewModel = viewModel(
-        key = "space-details-$spaceId",
+        key = sessionViewModelKey("space-details-$spaceId", accountKey),
         factory = ContainerViewModelFactory { SpaceDetailsViewModel(spaceId, container.facilitiesRepository) },
     )
     SpaceDetailsScreen(
@@ -415,11 +437,12 @@ private fun SpaceDetailsRoute(
 @Composable
 private fun MyBookingsRoute(
     container: AppContainer,
+    accountKey: String,
     onBack: () -> Unit,
     onOpenBooking: (Long) -> Unit,
 ) {
     val viewModel: MyBookingsViewModel = viewModel(
-        key = "my-bookings",
+        key = sessionViewModelKey("my-bookings", accountKey),
         factory = ContainerViewModelFactory { MyBookingsViewModel(container.facilitiesRepository) },
     )
     MyBookingsScreen(
@@ -430,24 +453,26 @@ private fun MyBookingsRoute(
 }
 
 @Composable
-private fun BookingDetailsRoute(container: AppContainer, bookingId: Long, onBack: () -> Unit) {
+private fun BookingDetailsRoute(container: AppContainer, bookingId: Long, accountKey: String, onBack: () -> Unit) {
     val viewModel: BookingDetailsViewModel = viewModel(
-        key = "booking-details-$bookingId",
+        key = sessionViewModelKey("booking-details-$bookingId", accountKey),
         factory = ContainerViewModelFactory { BookingDetailsViewModel(bookingId, container.facilitiesRepository) },
     )
     BookingDetailsScreen(viewModel = viewModel, onBack = onBack)
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun SubmitMaintenanceRoute(
     container: AppContainer,
     preselectedSpaceId: Long?,
+    accountKey: String,
     onBack: () -> Unit,
     navigate: (Screen) -> Unit,
     onViewRequest: (Long) -> Unit,
 ) {
     val viewModel: SubmitMaintenanceViewModel = viewModel(
-        key = "submit-maintenance-${preselectedSpaceId ?: "none"}",
+        key = sessionViewModelKey("submit-maintenance-${preselectedSpaceId ?: "none"}", accountKey),
         factory = ContainerViewModelFactory {
             SubmitMaintenanceViewModel(container.facilitiesRepository, preselectedSpaceId)
         },
@@ -463,11 +488,12 @@ private fun SubmitMaintenanceRoute(
 @Composable
 private fun MyMaintenanceRoute(
     container: AppContainer,
+    accountKey: String,
     onBack: () -> Unit,
     onOpenRequest: (Long) -> Unit,
 ) {
     val viewModel: MyMaintenanceViewModel = viewModel(
-        key = "my-maintenance",
+        key = sessionViewModelKey("my-maintenance", accountKey),
         factory = ContainerViewModelFactory { MyMaintenanceViewModel(container.facilitiesRepository) },
     )
     MyMaintenanceScreen(
@@ -478,12 +504,14 @@ private fun MyMaintenanceRoute(
 }
 
 @Composable
-private fun MaintenanceDetailsRoute(container: AppContainer, ticketId: Long, onBack: () -> Unit) {
+private fun MaintenanceDetailsRoute(container: AppContainer, ticketId: Long, accountKey: String, onBack: () -> Unit) {
     val viewModel: MaintenanceDetailsViewModel = viewModel(
-        key = "maintenance-details-$ticketId",
+        key = sessionViewModelKey("maintenance-details-$ticketId", accountKey),
         factory = ContainerViewModelFactory {
             MaintenanceDetailsViewModel(ticketId, container.facilitiesRepository)
         },
     )
     MaintenanceDetailsScreen(viewModel = viewModel, onBack = onBack)
 }
+
+internal fun sessionViewModelKey(routeKey: String, accountKey: String): String = "$routeKey-$accountKey"
