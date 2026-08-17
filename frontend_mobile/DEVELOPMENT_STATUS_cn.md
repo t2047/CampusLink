@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-17
 >
-> 当前开发分支：`test/mobile-final-qa`（基于最新 `origin/main`）
+> 当前开发分支：`style/mobile-mail-calendar-final`（基于最新 `origin/main`）
 >
 > Android 包名：`com.campuslink.mobile`
 >
-> 当前阶段：Android Mobile Final QA 已完成；小型验收问题已修复，云端 Agent 写操作与 Gmail OAuth 仍需演示前联调
+> 当前阶段：Android Mail / Calendar 最后一轮视觉、响应式与云端 smoke 已完成；提交/PR、物理真机与 Agent 写操作专项仍待完成
 
 本文档用于移动端开发交接。请在每次功能合并、接口变更或技术方案调整后同步更新，已经完成的事项保留历史记录，不要直接删除。
 
@@ -25,7 +25,7 @@ Android Core Chat
 → Mail / Facilities / Lost & Found / Utility Agents
 ```
 
-Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从设备选择图片。聊天图片/文件/语音和推送通知仍未实现。Mail 原生页面已完成第一轮 REST 对接，Gmail OAuth 和云端真实联调仍取决于环境配置。
+Core Chat 当前只支持文字消息；Lost & Found 原生发布页已支持从设备选择图片。聊天图片/文件/语音和推送通知仍未实现。Mail 原生页面已完成 REST 对接、Gmail OAuth 云端真实账号 smoke，以及 Mail / Calendar 视觉与响应式收尾。
 
 ## 2. 已完成的工程基础
 
@@ -335,7 +335,7 @@ API 与分层：
 
 ### 3.13 Mail Mobile Phase 1
 
-状态：**已完成第一轮开发、自动化验证；Gmail OAuth 云端联调待完成**
+状态：**功能、视觉收尾、自动化验证和 Pixel 7 云端 Gmail smoke 已完成；物理真机待验收**
 
 本阶段以 `docs/mail/MOBILE_DEVELOPMENT_cn.md` 为后端契约，新增独立的 Mail Repository、API、ViewModel 和 Compose 页面，未修改现有 Chat、Facilities、Lost & Found 业务规则。
 
@@ -354,24 +354,31 @@ API 与分层：
 - 网络层增加 DELETE、逐请求读写超时、204 空响应和 `auth_url` 错误字段解析；动态 ID 使用编码路径段，防止斜杠破坏路由；
 - 不渲染 `body_html` 原始 HTML，详情页只显示纯文本正文；不在 Logcat、本地数据库或 UI 中输出 JWT、OAuth code、密码或完整请求头；
 - 新增 Mail API 契约测试和 Mail ViewModel 测试，覆盖分页筛选、授权错误、204 删除、收件人校验、日历时间范围校验和状态刷新。
+- 五个文件夹由固定五等分 `TabRow` 改为 `ScrollableTabRow`；Inbox / Sent / Archive / Trash / Spam 强制单行，选中项自动滚动可见，避免 360dp 和 1.3× 字体下 Archive 被拆成两行；
+- 邮件卡动作行在 360dp + 1.3× 字体下保持 Mark read/unread、Archive、Trash 单行完整显示，同时保留 Material 最小触控目标；
+- Mail 首页、OAuth 卡、详情、Compose、Calendar 首页/编辑器/删除确认统一复用 CampusLink 主题、间距、TopAppBar、SurfaceCard、StatusChip、InfoRow、Loading/Empty/Error 等共享组件；
+- Mail / Calendar 高频文案和图标语义已接入 `UiStrings` 中英文资源；深色模式不再使用页面硬编码成功色；
+- 详情页补齐可见的 Mark read/unread 操作，并通过现有 `PATCH /api/mail/messages/{id}` 契约更新，不修改后端接口；
+- 新增 Compose UI 回归测试，覆盖五个文件夹标签、横向滚动到 Archive、Archive 选中状态和 Spam 可达性。
 
 #### 当前待完成内容
 
-- 使用真实 Gmail OAuth 配置完成 Android 模拟器和真机云端验收；
+- 使用真实 Gmail OAuth 配置完成物理真机云端验收；Pixel 7 API 36 模拟器已确认 demo endpoint、已连接 Gmail 状态与真实 Inbox 内容；
 - 授权浏览器返回 App 后已具备最多 60 次、每 2 秒一次的基础轮询；系统杀进程、跨设备回调和更完整的生命周期恢复仍待完成；
 - 日历月视图/周视图、日期时间选择器和时区显示，目前使用 ISO 文本输入和列表视图；
 - 邮件正文附件、图片、HTML 安全富文本和附件下载，目前只支持纯文本正文；
 - 批量操作、草稿、永久删除、邮件分类筛选和本地邮件缓存；
 - 断网重试队列、分页下拉刷新、后台同步与推送通知；
 - 邮件 Agent 自然语言操作仍通过现有 Core Chat SSE/MCP 链路，Mail 原生页不直接调用 `POST /api/mail/agent/chat`；
-- 真实账号隔离、OAuth 断开/重新授权、Gmail API 限流和超时场景的真机验收；
-- 完整中英文 UI 文案、TalkBack、动态字体、平板和横屏适配。
+- OAuth 断开/重新授权、Gmail API 限流和超时场景的物理真机验收；
+- 平板、更高字体比例和横屏专项验收。
 
 #### 已执行验证
 
-- `compileDemoDebugKotlin`：通过；
-- `testDemoDebugUnitTest`：87 个测试通过（包含新增 Mail API/ViewModel 测试）；
-- `detekt`、`lintDemoDebug`、`assembleDemoDebug`：通过；具备 Gmail 配置的云端人工验收仍待完成。
+- `detekt`、`lintLocalDebug`、`assembleLocalDebug`、`assembleDemoDebug`：通过；
+- `testLocalDebugUnitTest`：97 个测试通过；
+- Pixel 7 API 36 `connectedLocalDebugAndroidTest`：新增 Mail folder 标签专项 1 个测试通过；
+- Pixel 7 API 36 `demoDebug`：真实 Gmail 已连接，Inbox 与详情读取成功；360dp、1.3× 字体、深色模式和中英文页面通过视觉检查；Calendar 临时日程完成创建、编辑、删除确认和删除清理。
 
 ### 3.14 Mobile App Shell
 
@@ -509,8 +516,8 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 |---|---|
 | Detekt | 通过 |
 | Android Lint | 通过，0 个阻断错误 |
-| JVM 单元测试 | 96 个通过 |
-| 模拟器测试 | 37 个通过 |
+| JVM 单元测试 | 97 个通过 |
+| 模拟器测试 | 历史全量 37 个；本轮新增 Mail 专项 1 个通过 |
 | `assembleLocalDebug` | 通过 |
 | `assembleDemoDebug` | 通过 |
 | Web Docker 镜像构建 | 通过 |
@@ -520,7 +527,7 @@ app/build/outputs/apk/demo/debug/app-demo-debug.apk
 
 JVM 测试覆盖 SSE 分片、CRLF、多行数据、未知事件、非法 JSON、认证 API、Room Repository、共享认证 HTTP 客户端、Facilities API、Lost & Found 搜索/详情/multipart 发布/认领 API、Mail API/ViewModel，导航 back reducer/route 保存，以及空间、可用性、预约、维修和 Lost & Found 业务 ViewModel 的成功、空结果、校验、错误、排序、重复提交、安全 404 与审核状态；同时覆盖 Home 时间问候、Profile initials、一级页面中英文关键文案，以及预约/维修/Lost & Found status 到 semantic tone 的映射。设备测试覆盖登录页启动、Room v1 架构创建、Home Hero/Services/Agent Mail/Quick Access 与回调、Agent Core 空/列表状态、Profile identity/preferences/危险操作确认、Bottom Navigation 选中行为、Facilities 首页/搜索结果/空间详情/预约和维修状态、确认对话框、Lost & Found 首页/浏览卡/详情/创建表单/Claims/图片语义、共享 TopAppBar/状态/空错误组件，以及三个一级 tab、Facilities、Lost & Found、Chat 的系统 Back 与 Activity recreation 导航恢复。
 
-Pixel 7 API 36 模拟器已使用 `demoDebug` 完成 Final QA：真实创建并取消 future booking、创建低优先级 maintenance ticket、双账号提交 Lost & Found claim、创建/删除 Calendar 事件、发送并完成 Chat 流式响应。真实 PNG 上传后，公开图片接口返回 `200 image/png`，下载字节哈希与源文件一致，Browse 与 Details 均成功显示；旧 placeholder 的根因是演示记录本身没有图片。360dp 等效小屏、1.3× 动态字体、深色模式、portrait/landscape、旋转恢复、System Back、TalkBack 服务遍历、断网 Error/Retry 与恢复均已 smoke。所有截图仅存放在临时目录并已清理，未加入 Git。
+Pixel 7 API 36 模拟器已使用 `demoDebug` 完成 Final QA：真实创建并取消 future booking、创建低优先级 maintenance ticket、双账号提交 Lost & Found claim、发送并完成 Chat 流式响应；本轮进一步确认已连接 Gmail 真实 Inbox、邮件详情、Archive 文件夹切换、Mail 深色/中英文，以及 Calendar 临时日程创建、编辑、删除确认、删除与清理。真实 PNG 上传后，公开图片接口返回 `200 image/png`，下载字节哈希与源文件一致，Browse 与 Details 均成功显示；旧 placeholder 的根因是演示记录本身没有图片。360dp 等效小屏、1.3× 动态字体、深色模式、portrait/landscape、旋转恢复、System Back、TalkBack 服务遍历、断网 Error/Retry 与恢复均已 smoke。所有截图仅存放在临时目录，未加入 Git。
 
 ### 6.3 Final QA 已修复与剩余项
 
@@ -528,8 +535,8 @@ Pixel 7 API 36 模拟器已使用 `demoDebug` 完成 Final QA：真实创建并�
 - 所有账号相关 route ViewModel key 加入账号维度，避免切换账号后复用上一账号的详情、归属或表单状态；
 - Home Mail 入口改为原生“邮件与日历”文案；Calendar 永久删除增加确认；
 - 普通用户 Received Claims 按真实后端契约显示“等待管理员审核”，不再展示必定返回 403 的批准/拒绝按钮；
-- 当前已知剩余项：Facilities/Lost & Found/Mail/Calendar 仍以英文硬编码为主；Mail/Calendar 视觉组件尚未完全迁移到共享 service UI；测试账号未配置 Gmail OAuth；云端 Chat 的 Facilities 写操作 smoke 返回服务暂不可用，未进入 HITL 确认。
-- Android UI 与原生服务可演示，但包含 Agent 写操作或真实 Gmail 内容的完整演示需先完成上述云端联调。
+- Mail / Calendar 高频中英文文案、共享 service UI、Gmail 云端账号与小屏适配已完成；Facilities / Lost & Found 的剩余本地化、物理真机与平板专项仍待完成。
+- Android 原生 Mail / Calendar 已具备 demo 演示条件；云端 Chat Facilities 写操作仍需独立解决后再做完整 Agent HITL 演示。
 
 ### 6.4 CI/CD
 
@@ -643,10 +650,10 @@ APK 不会打包进 Docker。Docker CD 只负责服务器，Android CI 单独生
 
 #### 7.11 Mail 原生页面
 
-- 状态：**第一轮原生页面已完成，云端 OAuth 和产品化功能进行中**
-- 已完成：Gmail 连接入口、邮件文件夹、搜索、未读/加星筛选、分页、详情、已读/未读、加星、归档、回收站、发信、日历 CRUD、邮件日程抽取与确认导入。
-- 依赖：云端 Gmail OAuth、正式设备验收和邮件服务稳定性。
-- 下一阶段：OAuth 回调自动轮询、日历月/周视图、附件、草稿、批量操作、离线缓存、推送通知和完整无障碍适配。
+- 状态：**原生功能、云端 Gmail smoke、共享视觉与移动响应式已完成；物理真机和产品化功能待完成**
+- 已完成：Gmail 连接入口与自动轮询、邮件文件夹、搜索、未读/加星筛选、分页、详情、已读/未读、加星、归档、回收站、发信、日历 CRUD、邮件日程抽取与确认导入；五个 folder 标签、动作行、深色模式与中英文已通过 Pixel 7 视觉验收。
+- 依赖：正式物理设备验收和邮件服务持续稳定性。
+- 下一阶段：日历月/周视图与日期时间选择器、附件、草稿、批量操作、离线缓存、推送通知、平板/横屏和更高动态字体专项。
 
 ### P3：产品化与发布
 
