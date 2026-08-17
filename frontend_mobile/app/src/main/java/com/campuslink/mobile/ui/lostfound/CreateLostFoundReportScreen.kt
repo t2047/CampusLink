@@ -2,6 +2,7 @@ package com.campuslink.mobile.ui.lostfound
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,8 @@ import com.campuslink.mobile.ui.CampusTopAppBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 
 internal const val CREATE_REPORT_LIST_TAG = "create-report-list"
 
@@ -101,7 +104,13 @@ fun CreateLostFoundReportScreen(
                 publish = {
                     scope.launch {
                         val images = runCatching { readImages(context, imageUris) }
-                            .onFailure { imageReadError = "One of the selected images could not be read." }
+                            .onFailure { error ->
+                                imageReadError = if (error is IllegalArgumentException) {
+                                    error.message
+                                } else {
+                                    "One of the selected images could not be read."
+                                }
+                            }
                             .getOrNull()
                         if (images != null) viewModel.submit(images)
                     }
@@ -302,8 +311,20 @@ private fun ReportFormFields(form: CreateReportForm, viewModel: CreateLostFoundR
 private suspend fun readImages(context: Context, uris: List<Uri>): List<UploadImage> = withContext(Dispatchers.IO) {
     uris.mapIndexed { index, uri ->
         val contentType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-        require(contentType in setOf("image/jpeg", "image/png", "image/webp"))
-        val bytes = requireNotNull(context.contentResolver.openInputStream(uri)).use { it.readBytes() }
+        require(contentType in setOf("image/jpeg", "image/png", "image/webp")) {
+            "Only JPEG, PNG, and WebP images are supported."
+        }
+        val declaredSize = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+            }
+        }.getOrNull()
+        require(declaredSize == null || declaredSize <= MAX_UPLOAD_IMAGE_BYTES) {
+            "Each image must be 10 MB or smaller."
+        }
+        val bytes = requireNotNull(context.contentResolver.openInputStream(uri)) {
+            "The selected image could not be opened."
+        }.use { it.readImageBytes() }
         UploadImage(
             fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "image-${index + 1}",
             contentType = contentType,
@@ -313,3 +334,19 @@ private suspend fun readImages(context: Context, uris: List<Uri>): List<UploadIm
 }
 
 private const val MAX_IMAGES = 5
+internal const val MAX_UPLOAD_IMAGE_BYTES = 10 * 1024 * 1024
+
+internal fun InputStream.readImageBytes(maxBytes: Int = MAX_UPLOAD_IMAGE_BYTES): ByteArray {
+    require(maxBytes >= 0)
+    val output = ByteArrayOutputStream(minOf(DEFAULT_BUFFER_SIZE, maxBytes))
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var totalBytes = 0L
+    while (true) {
+        val count = read(buffer)
+        if (count < 0) break
+        totalBytes += count
+        require(totalBytes <= maxBytes) { "Each image must be 10 MB or smaller." }
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
+}
