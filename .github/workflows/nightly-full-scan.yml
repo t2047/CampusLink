@@ -107,7 +107,7 @@ jobs:
           MYSQL_USER: root
           MYSQL_PASSWORD: testpass
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          JWT_EXPIRATON_MS: "86400000"
+          JWT_EXPIRATION_MS: "86400000"
         run: mvn test -Pfull-sast
 
       - name: Upload Test Report
@@ -139,7 +139,9 @@ jobs:
         with:
           path: ~/.dependency-check/data
           # 每天换一次 key; 24h 后重建缓存刷新漏洞库
-          key: owasp-nvd-${{ github.run_date }}
+          # github 上下文无 run_date（有效：run_id/run_number/run_attempt）；用 run_id 保证每次
+          # 重建 + restore-keys 恢复上次缓存（达到每日刷新 NVD 数据的目的）
+          key: owasp-nvd-${{ github.run_id }}
           restore-keys: owasp-nvd-
 
       - name: Run OWASP Dependency Check
@@ -200,7 +202,7 @@ jobs:
           MYSQL_USER: root
           MYSQL_PASSWORD: testpass
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          JWT_EXPIRATON_MS: "86400000"
+          JWT_EXPIRATION_MS: "86400000"
         run: |
           mvn spring-boot:run -Pfull-sast &
           # Health-check poll: wait up to 90s for app to respond
