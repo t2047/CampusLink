@@ -94,7 +94,7 @@ internal fun HomeScreen(
         }
         item {
             CampusServiceCard(
-                copy = ServiceCardCopy(text.mail, text.mailSubtitle, text.agentBadge),
+                copy = ServiceCardCopy(text.mail, text.mailSubtitle),
                 icon = Icons.Default.Email,
                 onClick = actions.openMail,
                 modifier = Modifier.fillMaxWidth(),

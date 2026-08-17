@@ -392,10 +392,21 @@ async def agent_invoker(state: AgentState, client: Any = None) -> AgentState:
         if attempts >= 3:
             # 3 轮未补齐 → 终止澄清，输出明确提示（不再静默循环）
             logger.info("clarification terminated: agent=%s attempts=%s", agent_name, attempts)
-            # 替换 update 中已追加的 needs_more_info 记录为终止文案（避免残留两条）
+            # 替换 update 中已追加的 needs_more_info 记录为终止文案（避免残留两条）。
+            # 语言跟随：按用户语言输出，且不指定具体模块（agent 各不相同，
+            # 引导去对应模块手动完成即可）；同语言时后续重述逻辑会跳过，避免中英混排。
             update["agent_invocations"][-1] = {
                 **invocation,
-                "output_response": "信息仍不完整，暂时无法处理。请直接到「失物招领」系统操作，或重新描述一下。",
+                "output_response": (
+                    "信息仍不完整，暂时无法处理。请尝试重新描述，"
+                    "或可以直接使用对应模块手动完成。"
+                    if _looks_chinese(user_msg)
+                    else (
+                        "The information is still incomplete and cannot be processed "
+                        "at the moment. Please try rephrasing, or use the corresponding "
+                        "module directly."
+                    )
+                ),
                 "output_status": "failed",
             }
         else:

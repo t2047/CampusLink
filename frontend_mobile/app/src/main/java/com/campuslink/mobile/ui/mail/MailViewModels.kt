@@ -280,11 +280,21 @@ class MailDetailsViewModel(
 
     fun retry() = load()
 
+    fun toggleRead() {
+        val message = mutableState.value.message ?: return
+        updateMessage(UpdateMailRequest(read = !message.read))
+    }
+
     fun toggleStar() {
+        val message = mutableState.value.message ?: return
+        updateMessage(UpdateMailRequest(starred = !message.starred))
+    }
+
+    private fun updateMessage(request: UpdateMailRequest) {
         val message = mutableState.value.message ?: return
         viewModelScope.launch {
             try {
-                val updated = repository.updateMessage(message.id, UpdateMailRequest(starred = !message.starred))
+                val updated = repository.updateMessage(message.id, request)
                 mutableState.value = mutableState.value.copy(message = updated, actionMessage = "Message updated")
             } catch (exception: CancellationException) {
                 throw exception

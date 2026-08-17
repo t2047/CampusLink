@@ -16,6 +16,7 @@ from .planner import (
     FacilitiesPlanner,
     PlannerConfigurationError,
     PlannerDecision,
+    PlannerError,
     PlannerOutputError,
     PlannerTimeoutError,
     PlannerUnavailableError,
@@ -98,6 +99,12 @@ do not guess AM/PM, dates, locations, or IDs.
 
 Search intent may keep unsupported semantic qualities such as "quiet" inside
 query, but must never invent backend fields such as noiseLevel or distance.
+
+The user message may be a follow-up that completes an earlier request (e.g.
+supplying a missing date/time after you asked for clarification). recent_messages
+contains the earlier turns as {role, content} (user turns only). When the current
+message reads like a partial detail, combine it with the previous user turn to
+recover the full intent — do not treat it as a brand-new unrelated request.
 """
 
 
@@ -221,6 +228,9 @@ class DeepSeekPlanner(FacilitiesPlanner):
                     "content": json.dumps(
                         {
                             "message": request.message,
+                            "recent_messages": request.conversation_context.shared_data.get(
+                                "recent_messages", []
+                            ),
                             "trusted_facilities_context": safe_planner_context(context),
                         },
                         ensure_ascii=False,

@@ -6,23 +6,42 @@ import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlin
 import FindInPageIcon from '@mui/icons-material/FindInPage'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import InboxIcon from '@mui/icons-material/Inbox'
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import PersonSearchIcon from '@mui/icons-material/PersonSearch'
 import {
   Alert, Avatar, Box, Button, Card, CardActionArea, Chip, CircularProgress,
   Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography,
 } from '@mui/material'
+import axios from 'axios'
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
 import { getMyClaims, searchReports } from '../api/lostFound'
-import { getMyProfile, updateNickname, uploadAvatar } from '../api/users'
+import { changePassword, getMyProfile, updateNickname, uploadAvatar } from '../api/users'
 import { facilitiesApi } from '../api/facilities'
 import { displayName } from '../auth/displayName'
 import { useAuth } from '../auth/AuthContext'
-import type { UserProfile } from '../types'
+import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, isPasswordLengthValid } from '../lib/passwordRules'
+import type { ApiErrorBody, UserProfile } from '../types'
 
 const avatarTypes = ['image/jpeg', 'image/png', 'image/webp']
 const avatarMaxBytes = 2 * 1024 * 1024
+
+/** 后端改密错误码 → 英文提示（对应 ErrorCode.PASSWORD_*）。 */
+const passwordErrorMessages: Record<string, string> = {
+  PASSWORD_REQUIRED: 'Password cannot be empty.',
+  PASSWORD_INVALID_LENGTH: `New password must be at least ${PASSWORD_MIN_LENGTH} characters and at most ${PASSWORD_MAX_BYTES} bytes.`,
+  PASSWORD_CURRENT_INCORRECT: 'Current password is incorrect.',
+  PASSWORD_SAME_AS_CURRENT: 'New password must be different from the current one.',
+}
+
+function passwordErrorMessage(error: unknown): string {
+  if (axios.isAxiosError<ApiErrorBody>(error)) {
+    const code = error.response?.data?.code
+    if (code && code in passwordErrorMessages) return passwordErrorMessages[code]
+  }
+  return apiErrorMessage(error)
+}
 
 interface ServiceEntryProps {
   icon: ReactNode
@@ -64,6 +83,7 @@ export function ProfilePage() {
   const [maintenanceCount, setMaintenanceCount] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [editOpen, setEditOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -119,7 +139,10 @@ export function ProfilePage() {
             </Stack>
             <Typography color="text.secondary">{email}</Typography>
           </Box>
-          <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>Edit profile</Button>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>Edit profile</Button>
+            <Button variant="outlined" startIcon={<LockOutlinedIcon />} onClick={() => setPasswordOpen(true)}>Change password</Button>
+          </Stack>
         </Stack>
       </Card>
 
@@ -179,6 +202,10 @@ export function ProfilePage() {
         name={name}
         avatarUrl={avatarUrl}
         onSaved={(next) => { updateProfile(next); setProfile(next); setEditOpen(false) }}
+      />
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onClose={() => setPasswordOpen(false)}
       />
     </Stack>
   )
@@ -263,6 +290,119 @@ function EditProfileDialog({
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" onClick={save} disabled={submitting}>{submitting ? <CircularProgress size={20} /> : 'Save'}</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setError('')
+      setSuccess(false)
+    }
+  }, [open])
+
+  function handleClose() {
+    if (submitting) return
+    if (success) {
+      // 改密成功后旧 JWT 已失效：主动登出并引导重新登录（ChangePassWord.md）
+      logout()
+      navigate('/login', { replace: true })
+      return
+    }
+    onClose()
+  }
+
+  async function save() {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setError('All fields are required.')
+      return
+    }
+    if (newPassword === currentPassword) {
+      setError('New password must be different from the current one.')
+      return
+    }
+    if (!isPasswordLengthValid(newPassword)) {
+      setError(`New password must be at least ${PASSWORD_MIN_LENGTH} characters and at most ${PASSWORD_MAX_BYTES} bytes.`)
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setError('New password and confirmation do not match.')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      await changePassword(currentPassword, newPassword)
+      setSuccess(true)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (requestError) {
+      setError(passwordErrorMessage(requestError))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
+      <DialogTitle>Change password</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {success && <Alert severity="success">Password updated. Please log in again with your new password.</Alert>}
+          <TextField
+            fullWidth
+            type="password"
+            label="Current password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+          <TextField
+            fullWidth
+            type="password"
+            label="New password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            helperText={`At least ${PASSWORD_MIN_LENGTH} characters, max ${PASSWORD_MAX_BYTES} bytes.`}
+            autoComplete="new-password"
+          />
+          <TextField
+            fullWidth
+            type="password"
+            label="Confirm new password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          {error && !success && <Alert severity="error">{error}</Alert>}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        {success
+          ? (
+              <Button variant="contained" onClick={handleClose}>Log in</Button>
+            )
+          : (
+              <>
+                <Button onClick={handleClose} disabled={submitting}>Cancel</Button>
+                <Button variant="contained" onClick={save} disabled={submitting}>{submitting ? <CircularProgress size={20} /> : 'Update'}</Button>
+              </>
+            )}
       </DialogActions>
     </Dialog>
   )
