@@ -134,6 +134,9 @@ export function LostFoundAgentPanel({ onReportCreated }: { onReportCreated?: (re
         conversationContext: { sessionId, sharedData },
         images: stagedImages,
       }))
+      // 图片已随本轮发送（消息气泡 + shared_context 都带图），清空面板暂存，
+      // 避免发送成功后图片仍残留在输入框下方的暂存区；后续轮次经 shared_data 沿用。
+      setStagedImages([])
     } catch (requestError) {
       setError(apiErrorMessage(requestError))
     } finally {
