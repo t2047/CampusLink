@@ -7,6 +7,10 @@
 #       VM_HOST     VM IP 或域名
 #       VM_USER     SSH 用户（root 或 sudo 用户）
 #       VM_SSH_KEY  SSH 私钥
+#       CERT_DOMAIN / CERT_EMAIL  HTTPS 证书域名与 Let's Encrypt 邮箱
+#       GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET（可选） Gmail OAuth Web 客户端
+#         凭据；配置后每次部署自动同步进服务器 .env（未配置则保留服务器手动
+#         填写值，mail 服务缺失凭据时 OAuth fail-closed）。
 # 触发：推送 main 或手动（workflow_dispatch）
 # 效果：VM 只需 docker pull，不在服务器上构建。
 # 多模态模型运行时会额外占用约 2–3 GB 内存，生产 VM 建议至少 8 GB RAM。
@@ -77,6 +81,9 @@ jobs:
     env:
       CERT_DOMAIN: ${{ secrets.CERT_DOMAIN }}
       CERT_EMAIL: ${{ secrets.CERT_EMAIL }}
+      GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+      GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+      GMAIL_PROJECT_ID: ${{ secrets.GMAIL_PROJECT_ID }}
     steps:
       - name: Pull and restart on VM
         uses: appleboy/ssh-action@v1.2.0
@@ -84,7 +91,7 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          envs: CERT_DOMAIN,CERT_EMAIL
+          envs: CERT_DOMAIN,CERT_EMAIL,GMAIL_CLIENT_ID,GMAIL_CLIENT_SECRET,GMAIL_PROJECT_ID
           command_timeout: 20m
           script: |
             set -e
@@ -112,6 +119,11 @@ jobs:
             }
             update_env CERT_DOMAIN "$CERT_DOMAIN"
             update_env CERT_EMAIL "$CERT_EMAIL"
+            # Gmail OAuth 凭据：GitHub Secrets 已配置才同步；未配置时保留服务器
+            # .env 手动填写值（mail 服务缺失凭据会 OAuth fail-closed）。
+            [ -z "${GMAIL_CLIENT_ID:-}" ] || update_env GMAIL_CLIENT_ID "$GMAIL_CLIENT_ID"
+            [ -z "${GMAIL_CLIENT_SECRET:-}" ] || update_env GMAIL_CLIENT_SECRET "$GMAIL_CLIENT_SECRET"
+            [ -z "${GMAIL_PROJECT_ID:-}" ] || update_env GMAIL_PROJECT_ID "$GMAIL_PROJECT_ID"
             set -a
             . ./.env
             set +a

@@ -90,6 +90,8 @@ nano .env
 openssl rand -hex 32   # 粘贴到 JWT_SECRET / 各 shared secret
 ```
 
+**必填项**（需从 Google Cloud Console 获取，非随机生成）：`GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET`（mail 服务已移除内置默认客户端，缺失时 OAuth fail-closed）。也可配置到 GitHub Secrets（`GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET`），由 CD 每次部署自动同步进服务器 `.env`。
+
 DeepSeek 的 `DEEPSEEK_API_KEY` / `LOST_FOUND_LLM_API_KEY`：可选，留空则 L&F 走规则引擎、设施 planner 不可用。
 
 ## 4. 防火墙
