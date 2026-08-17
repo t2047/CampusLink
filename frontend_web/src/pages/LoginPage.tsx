@@ -71,7 +71,7 @@ export default function LoginPage() {
           {/* Header */}
           <div className="mb-6 text-center">
             <img
-              src="/campuslink-icon.png"
+              src="/campuslink-icon.svg"
               alt="CampusLink"
               className="mx-auto mb-3 h-14 w-14 rounded-2xl object-contain p-1.5"
             />

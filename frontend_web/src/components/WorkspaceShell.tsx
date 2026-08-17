@@ -1,4 +1,3 @@
-import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined'
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined'
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined'
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined'
@@ -56,7 +55,7 @@ export function WorkspaceShell() {
           <KeyboardDoubleArrowLeftOutlinedIcon sx={{ fontSize: 18 }} />
         </button>
         <NavLink end to="/chat" aria-label="CampusLink" className="mb-5 flex items-center gap-3 rounded-xl px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-sm"><AppsOutlinedIcon /></div>
+          <img src="/campuslink-icon.svg" alt="CampusLink" className="h-10 w-10 rounded-xl shadow-sm" />
           <div>
             <p className="font-bold tracking-tight text-slate-900 dark:text-white">CampusLink</p>
             <p className="text-xs text-slate-400">Campus workspace</p>
