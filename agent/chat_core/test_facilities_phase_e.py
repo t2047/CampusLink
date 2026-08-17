@@ -379,7 +379,8 @@ def test_declined_confirmation_does_not_reinvoke_agent(monkeypatch):
     update = human_approval(state)
 
     assert update["agent_invocations"][-1]["output_status"] == "cancelled"
-    assert update["agent_invocations"][-1]["output_response"] == "操作已取消。"
+    # 语言跟随：英文输入 → 英文取消文案（2026-08-17 修复：此前固定中文）
+    assert update["agent_invocations"][-1]["output_response"] == "The operation has been cancelled."
     assert update["current_agent_index"] == 1
     assert "pending_confirmation" not in update
 
