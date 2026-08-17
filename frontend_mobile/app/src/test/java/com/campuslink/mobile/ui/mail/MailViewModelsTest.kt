@@ -99,6 +99,20 @@ class MailViewModelsTest {
         assertEquals("End time must be after start time.", viewModel.state.value.error)
     }
 
+    @Test
+    fun `calendar extraction uses selected mail window and bounded result size`() = runTest {
+        val repository = FakeMailDataSource()
+        val viewModel = CalendarViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.updateExtractionDays(30)
+        viewModel.extract()
+        advanceUntilIdle()
+
+        assertEquals(30, repository.lastExtractDays)
+        assertEquals(50, repository.lastExtractMaxResults)
+    }
+
     private class FakeMailDataSource : MailDataSource {
         var connected = false
         var lastFolder = ""
@@ -107,6 +121,8 @@ class MailViewModelsTest {
         var sentRequest: SendMailRequest? = null
         var lastUpdate: UpdateMailRequest? = null
         var createCalendarCalls = 0
+        var lastExtractDays: Int? = null
+        var lastExtractMaxResults: Int? = null
 
         override suspend fun oauthUrl() = OAuthUrlResponse("https://accounts.example/authorize", connected)
         override suspend fun oauthStatus() = OAuthStatusResponse(connected, if (connected) "student@example.com" else null)
@@ -150,7 +166,11 @@ class MailViewModelsTest {
 
         override suspend fun updateCalendarEvent(eventId: String, request: CalendarEventUpdate) = EVENT
         override suspend fun deleteCalendarEvent(eventId: String) = Unit
-        override suspend fun extractCalendarSchedules(days: Int, maxResults: Int) = ExtractResponse(days, 0, events = emptyList())
+        override suspend fun extractCalendarSchedules(days: Int, maxResults: Int): ExtractResponse {
+            lastExtractDays = days
+            lastExtractMaxResults = maxResults
+            return ExtractResponse(days, 0, events = emptyList())
+        }
         override suspend fun importCalendarSchedules(request: ImportRequest) = ImportResponse(0, request.events.size)
     }
 

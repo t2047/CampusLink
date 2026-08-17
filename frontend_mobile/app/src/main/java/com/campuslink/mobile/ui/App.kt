@@ -1,3 +1,5 @@
+@file:Suppress("LongParameterList", "LongMethod")
+
 package com.campuslink.mobile.ui
 
 import androidx.compose.runtime.Composable
@@ -101,9 +103,16 @@ fun CampusLinkApp(container: AppContainer) {
                 )
                 Screen.Services -> ServicesRoute(goBack, navigate)
                 Screen.MailHome -> MailHomeRoute(container, session!!.email, strings(language).mail, goBack, navigate)
-                is Screen.MailDetails -> MailDetailsRoute(container, active.messageId, session!!.email, strings(language).mail, goBack)
+                is Screen.MailDetails -> MailDetailsRoute(
+                    container,
+                    active.messageId,
+                    session!!.email,
+                    strings(language).mail,
+                    goBack,
+                    navigate,
+                )
                 Screen.ComposeMail -> ComposeMailRoute(container, session!!.email, strings(language).mail, goBack)
-                Screen.Calendar -> CalendarRoute(container, session!!.email, strings(language).calendar, goBack)
+                Screen.Calendar -> CalendarRoute(container, session!!.email, strings(language).calendar, goBack, navigate)
                 Screen.FacilitiesHome -> FacilitiesHomeRoute(goBack, navigate)
                 Screen.FacilitiesSearch -> FacilitiesSearchRoute(container, session!!.email, goBack, navigate)
                 is Screen.SpaceDetails -> SpaceDetailsRoute(container, active.spaceId, session!!.email, goBack, navigate) {
@@ -295,12 +304,13 @@ private fun MailDetailsRoute(
     accountKey: String,
     text: MailStrings,
     onBack: () -> Unit,
+    navigate: (Screen) -> Unit,
 ) {
     val viewModel: MailDetailsViewModel = viewModel(
         key = sessionViewModelKey("mail-details-$messageId", accountKey),
         factory = ContainerViewModelFactory { MailDetailsViewModel(messageId, container.mailRepository) },
     )
-    MailDetailsScreen(viewModel, text, onBack)
+    MailDetailsScreen(viewModel, text, onBack, onOpenCalendar = { navigate(Screen.Calendar) })
 }
 
 @Composable
@@ -313,12 +323,18 @@ private fun ComposeMailRoute(container: AppContainer, accountKey: String, text: 
 }
 
 @Composable
-private fun CalendarRoute(container: AppContainer, accountKey: String, text: CalendarStrings, onBack: () -> Unit) {
+private fun CalendarRoute(
+    container: AppContainer,
+    accountKey: String,
+    text: CalendarStrings,
+    onBack: () -> Unit,
+    navigate: (Screen) -> Unit,
+) {
     val viewModel: CalendarViewModel = viewModel(
         key = sessionViewModelKey("calendar", accountKey),
         factory = ContainerViewModelFactory { CalendarViewModel(container.mailRepository) },
     )
-    CalendarScreen(viewModel, text, onBack)
+    CalendarScreen(viewModel, text, onBack, onOpenSourceEmail = { navigate(Screen.MailDetails(it)) })
 }
 
 @Composable

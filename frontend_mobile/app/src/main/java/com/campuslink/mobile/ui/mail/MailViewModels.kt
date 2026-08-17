@@ -409,6 +409,8 @@ data class CalendarForm(
     val allDay: Boolean = false,
 )
 
+private const val DEFAULT_EXTRACTION_DAYS = 7
+
 data class CalendarUiState(
     val loading: Boolean = true,
     val events: List<CalendarEvent> = emptyList(),
@@ -417,6 +419,7 @@ data class CalendarUiState(
     val editingId: String? = null,
     val saving: Boolean = false,
     val extracting: Boolean = false,
+    val extractionDays: Int = DEFAULT_EXTRACTION_DAYS,
     val proposals: List<ExtractedSchedule> = emptyList(),
     val selectedProposalKeys: Set<String> = emptySet(),
     val error: String? = null,
@@ -453,6 +456,11 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
     fun updateStartTime(value: String) = updateForm { copy(startTime = value) }
     fun updateEndTime(value: String) = updateForm { copy(endTime = value) }
     fun updateAllDay(value: Boolean) = updateForm { copy(allDay = value) }
+
+    fun updateExtractionDays(days: Int) {
+        if (days !in EXTRACTION_DAY_OPTIONS) return
+        mutableState.value = mutableState.value.copy(extractionDays = days, error = null)
+    }
 
     fun beginCreate() {
         mutableState.value = mutableState.value.copy(
@@ -532,10 +540,11 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
     }
 
     fun extract() {
+        val days = mutableState.value.extractionDays
         viewModelScope.launch {
             mutableState.value = mutableState.value.copy(extracting = true, error = null, proposals = emptyList())
             try {
-                val result = repository.extractCalendarSchedules()
+                val result = repository.extractCalendarSchedules(days = days, maxResults = MAX_EXTRACTION_RESULTS)
                 mutableState.value = mutableState.value.copy(
                     extracting = false,
                     proposals = result.events,
@@ -584,6 +593,11 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
 
     private fun updateForm(transform: CalendarForm.() -> CalendarForm) {
         mutableState.value = mutableState.value.copy(form = mutableState.value.form.transform(), error = null)
+    }
+
+    private companion object {
+        val EXTRACTION_DAY_OPTIONS = setOf(0, 7, 30)
+        const val MAX_EXTRACTION_RESULTS = 50
     }
 }
 

@@ -376,6 +376,7 @@ fun MailDetailsScreen(
     viewModel: MailDetailsViewModel,
     text: MailStrings,
     onBack: () -> Unit,
+    onOpenCalendar: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message = state.message
@@ -389,6 +390,9 @@ fun MailDetailsScreen(
                 onBack = onBack,
                 backDescription = text.back,
                 actions = {
+                    IconButton(onClick = onOpenCalendar) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = text.calendar)
+                    }
                     message?.let { message ->
                         IconButton(onClick = viewModel::toggleRead) {
                             Icon(
@@ -538,7 +542,12 @@ fun ComposeMailScreen(viewModel: ComposeMailViewModel, text: MailStrings, onBack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(viewModel: CalendarViewModel, text: CalendarStrings, onBack: () -> Unit) {
+fun CalendarScreen(
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+    onBack: () -> Unit,
+    onOpenSourceEmail: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<CalendarEvent?>(null) }
     Scaffold(
@@ -567,6 +576,9 @@ fun CalendarScreen(viewModel: CalendarViewModel, text: CalendarStrings, onBack: 
                 item { CalendarEditor(state, viewModel, text) }
             }
             item {
+                CalendarMailScanOptions(state, viewModel, text)
+            }
+            item {
                 if (state.extracting) {
                     CampusSurfaceCard(Modifier.fillMaxWidth()) {
                         Row(
@@ -583,7 +595,13 @@ fun CalendarScreen(viewModel: CalendarViewModel, text: CalendarStrings, onBack: 
             if (state.proposals.isNotEmpty()) {
                 item { CampusPageHeader(text.suggestedEvents, text.extractFromMail) }
                 items(state.proposals, key = ExtractedSchedule::key) { proposal ->
-                    ExtractedScheduleCard(proposal, proposal.key in state.selectedProposalKeys, viewModel::toggleProposal, text)
+                    ExtractedScheduleCard(
+                        event = proposal,
+                        selected = proposal.key in state.selectedProposalKeys,
+                        onToggle = viewModel::toggleProposal,
+                        onOpenSourceEmail = { proposal.source_email_id?.let(onOpenSourceEmail) },
+                        text = text,
+                    )
                 }
                 item {
                     Button(onClick = viewModel::importSelected, modifier = Modifier.fillMaxWidth()) {
@@ -610,7 +628,13 @@ fun CalendarScreen(viewModel: CalendarViewModel, text: CalendarStrings, onBack: 
                 }
             } else {
                 items(state.events, key = CalendarEvent::id) { event ->
-                    CalendarEventCard(event, viewModel::beginEdit, { pendingDelete = it }, text)
+                    CalendarEventCard(
+                        event = event,
+                        onEdit = viewModel::beginEdit,
+                        onDelete = { pendingDelete = it },
+                        onOpenSourceEmail = { event.source_email_id?.let(onOpenSourceEmail) },
+                        text = text,
+                    )
                 }
             }
         }
@@ -631,6 +655,49 @@ fun CalendarScreen(viewModel: CalendarViewModel, text: CalendarStrings, onBack: 
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(text.cancel) } },
         )
+    }
+}
+
+@Composable
+private fun CalendarMailScanOptions(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(CampusSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(text.extractFromMail, fontWeight = FontWeight.Bold)
+                    Text(text.scanWindow, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Button(onClick = viewModel::extract, enabled = !state.extracting) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    Spacer(Modifier.width(CampusSpacing.Small))
+                    Text(text.scan)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
+                listOf(
+                    0 to text.scanToday,
+                    7 to text.scanSevenDays,
+                    30 to text.scanThirtyDays,
+                ).forEach { (days, label) ->
+                    FilterChip(
+                        selected = state.extractionDays == days,
+                        onClick = { viewModel.updateExtractionDays(days) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -697,25 +764,35 @@ private fun CalendarEventCard(
     event: CalendarEvent,
     onEdit: (CalendarEvent) -> Unit,
     onDelete: (CalendarEvent) -> Unit,
+    onOpenSourceEmail: () -> Unit,
     text: CalendarStrings,
 ) {
     CampusSurfaceCard(Modifier.fillMaxWidth()) {
-        ListItem(
-            headlineContent = { Text(event.title, fontWeight = FontWeight.Bold) },
-            supportingContent = {
-                Column {
-                    Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
-                    if (event.location.isNotBlank()) Text(event.location)
-                    if (event.source == "mail") CampusStatusChip(text.fromMail, CampusStatusTone.INFO)
+        Column {
+            ListItem(
+                headlineContent = { Text(event.title, fontWeight = FontWeight.Bold) },
+                supportingContent = {
+                    Column {
+                        Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
+                        if (event.location.isNotBlank()) Text(event.location)
+                        if (event.source == "mail") CampusStatusChip(text.fromMail, CampusStatusTone.INFO)
+                    }
+                },
+                trailingContent = {
+                    Row {
+                        IconButton(onClick = { onEdit(event) }) { Icon(Icons.Default.Edit, contentDescription = text.edit) }
+                        IconButton(onClick = { onDelete(event) }) { Icon(Icons.Default.Delete, contentDescription = text.delete) }
+                    }
+                },
+            )
+            if (!event.source_email_id.isNullOrBlank()) {
+                TextButton(onClick = onOpenSourceEmail, modifier = Modifier.padding(start = CampusSpacing.Medium)) {
+                    Icon(Icons.Default.Email, contentDescription = null)
+                    Spacer(Modifier.width(CampusSpacing.Small))
+                    Text(text.viewSourceEmail)
                 }
-            },
-            trailingContent = {
-                Row {
-                    IconButton(onClick = { onEdit(event) }) { Icon(Icons.Default.Edit, contentDescription = text.edit) }
-                    IconButton(onClick = { onDelete(event) }) { Icon(Icons.Default.Delete, contentDescription = text.delete) }
-                }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -724,17 +801,30 @@ private fun ExtractedScheduleCard(
     event: ExtractedSchedule,
     selected: Boolean,
     onToggle: (String) -> Unit,
+    onOpenSourceEmail: () -> Unit,
     text: CalendarStrings,
 ) {
-    CampusSurfaceCard(Modifier.fillMaxWidth().clickable { onToggle(event.key) }) {
-        Row(Modifier.padding(CampusSpacing.Medium), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(selected, { onToggle(event.key) })
-            Column(Modifier.weight(1f)) {
-                Text(event.title, fontWeight = FontWeight.Bold)
-                Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
-                if (event.location.isNotBlank()) Text(event.location, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (event.email_subject.isNotBlank()) {
-                    Text("${text.fromMail}: ${event.email_subject}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().clickable { onToggle(event.key) }.padding(CampusSpacing.Medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(selected, { onToggle(event.key) })
+                Column(Modifier.weight(1f)) {
+                    Text(event.title, fontWeight = FontWeight.Bold)
+                    Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
+                    if (event.location.isNotBlank()) Text(event.location, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (event.email_subject.isNotBlank()) {
+                        Text("${text.fromMail}: ${event.email_subject}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (!event.source_email_id.isNullOrBlank()) {
+                TextButton(onClick = onOpenSourceEmail, modifier = Modifier.padding(start = CampusSpacing.Medium)) {
+                    Icon(Icons.Default.Email, contentDescription = null)
+                    Spacer(Modifier.width(CampusSpacing.Small))
+                    Text(text.viewSourceEmail)
                 }
             }
         }
@@ -787,5 +877,10 @@ private fun localizeCalendarFeedback(message: String, text: CalendarStrings): St
 }
 
 private fun formatDate(value: String): String = runCatching {
-    LocalDateTime.parse(value.substringBefore('+').substringBefore('Z')).format(DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm"))
+    val parsed = runCatching { java.time.OffsetDateTime.parse(value) }.getOrElse {
+        LocalDateTime.parse(value.substringBefore('[').substringBefore('Z'))
+            .atZone(java.time.ZoneId.systemDefault())
+            .toOffsetDateTime()
+    }
+    parsed.format(DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm z"))
 }.getOrElse { value.replace('T', ' ') }
