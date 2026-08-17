@@ -195,6 +195,32 @@ describe('LostFoundAgentPanel', () => {
     ])
   })
 
+  it('clears staged images after a successful send so they do not linger in the input box', async () => {
+    vi.mocked(uploadAgentImage).mockResolvedValue(
+      stagedImage('lost-found-staging/k1.png', '/api/lost-found/images/staging/k1.png'),
+    )
+    render(<MemoryRouter><LostFoundAgentPanel /></MemoryRouter>)
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, {
+      target: { files: [new File([new Uint8Array([1, 2, 3, 4])], 'a.png', { type: 'image/png' })] },
+    })
+    expect(await screen.findByAltText('a.png')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove a.png' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Describe what you lost or want to find'), {
+      target: { value: '帮我找这个' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    // 消息气泡仍渲染 <img alt="a.png">，因此用暂存区的删除按钮是否消失来断言清空
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Remove a.png' })).not.toBeInTheDocument()
+    })
+    expect(screen.getByAltText('a.png')).toBeInTheDocument()
+  })
+
   it('sends a placeholder message when only images are attached', async () => {
     vi.mocked(uploadAgentImage).mockResolvedValue(
       stagedImage('lost-found-staging/k1.png', '/api/lost-found/images/staging/k1.png'),
