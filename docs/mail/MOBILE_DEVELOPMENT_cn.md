@@ -81,7 +81,7 @@ python -m venv .venv
 
 | 环境变量 | 默认/回退 | 说明 |
 |---|---|---|
-| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` | 代码内置项目默认客户端 | Google Cloud OAuth Web 客户端；留空=用默认，**不要**写显式空值再指望默认 |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` | **必填，无默认**（缺失时 OAuth fail-closed） | Google Cloud OAuth Web 客户端；已从代码移除内置默认客户端，必须显式配置（Console → APIs & Services → Credentials） |
 | `GMAIL_REDIRECT_URI` | 空 → 按请求 Host/X-Forwarded-Proto 推导为 `https://<host>/callback` | 本地设为 `http://localhost:5000/callback`（已注册在 Console） |
 | `MAIL_FRONTEND_URL` | 空 → 回跳请求来源 | OAuth 完成后浏览器跳回的前端地址 |
 | `MAIL_LLM_API_KEY` / `BASE_URL` / `MODEL` | 回退 `DEEPSEEK_API_KEY` / `api.deepseek.com` / `deepseek-v4-flash` | Agent 与日历 LLM 抽取共用 |
