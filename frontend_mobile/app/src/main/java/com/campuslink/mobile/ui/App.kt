@@ -88,6 +88,7 @@ fun CampusLinkApp(container: AppContainer) {
                         conversationId = active.id,
                         text = strings(language),
                         onBack = goBack,
+                        onOpenMatch = { navigate(Screen.LostFoundDetails(it, returnToChatId = active.id)) },
                     )
                 Screen.Settings -> SettingsScreen(
                     container = container,
@@ -238,12 +239,13 @@ private fun ChatRoute(
     conversationId: String,
     text: UiStrings,
     onBack: () -> Unit,
+    onOpenMatch: (Long) -> Unit,
 ) {
     val viewModel: ChatViewModel = viewModel(
         key = "chat-$conversationId",
         factory = ContainerViewModelFactory { ChatViewModel(container, conversationId) },
     )
-    ChatScreen(viewModel, text, onBack)
+    ChatScreen(viewModel, text, onBack, onOpenMatch)
 }
 
 @Composable

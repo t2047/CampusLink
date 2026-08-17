@@ -55,6 +55,10 @@ class NavigationStateTest {
         assertBack(Screen.LostFoundBrowse, Screen.LostFoundHome)
         assertBack(Screen.LostFoundDetails(8), Screen.LostFoundBrowse)
         assertBack(Screen.LostFoundDetails(8, returnToClaims = true), Screen.LostFoundClaims)
+        assertBack(
+            Screen.LostFoundDetails(8, returnToChatId = "conversation-7"),
+            Screen.Chat("conversation-7"),
+        )
         assertBack(Screen.LostFoundClaims, Screen.LostFoundHome)
         assertBack(Screen.CreateLostFoundReport(ReportType.LOST), Screen.LostFoundHome)
     }
@@ -81,6 +85,7 @@ class NavigationStateTest {
             Screen.LostFoundBrowse,
             Screen.LostFoundDetails(8),
             Screen.LostFoundDetails(8, returnToClaims = true),
+            Screen.LostFoundDetails(8, returnToChatId = "conversation-7"),
             Screen.CreateLostFoundReport(ReportType.FOUND),
             Screen.LostFoundClaims,
         )

@@ -28,6 +28,7 @@ data class UiStrings(
     val cancel: String,
     val agentSteps: String,
     val matches: String,
+    val viewDetails: String,
     val delete: String,
     val retry: String,
     val dismiss: String,
@@ -120,7 +121,7 @@ private fun chineseStrings(): UiStrings = UiStrings(
         "欢迎使用 CampusLink", "登录后使用校园 AI 助手和服务", "邮箱", "密码", "确认密码",
         "登录", "注册", "没有账号？注册", "已有账号？登录", "对话", "新对话", "还没有对话",
         "输入消息…", "发送", "停止", "设置", "退出登录", "清除本地记录", "深色模式", "语言",
-        "需要确认操作", "确认", "取消", "Agent 执行过程", "匹配结果", "删除", "重试", "关闭",
+        "需要确认操作", "确认", "取消", "Agent 执行过程", "匹配结果", "查看详情", "删除", "重试", "关闭",
         "English", "展开执行过程", "收起执行过程", "返回",
         ShellStrings("首页", "Agent Core", "个人资料"),
         HomeStrings(
@@ -190,7 +191,7 @@ private fun englishStrings(): UiStrings = UiStrings(
         "Confirm password", "Login", "Register", "New here? Register", "Already registered? Login",
         "Conversations", "New chat", "No conversations yet", "Type a message…", "Send", "Stop", "Settings",
         "Logout", "Clear local history", "Dark mode", "Language", "Action confirmation required", "Confirm",
-        "Cancel", "Agent activity", "Match results", "Delete", "Retry", "Dismiss",
+        "Cancel", "Agent activity", "Match results", "View details", "Delete", "Retry", "Dismiss",
         "中文", "Show activity", "Hide activity", "Back",
         ShellStrings("Home", "Agent Core", "Profile"),
         HomeStrings(
