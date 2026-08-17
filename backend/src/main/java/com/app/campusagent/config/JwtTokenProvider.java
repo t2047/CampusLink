@@ -45,6 +45,14 @@ public final class JwtTokenProvider {
         return parseClaims(token).getSubject();
     }
 
+    /**
+     * 返回 token 的签发时间（iat），可能为 {@code null}（未携带 iat 的旧 token）。
+     * 供 {@link JwtAuthFilter} 与用户改密时间比较，拒绝改密前签发的旧 token。
+     */
+    public Date getIssuedAtFromToken(String token) {
+        return parseClaims(token).getIssuedAt();
+    }
+
     public String getRoleFromToken(String token) {
         return parseClaims(token).get("role", String.class);
     }

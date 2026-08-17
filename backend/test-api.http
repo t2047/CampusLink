@@ -33,3 +33,13 @@ Content-Type: application/json
   "email": "test@example.com",
   "password": "wrong"
 }
+
+### 修改密码（需先登录取 token，替换下面的 <token>）
+PUT http://localhost:8080/api/users/me/password
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "currentPassword": "123456",
+  "newPassword": "654321"
+}

@@ -17,3 +17,7 @@ export async function uploadAvatar(file: File): Promise<UserProfile> {
   const response = await apiClient.post<UserProfile>('/users/me/avatar', form)
   return response.data
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiClient.put('/users/me/password', { currentPassword, newPassword })
+}

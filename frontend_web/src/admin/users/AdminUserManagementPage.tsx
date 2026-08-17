@@ -31,6 +31,7 @@ import {
   type UserRole,
 } from '../../api/adminUsers'
 import { apiErrorMessage } from '../../api/client'
+import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, isPasswordLengthValid } from '../../lib/passwordRules'
 
 const ROLE_COLORS: Record<UserRole, 'primary' | 'warning' | 'secondary'> = {
   STUDENT: 'primary',
@@ -77,8 +78,8 @@ export function AdminUserManagementPage() {
   async function handleCreate(event: FormEvent) {
     event.preventDefault()
     setCreateMsg(null)
-    if (createPassword.length < 6) {
-      setCreateMsg({ type: 'error', text: '密码至少 6 位' })
+    if (!isPasswordLengthValid(createPassword)) {
+      setCreateMsg({ type: 'error', text: `密码至少 ${PASSWORD_MIN_LENGTH} 位，且不超过 ${PASSWORD_MAX_BYTES} 字节` })
       return
     }
     setCreating(true)

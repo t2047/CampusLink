@@ -2,6 +2,7 @@ package com.app.campusagent.service;
 
 import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
+import com.app.campusagent.dto.ChangePasswordRequest;
 import com.app.campusagent.dto.UpdateProfileRequest;
 import com.app.campusagent.dto.UserProfileResponse;
 import com.app.campusagent.exception.BusinessException;
@@ -14,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Base64;
@@ -34,6 +36,9 @@ class UserProfileServiceTest {
 
     @Mock
     private ObjectStorageService storageService;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private UserProfileService profileService;
@@ -77,6 +82,91 @@ class UserProfileServiceTest {
         assertThatThrownBy(() -> profileService.updateNickname(user, new UpdateProfileRequest("x".repeat(31))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode.code").isEqualTo("NICKNAME_INVALID_LENGTH");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordValidatesCurrentPasswordAndPersists() {
+        User user = user();
+        when(passwordEncoder.matches("current-pass", user.getPassword())).thenReturn(true);
+        when(passwordEncoder.encode("new-pass-123")).thenReturn("new-hash");
+        when(userRepository.save(user)).thenReturn(user);
+
+        profileService.changePassword(user, new ChangePasswordRequest("current-pass", "new-pass-123"));
+
+        assertThat(user.getPassword()).isEqualTo("new-hash");
+        assertThat(user.getPasswordChangedAt()).isNotNull();
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void changePasswordRejectsBlankOrMissingFields() {
+        User user = user();
+        assertThatThrownBy(() -> profileService.changePassword(user, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_REQUIRED");
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest(null, "new-pass")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_REQUIRED");
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "   ")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_REQUIRED");
+        verify(userRepository, never()).save(any(User.class));
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+    }
+
+    @Test
+    void changePasswordRejectsInvalidNewLength() {
+        User user = user();
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "12345")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
+        // 超过 72 UTF-8 字节（ASCII 73 字节）
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "x".repeat(73))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
+        // 25 个中文字符 = 75 字节；旧实现只按字符数（≤64）放行，BCrypt 会截断
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "密".repeat(25))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordAcceptsUpTo72Utf8Bytes() {
+        User user = user();
+        // 第二次调用时 user.getPassword() 已变为新 hash，用 anyString() 覆盖两种取值
+        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+        when(userRepository.save(user)).thenReturn(user);
+
+        // 65 个 ASCII 字符（旧上限 64 字符会拒绝）与 24 个中文字符（恰为 72 字节）都合法
+        profileService.changePassword(user, new ChangePasswordRequest("current-pass", "x".repeat(65)));
+        profileService.changePassword(user, new ChangePasswordRequest("current-pass", "密".repeat(24)));
+
+        assertThat(user.getPasswordChangedAt()).isNotNull();
+        verify(userRepository, org.mockito.Mockito.times(2)).save(user);
+    }
+
+    @Test
+    void changePasswordRejectsIncorrectCurrentPassword() {
+        User user = user();
+        when(passwordEncoder.matches("wrong", user.getPassword())).thenReturn(false);
+
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("wrong", "new-pass-123")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_CURRENT_INCORRECT");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordRejectsSameAsCurrent() {
+        User user = user();
+        when(passwordEncoder.matches("same-pass", user.getPassword())).thenReturn(true);
+
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("same-pass", "same-pass")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_SAME_AS_CURRENT");
         verify(userRepository, never()).save(any(User.class));
     }
 
