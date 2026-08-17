@@ -105,11 +105,11 @@ class MailViewModelsTest {
         val viewModel = CalendarViewModel(repository)
         advanceUntilIdle()
 
-        viewModel.updateExtractionDays(30)
+        viewModel.updateExtractionDays(7)
         viewModel.extract()
         advanceUntilIdle()
 
-        assertEquals(30, repository.lastExtractDays)
+        assertEquals(7, repository.lastExtractDays)
         assertEquals(50, repository.lastExtractMaxResults)
     }
 

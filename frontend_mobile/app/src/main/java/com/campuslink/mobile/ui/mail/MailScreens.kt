@@ -3,6 +3,7 @@
 package com.campuslink.mobile.ui.mail
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,6 +27,8 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -86,7 +91,9 @@ import com.campuslink.mobile.ui.CampusSurfaceCard
 import com.campuslink.mobile.ui.CampusTopAppBar
 import com.campuslink.mobile.ui.CampusSpacing
 import com.campuslink.mobile.ui.MailStrings
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 private fun mailFolders(text: MailStrings) = listOf(
@@ -109,6 +116,7 @@ fun MailHomeScreen(
     openAuthorization: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var disconnectDialogVisible by remember { mutableStateOf(false) }
     LaunchedEffect(state.authUrl) {
         state.authUrl?.let {
             openAuthorization(it)
@@ -160,6 +168,9 @@ fun MailHomeScreen(
                         )
                         Spacer(Modifier.width(CampusSpacing.Small))
                         CampusStatusChip(text.connected, CampusStatusTone.SUCCESS)
+                        TextButton(onClick = { disconnectDialogVisible = true }) {
+                            Text(text.disconnect)
+                        }
                     }
                 }
                 item {
@@ -232,6 +243,25 @@ fun MailHomeScreen(
                 }
             }
         }
+    }
+    if (disconnectDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { disconnectDialogVisible = false },
+            title = { Text(text.disconnectQuestion) },
+            text = { Text(text.disconnectMessage) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        disconnectDialogVisible = false
+                        viewModel.disconnect()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text(text.disconnect) }
+            },
+            dismissButton = {
+                TextButton(onClick = { disconnectDialogVisible = false }) { Text(text.cancel) }
+            },
+        )
     }
 }
 
@@ -317,6 +347,7 @@ private fun MailMessageCard(
                     Column {
                         Text(message.sender, maxLines = 1)
                         Text(message.preview, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        CampusStatusChip(categoryLabel(message.category, text), CampusStatusTone.INFO)
                     }
                 },
                 trailingContent = {
@@ -455,6 +486,7 @@ private fun MailDetailsContent(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                     )
+                    CampusStatusChip(categoryLabel(message.category, text), CampusStatusTone.INFO)
                     CampusInfoRow(text.from, message.sender)
                     if (message.recipients.isNotEmpty()) {
                         CampusInfoRow(text.recipients, message.recipients.joinToString())
@@ -573,7 +605,7 @@ fun CalendarScreen(
             state.error?.let { item { ErrorBlock(text.unableToLoad, it, text.retry, viewModel::clearFeedback) } }
             state.actionMessage?.let { item { FeedbackText(localizeCalendarFeedback(it, text)) } }
             if (state.editorVisible) {
-                item { CalendarEditor(state, viewModel, text) }
+                item { CalendarEditor(state, viewModel, text) { pendingDelete = it } }
             }
             item {
                 CalendarMailScanOptions(state, viewModel, text)
@@ -612,6 +644,13 @@ fun CalendarScreen(
                 }
             }
             item { CampusPageHeader(text.myEvents, text.events) }
+            item {
+                CalendarMonthGrid(
+                    state = state,
+                    viewModel = viewModel,
+                    text = text,
+                )
+            }
             if (state.loading) {
                 item { CampusLoadingState(text.loading) }
             } else if (state.events.isEmpty()) {
@@ -621,7 +660,7 @@ fun CalendarScreen(
                         CampusActionCard(
                             copy = CampusActionCopy(text.newEvent, text.addEvent),
                             icon = Icons.Default.Add,
-                            onClick = viewModel::beginCreate,
+                            onClick = { viewModel.beginCreate(state.displayMonth.atDay(1)) },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -659,6 +698,131 @@ fun CalendarScreen(
 }
 
 @Composable
+private fun CalendarMonthGrid(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+) {
+    val month = state.displayMonth
+    val firstDay = month.atDay(1)
+    val leadingDays = firstDay.dayOfWeek.value % 7
+    val totalDays = month.lengthOfMonth()
+    val today = LocalDate.now()
+    val eventsByDay = state.events.groupBy { it.start_time.take(10) }
+
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(CampusSpacing.Small), verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                IconButton(onClick = viewModel::previousMonth) {
+                    Icon(Icons.Default.ChevronLeft, contentDescription = text.previousMonth)
+                }
+                Text(
+                    month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                IconButton(onClick = viewModel::nextMonth) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = text.nextMonth)
+                }
+            }
+            Text(text.monthView, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth()) {
+                text.weekdayLabels.forEach { label ->
+                    Text(
+                        text = label,
+                        modifier = Modifier.weight(1f).padding(vertical = CampusSpacing.ExtraSmall),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+            repeat(6) { week ->
+                Row(Modifier.fillMaxWidth()) {
+                    repeat(7) { dayOfWeek ->
+                        val index = week * 7 + dayOfWeek
+                        val dayNumber = index - leadingDays + 1
+                        val date = dayNumber.takeIf { it in 1..totalDays }?.let(month::atDay)
+                        val dayEvents = date?.let { eventsByDay[it.toString()] }.orEmpty()
+                        CalendarDayCell(
+                            modifier = Modifier.weight(1f),
+                            date = date,
+                            events = dayEvents,
+                            isToday = date == today,
+                            onCreate = { date?.let(viewModel::beginCreate) },
+                            onEdit = viewModel::beginEdit,
+                        )
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = viewModel::currentMonth,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                enabled = month != YearMonth.now(),
+            ) {
+                Text(text.today)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayCell(
+    modifier: Modifier,
+    date: LocalDate?,
+    events: List<CalendarEvent>,
+    isToday: Boolean,
+    onCreate: () -> Unit,
+    onEdit: (CalendarEvent) -> Unit,
+) {
+    Card(
+        modifier = modifier.height(76.dp).padding(1.dp).clickable(enabled = date != null, onClick = onCreate),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+        ),
+        colors = CardDefaults.cardColors(
+            containerColor = if (date == null) {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            } else if (isToday) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+    ) {
+        Column(Modifier.fillMaxSize().padding(CampusSpacing.ExtraSmall)) {
+            date?.let {
+                Text(
+                    text = it.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                )
+                events.take(2).forEach { event ->
+                    Text(
+                        text = event.title,
+                        modifier = Modifier.fillMaxWidth().clickable { onEdit(event) },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (event.source == "mail") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (events.size > 2) {
+                    Text("+${events.size - 2}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CalendarMailScanOptions(
     state: CalendarUiState,
     viewModel: CalendarViewModel,
@@ -677,6 +841,13 @@ private fun CalendarMailScanOptions(
                 Column(Modifier.weight(1f)) {
                     Text(text.extractFromMail, fontWeight = FontWeight.Bold)
                     Text(text.scanWindow, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.extractionMode?.let { mode ->
+                        CampusStatusChip(
+                            label = "${text.mode}: ${calendarModeLabel(mode, text)}",
+                            tone = CampusStatusTone.INFO,
+                            modifier = Modifier.padding(top = CampusSpacing.ExtraSmall),
+                        )
+                    }
                 }
                 Button(onClick = viewModel::extract, enabled = !state.extracting) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null)
@@ -684,11 +855,16 @@ private fun CalendarMailScanOptions(
                     Text(text.scan)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+            ) {
                 listOf(
                     0 to text.scanToday,
-                    7 to text.scanSevenDays,
-                    30 to text.scanThirtyDays,
+                    1 to text.scanTwoDays,
+                    2 to text.scanThreeDays,
+                    3 to text.scanFourDays,
+                    7 to text.scanEightDays,
                 ).forEach { (days, label) ->
                     FilterChip(
                         selected = state.extractionDays == days,
@@ -702,7 +878,12 @@ private fun CalendarMailScanOptions(
 }
 
 @Composable
-private fun CalendarEditor(state: CalendarUiState, viewModel: CalendarViewModel, text: CalendarStrings) {
+private fun CalendarEditor(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+    onDelete: (CalendarEvent) -> Unit,
+) {
     CampusSurfaceCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(CampusSpacing.Large), verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium)) {
             Text(
@@ -749,6 +930,14 @@ private fun CalendarEditor(state: CalendarUiState, viewModel: CalendarViewModel,
                 Text(text.allDay)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (state.editingId != null) {
+                    TextButton(
+                        onClick = {
+                            state.editingId?.let { id -> state.events.firstOrNull { it.id == id }?.let(onDelete) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(text.delete, color = MaterialTheme.colorScheme.error) }
+                }
                 TextButton(onClick = viewModel::cancelEdit) { Text(text.cancel) }
                 Button(onClick = viewModel::save, enabled = !state.saving) {
                     if (state.saving) CircularProgressIndicator()
@@ -856,6 +1045,7 @@ private fun FeedbackText(message: String) {
 private fun localizeMailFeedback(message: String, text: MailStrings): String = when (message) {
     "Waiting for Gmail authorization…" -> text.waitingAuthorization
     "Gmail connected" -> text.gmailConnectedMessage
+    "Gmail disconnected" -> text.gmailDisconnected
     "Authorization not detected yet. Tap Check again." -> text.authorizationPending
     "Message updated" -> text.messageUpdated
     else -> message
@@ -874,6 +1064,19 @@ private fun localizeCalendarFeedback(message: String, text: CalendarStrings): St
             else -> message
         }
     }
+}
+
+private fun categoryLabel(category: String, text: MailStrings): String = when (category.lowercase()) {
+    "campus" -> text.categoryCampus
+    "career" -> text.categoryCareer
+    "finance" -> text.categoryFinance
+    else -> text.categoryOther
+}
+
+private fun calendarModeLabel(mode: String, text: CalendarStrings): String = when (mode.lowercase()) {
+    "llm" -> text.aiMode
+    "rules" -> text.rulesMode
+    else -> mode
 }
 
 private fun formatDate(value: String): String = runCatching {

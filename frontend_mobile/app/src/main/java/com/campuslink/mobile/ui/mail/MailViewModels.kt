@@ -1,4 +1,4 @@
-@file:Suppress("TooGenericExceptionCaught", "MaxLineLength")
+@file:Suppress("TooGenericExceptionCaught", "MaxLineLength", "TooManyFunctions")
 
 package com.campuslink.mobile.ui.mail
 
@@ -24,7 +24,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 data class MailHomeUiState(
@@ -95,6 +97,27 @@ class MailHomeViewModel(private val repository: MailDataSource) : ViewModel() {
     }
 
     fun clearAuthUrl() = mutableState.value.copy(authUrl = null).also { mutableState.value = it }
+
+    fun disconnect() {
+        viewModelScope.launch {
+            try {
+                repository.disconnectOAuth()
+                mutableState.value = mutableState.value.copy(
+                    connected = false,
+                    connectedEmail = null,
+                    messages = emptyList(),
+                    page = 0,
+                    lastPage = true,
+                    actionMessage = "Gmail disconnected",
+                    error = null,
+                )
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                mutableState.value = mutableState.value.copy(error = exception.toMailMessage())
+            }
+        }
+    }
 
     fun pollOAuthStatus() {
         if (oauthPollingJob?.isActive == true) return
@@ -409,10 +432,11 @@ data class CalendarForm(
     val allDay: Boolean = false,
 )
 
-private const val DEFAULT_EXTRACTION_DAYS = 7
+private const val DEFAULT_EXTRACTION_DAYS = 0
 
 data class CalendarUiState(
     val loading: Boolean = true,
+    val displayMonth: YearMonth = YearMonth.now(),
     val events: List<CalendarEvent> = emptyList(),
     val form: CalendarForm = CalendarForm(),
     val editorVisible: Boolean = false,
@@ -420,6 +444,7 @@ data class CalendarUiState(
     val saving: Boolean = false,
     val extracting: Boolean = false,
     val extractionDays: Int = DEFAULT_EXTRACTION_DAYS,
+    val extractionMode: String? = null,
     val proposals: List<ExtractedSchedule> = emptyList(),
     val selectedProposalKeys: Set<String> = emptySet(),
     val error: String? = null,
@@ -438,9 +463,13 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
         viewModelScope.launch {
             mutableState.value = mutableState.value.copy(loading = true, error = null)
             try {
+                val month = mutableState.value.displayMonth
                 mutableState.value = mutableState.value.copy(
                     loading = false,
-                    events = repository.listCalendarEvents(),
+                    events = repository.listCalendarEvents(
+                        start = monthStart(month),
+                        end = monthStart(month.plusMonths(1)),
+                    ),
                 )
             } catch (exception: CancellationException) {
                 throw exception
@@ -462,14 +491,20 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
         mutableState.value = mutableState.value.copy(extractionDays = days, error = null)
     }
 
-    fun beginCreate() {
+    fun beginCreate(date: LocalDate = LocalDate.now()) {
         mutableState.value = mutableState.value.copy(
-            form = CalendarForm(),
+            form = calendarFormForDate(date),
             editorVisible = true,
             editingId = null,
             error = null,
         )
     }
+
+    fun previousMonth() = changeMonth { minusMonths(1) }
+
+    fun nextMonth() = changeMonth { plusMonths(1) }
+
+    fun currentMonth() = changeMonth { YearMonth.now() }
 
     fun beginEdit(event: CalendarEvent) {
         mutableState.value = mutableState.value.copy(
@@ -500,12 +535,13 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
         viewModelScope.launch {
             mutableState.value = mutableState.value.copy(saving = true, error = null)
             try {
+                val month = mutableState.value.displayMonth
                 val updatedEvents = if (current.editingId == null) {
                     repository.createCalendarEvent(form.toRequest())
-                    repository.listCalendarEvents()
+                    repository.listCalendarEvents(monthStart(month), monthStart(month.plusMonths(1)))
                 } else {
                     repository.updateCalendarEvent(current.editingId, form.toUpdate())
-                    repository.listCalendarEvents()
+                    repository.listCalendarEvents(monthStart(month), monthStart(month.plusMonths(1)))
                 }
                 mutableState.value = mutableState.value.copy(
                     saving = false,
@@ -549,6 +585,7 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
                     extracting = false,
                     proposals = result.events,
                     selectedProposalKeys = result.events.map { it.key }.toSet(),
+                    extractionMode = result.mode,
                     actionMessage = "Scanned ${result.scanned} emails (${result.mode} mode)",
                 )
             } catch (exception: CancellationException) {
@@ -574,11 +611,12 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
         }
         viewModelScope.launch {
             try {
+                val month = mutableState.value.displayMonth
                 val result = repository.importCalendarSchedules(ImportRequest(selected))
                 mutableState.value = mutableState.value.copy(
                     proposals = emptyList(),
                     selectedProposalKeys = emptySet(),
-                    events = repository.listCalendarEvents(),
+                    events = repository.listCalendarEvents(monthStart(month), monthStart(month.plusMonths(1))),
                     actionMessage = "Imported ${result.imported} events; skipped ${result.skipped}",
                 )
             } catch (exception: CancellationException) {
@@ -595,8 +633,14 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
         mutableState.value = mutableState.value.copy(form = mutableState.value.form.transform(), error = null)
     }
 
+    private fun changeMonth(transform: YearMonth.() -> YearMonth) {
+        val next = transform(mutableState.value.displayMonth)
+        mutableState.value = mutableState.value.copy(displayMonth = next, error = null)
+        load()
+    }
+
     private companion object {
-        val EXTRACTION_DAY_OPTIONS = setOf(0, 7, 30)
+        val EXTRACTION_DAY_OPTIONS = setOf(0, 1, 2, 3, 7)
         const val MAX_EXTRACTION_RESULTS = 50
     }
 }
@@ -622,6 +666,15 @@ private fun defaultCalendarTime(hoursFromNow: Long): String = LocalDateTime.now(
     .withMinute(0)
     .withSecond(0)
     .withNano(0)
+    .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+
+private fun calendarFormForDate(date: LocalDate): CalendarForm = CalendarForm(
+    startTime = date.atTime(9, 0).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+    endTime = date.atTime(10, 0).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+)
+
+private fun monthStart(month: YearMonth): String = month.atDay(1)
+    .atStartOfDay()
     .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 
 private fun Exception.toMailMessage(): String = when (this) {
