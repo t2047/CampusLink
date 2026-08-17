@@ -2,8 +2,10 @@ package com.app.campusagent.chat.controller;
 
 import com.app.campusagent.chat.config.ChatProperties;
 import com.app.campusagent.chat.service.DelegationTokenProvider;
+import com.app.campusagent.domain.User;
 import com.app.campusagent.dto.TokenExchangeRequest;
 import com.app.campusagent.dto.TokenExchangeResponse;
+import com.app.campusagent.repository.UserRepository;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -11,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -60,16 +63,28 @@ public class TokenExchangeController {
     private final DelegationTokenProvider delegationTokenProvider;
     private final ChatProperties properties;
     private final ObjectMapper objectMapper;
+    private final UserRepository userRepository;
 
     /** nonce → 首次使用时间，防重放（单实例内存去重；多实例生产可换 Redis SETNX）。 */
     private final Map<String, Long> nonceCache = new ConcurrentHashMap<>();
 
+    /** Spring 生产构造器：从后端用户表解析邮箱，避免 Agent 自行信任调用方传入的邮箱。 */
+    @Autowired
     public TokenExchangeController(DelegationTokenProvider delegationTokenProvider,
                                    ChatProperties properties,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   UserRepository userRepository) {
         this.delegationTokenProvider = delegationTokenProvider;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.userRepository = userRepository;
+    }
+
+    /** 保留无数据库的单元测试构造器。 */
+    public TokenExchangeController(DelegationTokenProvider delegationTokenProvider,
+                                   ChatProperties properties,
+                                   ObjectMapper objectMapper) {
+        this(delegationTokenProvider, properties, objectMapper, null);
     }
 
     /**
@@ -92,8 +107,12 @@ public class TokenExchangeController {
         String intendedAction = (request.intendedAction() == null || request.intendedAction().isBlank())
                 ? "invoke" : request.intendedAction();
 
-        String token = delegationTokenProvider.issueDelegationToken(
-                request.userId(), request.role(), targetAgent, intendedAction, request.jti());
+        String userEmail = resolveUserEmail(request.userId());
+        String token = userEmail == null
+                ? delegationTokenProvider.issueDelegationToken(
+                        request.userId(), request.role(), targetAgent, intendedAction, request.jti())
+                : delegationTokenProvider.issueDelegationToken(
+                        request.userId(), request.role(), targetAgent, intendedAction, request.jti(), userEmail);
 
         log.info("Delegation token issued: targetAgent={}, action={}, expiresIn={}s",
                 targetAgent, intendedAction, properties.getDelegationTokenTtlSeconds());
@@ -192,6 +211,17 @@ public class TokenExchangeController {
 
     private RuntimeException unauthorized(String detail) {
         return new ResponseStatusException(HttpStatus.UNAUTHORIZED, detail);
+    }
+
+    private String resolveUserEmail(String userId) {
+        if (userRepository == null) {
+            return null;
+        }
+        try {
+            return userRepository.findById(Long.valueOf(userId)).map(User::getEmail).orElse(null);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private String sign(String body, String nonce, long timestamp) {

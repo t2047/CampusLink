@@ -11,7 +11,8 @@ formats are accepted:
 2. **Internal service token** (HS256, ``MAIL_INTERNAL_SECRET``, fallback
    ``AGENT_SHARED_SECRET``) — a short-lived token minted by the mail MCP
    gateway on behalf of the chat path, where the user JWT never leaves the
-   chat backend (only a numeric user id is available). ``aud`` must be
+   chat backend. The backend-resolved email is used as the canonical binding;
+   older tokens without it fall back to ``sub``. ``aud`` must be
    ``mail-service``.
 
 The identity returned by :func:`resolve_identity` is used verbatim as the
@@ -59,7 +60,7 @@ def verify_user_jwt(token: str) -> str | None:
 
 
 def verify_internal_token(token: str) -> str | None:
-    """Verify an internal (MCP-gateway) HS256 token; return its ``sub`` or ``None``."""
+    """Verify an internal MCP token; prefer its backend-resolved email binding."""
     if not config.MAIL_INTERNAL_SECRET:
         return None
     try:
@@ -72,6 +73,9 @@ def verify_internal_token(token: str) -> str | None:
         )
     except jwt.PyJWTError:
         return None
+    user_email = claims.get("user_email")
+    if isinstance(user_email, str) and user_email.strip():
+        return user_email.strip()
     sub = claims.get("sub")
     return sub if isinstance(sub, str) and sub.strip() else None
 

@@ -62,8 +62,9 @@ GMAIL_SCOPES = [
 # 相同派生方式验签）。未配置时用户 JWT 通道不可用（fail-closed，返回 401）。
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 
-# 内部服务令牌（HS256）：供 mail MCP 网关等受信内部组件代用户调用本服务
-# （聊天路径的 delegation token 只携带数字 userId，无法直接当作用户 JWT）。
+# 内部服务令牌（HS256）：供 mail MCP 网关等受信内部组件代用户调用本服务。
+# Chat Backend 会在 delegation token 中写入经过用户表解析的 user_email，供 Mail
+# MCP 与原生 Mail 页面复用同一邮箱绑定；没有该字段的旧令牌仍可兼容验签。
 # 显式配置 MAIL_INTERNAL_SECRET；未配置时回退到 AGENT_SHARED_SECRET
 # （与 LostFoundAgentGateway -> L&F agent 的 Java↔Python 共享密钥同一惯例）。
 MAIL_INTERNAL_SECRET = (

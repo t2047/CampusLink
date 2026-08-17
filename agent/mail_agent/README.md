@@ -132,9 +132,10 @@ sends this JWT as `Authorization: Bearer <jwt>`.
 
 The chat / MCP path cannot carry the user JWT (it never leaves the chat
 backend), so `mail-agent-mcp` mints a short-lived **internal token** (HS256,
-`MAIL_INTERNAL_SECRET` or `AGENT_SHARED_SECRET`, `aud=mail-service`, 30s TTL)
-with the delegation token's `sub` (numeric user id) and forwards that to this
-service; mail operations then use that user's own (chat-path) Gmail binding.
+`MAIL_INTERNAL_SECRET` or `AGENT_SHARED_SECRET`, `aud=mail-service`, 30s TTL).
+The Chat Backend resolves the numeric delegation subject to the user's email and
+adds it as `user_email`; `mail-agent-mcp` uses that value as the internal token
+subject, so chat operations and the native Mail page use the same Gmail binding.
 
 To re-authorize or switch accounts: call `POST /api/mail/oauth/disconnect`
 (removes **only your own** token) and repeat.

@@ -38,10 +38,18 @@ def _user_jwt(email: str = "stu@campuslink.test", secret: str = USER_SECRET) -> 
     )
 
 
-def _internal_jwt(user_id: str = "42", secret: str = INTERNAL_SECRET, aud: str = "mail-service") -> str:
+def _internal_jwt(
+    user_id: str = "42",
+    secret: str = INTERNAL_SECRET,
+    aud: str = "mail-service",
+    user_email: str | None = None,
+) -> str:
     now = int(time.time())
+    claims = {"sub": user_id, "aud": aud, "iat": now, "exp": now + 60}
+    if user_email:
+        claims["user_email"] = user_email
     return jwt.encode(
-        {"sub": user_id, "aud": aud, "iat": now, "exp": now + 60},
+        claims,
         secret.encode("utf-8"),
         algorithm="HS256",
     )
@@ -92,6 +100,10 @@ class TestVerifyUserJwt:
 class TestVerifyInternalToken:
     def test_accepts_valid_token(self):
         assert auth.verify_internal_token(_internal_jwt()) == "42"
+
+    def test_prefers_backend_resolved_email_binding(self):
+        token = _internal_jwt(user_email="stu@campuslink.test")
+        assert auth.verify_internal_token(token) == "stu@campuslink.test"
 
     def test_rejects_wrong_audience(self):
         assert auth.verify_internal_token(_internal_jwt(aud="other-service")) is None

@@ -356,6 +356,7 @@ API 与分层：
 - 日历增加月视图：支持上个月、下个月和回到今天，按月请求后端事件；点击空白日期可以直接创建当天 09:00–10:00 的日程，点击月视图中的事件可以编辑；
 - 邮件列表和详情增加与 Web 对齐的 Campus / Career / Finance / Other 分类标签；
 - Gmail 已连接状态增加“断开 Gmail”确认流程，断开后清空当前页面邮件并要求重新授权；
+- Core Chat 与原生 Mail 的账号绑定已统一：Chat Backend 根据数字用户 ID 解析邮箱并写入短期 Delegation Token，Mail MCP 使用该邮箱访问 Gmail，避免页面显示已连接但 Chat 提示 `GMAIL_NOT_CONNECTED`；
 - 日历时间显示会解析带时区的 ISO-8601 时间并转换为设备本地时区；无法解析的后端值仍以原文本显示，不阻断日程浏览；
 - 邮件 API 使用独立 `MAIL_API_BASE_URL`：`localDebug` 直连 `http://10.0.2.2:5000/`，`demoDebug/prodRelease` 使用 `https://campuslink.tokeninf.xyz/`；登录、Chat、Facilities、Lost & Found 仍使用原 `API_BASE_URL`；
 - 网络层增加 DELETE、逐请求读写超时、204 空响应和 `auth_url` 错误字段解析；动态 ID 使用编码路径段，防止斜杠破坏路由；
