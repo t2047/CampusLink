@@ -129,6 +129,21 @@ class AuthControllerTest {
         }
 
         @Test
+        @DisplayName("❌ 400 - Password over 72 UTF-8 bytes (multi-byte chars)")
+        void shouldReturn400WhenPasswordExceedsUtf8ByteLimit() throws Exception {
+            // 24 个中文字符 = 72 字节刚好在限内；25 个 = 75 字节超限。
+            // 旧实现只按字符数（6-64）校验，这种密码会被 BCrypt 截断导致不同密码等价。
+            String json = """
+                    {"email": "test@u.nus.edu", "password": "密密密密密密密密密密密密密密密密密密密密密密密密密"}
+                    """;
+
+            mockMvc.perform(post("/api/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
         @DisplayName("❌ 400 - Empty JSON body")
         void shouldReturn400WhenBodyEmpty() throws Exception {
             mockMvc.perform(post("/api/auth/register")

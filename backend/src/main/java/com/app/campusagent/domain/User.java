@@ -41,6 +41,15 @@ public class User {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    /**
+     * 密码最近修改时间（个人中心改密后置位，可空）。
+     * {@link com.app.campusagent.config.JwtAuthFilter} 据此让早于改密时间签发的
+     * 旧 JWT 失效，避免 token 泄露后最长还能用满整个有效期（ChangePassWord.md）。
+     */
+    @Setter
+    @Column(name = "password_changed_at")
+    private LocalDateTime passwordChangedAt;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

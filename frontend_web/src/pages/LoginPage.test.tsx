@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TOKEN_KEY, USER_KEY } from '../api/client'
@@ -59,5 +59,15 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument()
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
     expect(screen.getByLabelText('Password')).toBeInTheDocument()
+  })
+
+  it('blocks register with a password over 72 UTF-8 bytes', async () => {
+    renderLogin(['/register'])
+
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: '密'.repeat(25) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByText(/at most 72 bytes/)).toBeInTheDocument()
   })
 })

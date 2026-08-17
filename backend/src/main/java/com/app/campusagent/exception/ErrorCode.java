@@ -31,8 +31,8 @@ public enum ErrorCode {
     /** 修改密码：当前密码或新密码为空。 */
     PASSWORD_REQUIRED("PASSWORD_REQUIRED", "密码不能为空"),
 
-    /** 修改密码：新密码长度超限（6-64 字符，与注册最小长度一致）。 */
-    PASSWORD_INVALID_LENGTH("PASSWORD_INVALID_LENGTH", "新密码长度须为 6-64 个字符"),
+    /** 修改密码：新密码长度超限（至少 6 字符，且 UTF-8 不超过 72 字节，BCrypt 上限）。 */
+    PASSWORD_INVALID_LENGTH("PASSWORD_INVALID_LENGTH", "新密码长度须为 6 个字符以上，且不超过 72 字节"),
 
     /** 修改密码：当前密码与库中不一致。 */
     PASSWORD_CURRENT_INCORRECT("PASSWORD_CURRENT_INCORRECT", "当前密码不正确"),

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { apiErrorMessage } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, isPasswordLengthValid } from '../lib/passwordRules';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -39,6 +40,13 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // 注册模式复用与后端一致的密码规则（≥6 字符且 ≤72 UTF-8 字节，ChangePassWord.md）
+    if (mode === 'register' && !isPasswordLengthValid(password)) {
+      setError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters and at most ${PASSWORD_MAX_BYTES} bytes.`);
+      return;
+    }
+
     setLoading(true);
 
     try {

@@ -95,6 +95,7 @@ class UserProfileServiceTest {
         profileService.changePassword(user, new ChangePasswordRequest("current-pass", "new-pass-123"));
 
         assertThat(user.getPassword()).isEqualTo("new-hash");
+        assertThat(user.getPasswordChangedAt()).isNotNull();
         verify(userRepository).save(user);
     }
 
@@ -120,10 +121,31 @@ class UserProfileServiceTest {
         assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "12345")))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
-        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "x".repeat(65))))
+        // 超过 72 UTF-8 字节（ASCII 73 字节）
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "x".repeat(73))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
+        // 25 个中文字符 = 75 字节；旧实现只按字符数（≤64）放行，BCrypt 会截断
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "密".repeat(25))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
         verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordAcceptsUpTo72Utf8Bytes() {
+        User user = user();
+        // 第二次调用时 user.getPassword() 已变为新 hash，用 anyString() 覆盖两种取值
+        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+        when(userRepository.save(user)).thenReturn(user);
+
+        // 65 个 ASCII 字符（旧上限 64 字符会拒绝）与 24 个中文字符（恰为 72 字节）都合法
+        profileService.changePassword(user, new ChangePasswordRequest("current-pass", "x".repeat(65)));
+        profileService.changePassword(user, new ChangePasswordRequest("current-pass", "密".repeat(24)));
+
+        assertThat(user.getPasswordChangedAt()).isNotNull();
+        verify(userRepository, org.mockito.Mockito.times(2)).save(user);
     }
 
     @Test

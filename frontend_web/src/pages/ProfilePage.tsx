@@ -14,25 +14,23 @@ import {
 } from '@mui/material'
 import axios from 'axios'
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
 import { getMyClaims, searchReports } from '../api/lostFound'
 import { changePassword, getMyProfile, updateNickname, uploadAvatar } from '../api/users'
 import { facilitiesApi } from '../api/facilities'
 import { displayName } from '../auth/displayName'
 import { useAuth } from '../auth/AuthContext'
+import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, isPasswordLengthValid } from '../lib/passwordRules'
 import type { ApiErrorBody, UserProfile } from '../types'
 
 const avatarTypes = ['image/jpeg', 'image/png', 'image/webp']
 const avatarMaxBytes = 2 * 1024 * 1024
 
-const passwordMinLength = 6
-const passwordMaxLength = 64
-
 /** 后端改密错误码 → 英文提示（对应 ErrorCode.PASSWORD_*）。 */
 const passwordErrorMessages: Record<string, string> = {
   PASSWORD_REQUIRED: 'Password cannot be empty.',
-  PASSWORD_INVALID_LENGTH: `New password must be ${passwordMinLength}–${passwordMaxLength} characters.`,
+  PASSWORD_INVALID_LENGTH: `New password must be at least ${PASSWORD_MIN_LENGTH} characters and at most ${PASSWORD_MAX_BYTES} bytes.`,
   PASSWORD_CURRENT_INCORRECT: 'Current password is incorrect.',
   PASSWORD_SAME_AS_CURRENT: 'New password must be different from the current one.',
 }
@@ -298,6 +296,8 @@ function EditProfileDialog({
 }
 
 function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { logout } = useAuth()
+  const navigate = useNavigate()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -315,13 +315,28 @@ function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () =>
     }
   }, [open])
 
+  function handleClose() {
+    if (submitting) return
+    if (success) {
+      // 改密成功后旧 JWT 已失效：主动登出并引导重新登录（ChangePassWord.md）
+      logout()
+      navigate('/login', { replace: true })
+      return
+    }
+    onClose()
+  }
+
   async function save() {
     if (!currentPassword || !newPassword || !confirmPassword) {
       setError('All fields are required.')
       return
     }
-    if (newPassword.length < passwordMinLength || newPassword.length > passwordMaxLength) {
-      setError(`New password must be ${passwordMinLength}–${passwordMaxLength} characters.`)
+    if (newPassword === currentPassword) {
+      setError('New password must be different from the current one.')
+      return
+    }
+    if (!isPasswordLengthValid(newPassword)) {
+      setError(`New password must be at least ${PASSWORD_MIN_LENGTH} characters and at most ${PASSWORD_MAX_BYTES} bytes.`)
       return
     }
     if (newPassword !== confirmPassword) {
@@ -344,11 +359,11 @@ function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () =>
   }
 
   return (
-    <Dialog open={open} onClose={() => !submitting && onClose()} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
       <DialogTitle>Change password</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          {success && <Alert severity="success">Password updated. You can now log in with your new password.</Alert>}
+          {success && <Alert severity="success">Password updated. Please log in again with your new password.</Alert>}
           <TextField
             fullWidth
             type="password"
@@ -363,7 +378,7 @@ function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () =>
             label="New password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            helperText={`${passwordMinLength}–${passwordMaxLength} characters.`}
+            helperText={`At least ${PASSWORD_MIN_LENGTH} characters, max ${PASSWORD_MAX_BYTES} bytes.`}
             autoComplete="new-password"
           />
           <TextField
@@ -378,8 +393,16 @@ function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () =>
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={submitting || success}>{submitting ? <CircularProgress size={20} /> : 'Update'}</Button>
+        {success
+          ? (
+              <Button variant="contained" onClick={handleClose}>Log in</Button>
+            )
+          : (
+              <>
+                <Button onClick={handleClose} disabled={submitting}>Cancel</Button>
+                <Button variant="contained" onClick={save} disabled={submitting}>{submitting ? <CircularProgress size={20} /> : 'Update'}</Button>
+              </>
+            )}
       </DialogActions>
     </Dialog>
   )

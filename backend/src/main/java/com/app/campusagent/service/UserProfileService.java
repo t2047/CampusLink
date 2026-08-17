@@ -10,11 +10,13 @@ import com.app.campusagent.lostfound.service.LostFoundImageRules;
 import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import com.app.campusagent.lostfound.storage.StoredObject;
 import com.app.campusagent.repository.UserRepository;
+import com.app.campusagent.util.PasswordRules;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -29,10 +31,6 @@ import java.util.UUID;
 public class UserProfileService {
 
     private static final String AVATAR_URL_TEMPLATE = "/api/users/avatar/%s";
-
-    /** 新密码长度范围（6 与注册一致，64 为 BCrypt 72 字节上限内的安全取值）。 */
-    private static final int PASSWORD_MIN_LENGTH = 6;
-    private static final int PASSWORD_MAX_LENGTH = 64;
 
     private final UserRepository userRepository;
     private final ObjectStorageService storageService;
@@ -69,7 +67,8 @@ public class UserProfileService {
     }
 
     /**
-     * 修改登录密码：校验当前密码、新密码长度后以 BCrypt 重哈希落库。
+     * 修改登录密码：校验当前密码、新密码长度后以 BCrypt 重哈希落库，并记录改密时间。
+     * 长度规则复用 {@link PasswordRules}（6 字符以上且不超过 72 UTF-8 字节）。
      * 密码不做 trim（空格可能为有效字符），仅空白校验用 trim。
      */
     @Transactional
@@ -79,7 +78,7 @@ public class UserProfileService {
         }
         String currentPassword = request.currentPassword();
         String newPassword = request.newPassword();
-        if (newPassword.length() < PASSWORD_MIN_LENGTH || newPassword.length() > PASSWORD_MAX_LENGTH) {
+        if (!PasswordRules.isValidLength(newPassword)) {
             throw new BusinessException(ErrorCode.PASSWORD_INVALID_LENGTH);
         }
         if (!passwordEncoder.matches(currentPassword, currentUser.getPassword())) {
@@ -89,6 +88,7 @@ public class UserProfileService {
             throw new BusinessException(ErrorCode.PASSWORD_SAME_AS_CURRENT);
         }
         currentUser.setPassword(passwordEncoder.encode(newPassword));
+        currentUser.setPasswordChangedAt(LocalDateTime.now());
         userRepository.save(currentUser);
     }
 

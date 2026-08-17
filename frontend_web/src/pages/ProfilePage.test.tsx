@@ -148,4 +148,48 @@ describe('ProfilePage', () => {
     expect(await screen.findByText('New password and confirmation do not match.')).toBeInTheDocument()
     expect(changePassword).not.toHaveBeenCalled()
   })
+
+  it('blocks a password change when the new password equals the current one', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }))
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'same-pass' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'same-pass' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'same-pass' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(await screen.findByText('New password must be different from the current one.')).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
+  })
+
+  it('blocks a password change over 72 UTF-8 bytes', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }))
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'old-pass' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: '密'.repeat(25) } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: '密'.repeat(25) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(await screen.findByText(/at most 72 bytes/)).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
+  })
+
+  it('logs out and clears the session after a successful password change', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }))
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'old-pass' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-pass-123' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new-pass-123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(await screen.findByText(/Password updated/)).toBeInTheDocument()
+    expect(sessionStorage.getItem(TOKEN_KEY)).toBe('token')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
+
+    expect(sessionStorage.getItem(TOKEN_KEY)).toBeNull()
+    expect(sessionStorage.getItem(USER_KEY)).toBeNull()
+  })
 })
