@@ -70,6 +70,18 @@ class MailViewModelsTest {
     }
 
     @Test
+    fun `mail details toggles read through repository`() = runTest {
+        val repository = FakeMailDataSource()
+        val viewModel = MailDetailsViewModel("mail-1", repository)
+        advanceUntilIdle()
+
+        viewModel.toggleRead()
+        advanceUntilIdle()
+
+        assertEquals(UpdateMailRequest(read = true), repository.lastUpdate)
+    }
+
+    @Test
     fun `calendar rejects invalid range before saving`() = runTest {
         val repository = FakeMailDataSource()
         val viewModel = CalendarViewModel(repository)
@@ -93,6 +105,7 @@ class MailViewModelsTest {
         var lastQuery = ""
         var lastUnread: Boolean? = null
         var sentRequest: SendMailRequest? = null
+        var lastUpdate: UpdateMailRequest? = null
         var createCalendarCalls = 0
 
         override suspend fun oauthUrl() = OAuthUrlResponse("https://accounts.example/authorize", connected)
@@ -119,7 +132,13 @@ class MailViewModelsTest {
             return MESSAGE
         }
 
-        override suspend fun updateMessage(messageId: String, request: UpdateMailRequest) = MESSAGE
+        override suspend fun updateMessage(messageId: String, request: UpdateMailRequest): MailMessage {
+            lastUpdate = request
+            return MESSAGE.copy(
+                read = request.read ?: MESSAGE.read,
+                starred = request.starred ?: MESSAGE.starred,
+            )
+        }
         override suspend fun archiveMessage(messageId: String) = MESSAGE
         override suspend fun deleteMessage(messageId: String) = MESSAGE
         override suspend fun listCalendarEvents(start: String?, end: String?) = emptyList<CalendarEvent>()
