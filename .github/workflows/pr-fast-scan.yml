@@ -316,7 +316,7 @@ jobs:
           MYSQL_USER: root
           MYSQL_PASSWORD: testpass
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          JWT_EXPIRATON_MS: "86400000"
+          JWT_EXPIRATION_MS: "86400000"
         # mvn test: 只 compile + test，不触发 verify 阶段的 SpotBugs/OWASP
         run: mvn test -Pfast-sast
 

@@ -62,7 +62,7 @@ describe('personal center routes', () => {
   it('redirects unauthenticated personal center visitors to login', async () => {
     renderApp('/lost-found/profile')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Campus Link' })).toBeInTheDocument()
   })
 
   it('renders My Lost Items at /lost-found/profile/lost', async () => {

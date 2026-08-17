@@ -187,7 +187,7 @@ describe('admin application routes', () => {
   it('redirects an unauthenticated Facilities visitor to login', async () => {
     renderApp('/facilities')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Campus Link' })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/login')
   })
 
@@ -323,7 +323,7 @@ describe('admin application routes', () => {
   it('redirects an anonymous Claim detail request to login first', async () => {
     renderApp('/admin/lost-found/claims/42')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Campus Link' })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/login')
     expect(screen.queryByRole('heading', { name: 'Claim #42' })).not.toBeInTheDocument()
   })
@@ -351,7 +351,7 @@ describe('admin application routes', () => {
   it('redirects an anonymous unknown administration route to login first', async () => {
     renderApp('/admin/unknown')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Campus Link' })).toBeInTheDocument()
     expect(screen.getByLabelText('Current path')).toHaveTextContent('/login')
     expect(screen.queryByRole('heading', { name: 'Page Not Found' })).not.toBeInTheDocument()
     expect(screen.queryByText('CampusLink Administration')).not.toBeInTheDocument()
