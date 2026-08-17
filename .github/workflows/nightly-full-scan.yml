@@ -281,8 +281,7 @@ jobs:
 
       - name: Upload ZAP Report
         if: always()
-        # 报告由 ZAP 步骤输出到仓库根（working-directory: .），上传须同目录
-        working-directory: .
+        # 报告由 ZAP 步骤输出到仓库根，上传 path 相对 GITHUB_WORKSPACE
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
