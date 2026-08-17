@@ -26,7 +26,11 @@ internal sealed interface Screen {
     data class MaintenanceDetails(val ticketId: Long) : Screen
     data object LostFoundHome : Screen
     data object LostFoundBrowse : Screen
-    data class LostFoundDetails(val reportId: Long, val returnToClaims: Boolean = false) : Screen
+    data class LostFoundDetails(
+        val reportId: Long,
+        val returnToClaims: Boolean = false,
+        val returnToChatId: String? = null,
+    ) : Screen
     data class CreateLostFoundReport(val reportType: ReportType) : Screen
     data object LostFoundClaims : Screen
 }
@@ -76,11 +80,8 @@ internal data class NavigationState(
         is Screen.MaintenanceDetails -> maintenanceDetailsReturnScreen
         Screen.LostFoundHome -> Screen.Home
         Screen.LostFoundBrowse -> Screen.LostFoundHome
-        is Screen.LostFoundDetails -> if (active.returnToClaims) {
-            Screen.LostFoundClaims
-        } else {
-            Screen.LostFoundBrowse
-        }
+        is Screen.LostFoundDetails -> active.returnToChatId?.let(Screen::Chat)
+            ?: if (active.returnToClaims) Screen.LostFoundClaims else Screen.LostFoundBrowse
         is Screen.CreateLostFoundReport -> Screen.LostFoundHome
         Screen.LostFoundClaims -> Screen.LostFoundHome
     }
@@ -136,7 +137,7 @@ internal fun Screen.routeKey(): String = when (this) {
     is Screen.MaintenanceDetails -> "maintenance-details|$ticketId"
     Screen.LostFoundHome -> "lost-found-home"
     Screen.LostFoundBrowse -> "lost-found-browse"
-    is Screen.LostFoundDetails -> "lost-found-details|$reportId|$returnToClaims"
+    is Screen.LostFoundDetails -> "lost-found-details|$reportId|$returnToClaims|${returnToChatId.orEmpty()}"
     is Screen.CreateLostFoundReport -> "create-lost-found|${reportType.name}"
     Screen.LostFoundClaims -> "lost-found-claims"
 }
@@ -165,7 +166,11 @@ internal fun screenFromRouteKey(routeKey: String?): Screen {
         "lost-found-home" -> Screen.LostFoundHome
         "lost-found-browse" -> Screen.LostFoundBrowse
         "lost-found-details" -> parts.longArgument(1)?.let { reportId ->
-            Screen.LostFoundDetails(reportId, parts.getOrNull(2).toBoolean())
+            Screen.LostFoundDetails(
+                reportId = reportId,
+                returnToClaims = parts.getOrNull(2).toBoolean(),
+                returnToChatId = parts.getOrNull(3)?.takeIf(String::isNotBlank),
+            )
         }
         "create-lost-found" -> parts.getOrNull(1)?.let { name ->
             runCatching { ReportType.valueOf(name) }.getOrNull()
