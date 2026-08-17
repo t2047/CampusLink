@@ -456,46 +456,185 @@ def _parse_ddg_results(html_text: str, max_results: int = 5) -> list[dict[str, s
     return results
 
 
-def _parse_ddg_results(html_text: str, max_results: int = 5) -> list[dict[str, str]]:
-    """从 DuckDuckGo HTML 响应提取搜索结果（标题/链接/摘要），纯标准库。
+def _parse_bing_results(html_text: str, max_results: int = 5) -> list[dict[str, str]]:
+    """从 Bing 搜索结果页提取结果（标题/链接/摘要），纯标准库。
 
-    DDG html 端点每个结果块含 ``result__a``（标题+链接）与 ``result__snippet``
-    （摘要）。解析失败/无结果时返回空列表，绝不抛异常（搜索为低风险读操作）。
+    Bing 每个结果块为 ``<li class="b_algo">``，标题在 ``<h2><a href>``，
+    摘要在 ``<p>``。解析失败/无结果时返回空列表，绝不抛异常。
     """
     results: list[dict[str, str]] = []
 
     def _clean(text: str) -> str:
-        text = re.sub(r"<[^>]+>", "", text)  # 去内嵌标签
+        text = re.sub(r"<[^>]+>", "", text)
         return html_unescape(text).strip()
 
-    titles = re.findall(
-        r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
-        html_text,
-        re.DOTALL,
-    )
-    snippets = re.findall(
-        r'<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>',
-        html_text,
-        re.DOTALL,
-    )
-    for index, (url, title) in enumerate(titles[:max_results]):
+    for block in re.findall(r'<li class="b_algo".*?</li>', html_text, re.DOTALL)[:max_results]:
+        title_m = re.search(r'<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.DOTALL)
+        if not title_m:
+            continue
+        snip_m = re.search(r"<p[^>]*>(.*?)</p>", block, re.DOTALL)
         results.append(
             {
-                "title": _clean(title),
-                "url": url,
-                "snippet": _clean(snippets[index]) if index < len(snippets) else "",
+                "title": _clean(title_m.group(2)),
+                "url": html_unescape(title_m.group(1)).strip(),
+                "snippet": _clean(snip_m.group(1)) if snip_m else "",
             }
         )
     return results
 
 
+# ─── 新闻查询专用路径（2026-08-17）───────────────────────────────────────
+# 背景：通用网页搜索（DDG/Bing）对"有什么新闻 / What's the news?"这类查询
+# 返回的是新闻网站首页（snippet 是站点介绍）而非具体新闻条目；且 DDG HTML
+# 端点常被反爬（HTTP 202）导致英文查询空结果。新闻类查询改走 Google News
+# RSS（免 key、稳定）：
+#   - 无具体主题的泛新闻请求 → Top Stories 头条 RSS（返回真实头条条目）
+#   - 含主题的新闻查询       → 搜索 RSS（query 命中相关报道）
+# 结果统一为 {title, url, snippet, date}，供编排层 LLM 重述。
+
+# 新闻意图检测：中英文新闻关键词（命中则把查询路由到新闻 RSS）
+_NEWS_QUERY_RE = re.compile(
+    r"(?:新闻|头条|最新消息|时事|热点|资讯|快讯|"
+    r"news|headline|breaking|top\s*stories|what'?s\s+the\s+news|latest\s+news)",
+    re.IGNORECASE,
+)
+
+# 泛新闻请求（整句即"要新闻"，无具体主题 → 头条 RSS）
+_GENERIC_NEWS_RE = re.compile(
+    r"^(?:今天|现在|最近|当前|今日)?(?:的)?(?:有什么|有啥|看下|看看|搜下|搜一下|"
+    r"查一下|查询|有没有|来点|要|求)?(?:新闻|头条|最新消息|时事|热点|资讯|快讯)[?？。]?$"
+    r"|^(?:what'?s\s+the\s+(?:latest\s+)?news|latest\s+news(?:\s+headlines)?(?:\s+today)?|"
+    r"top\s+(?:news\s+)?headlines|(?:news|breaking\s+news|headlines?)(?:\s+today)?)[?？。]?$",
+    re.IGNORECASE,
+)
+
+# Google News RSS 语言/地区参数（按查询语言选择新闻地区）
+_NEWS_LOCALES = {
+    "zh": {"hl": "zh-CN", "gl": "CN", "ceid": "CN:zh-Hans"},
+    "en": {"hl": "en-US", "gl": "US", "ceid": "US:en"},
+}
+
+
+def _looks_chinese(text: str) -> bool:
+    """启发式：文本是否含中文字符（决定新闻 RSS 语言/地区参数）。"""
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text[:200])
+
+
+def _is_news_query(query: str) -> bool:
+    """是否新闻类查询（命中即走 Google News RSS，避免返回新闻站首页）。"""
+    return bool(_NEWS_QUERY_RE.search(query or ""))
+
+
+def _is_generic_news_query(query: str) -> bool:
+    """是否无具体主题的泛新闻请求（如"有什么新闻 / What's the news?"）。"""
+    return bool(_GENERIC_NEWS_RE.match((query or "").strip()))
+
+
+def _parse_rss_items(xml_text: str, max_results: int = 5) -> list[dict[str, str]]:
+    """从 RSS XML 提取条目（标题/链接/摘要/日期），纯标准库。失败返回空列表。"""
+    items: list[dict[str, str]] = []
+
+    def _clean(text: str) -> str:
+        # GNews RSS 的 description 中链接为 HTML 实体编码，须先 unescape 再去标签
+        text = html_unescape(text or "")
+        return re.sub(r"<[^>]+>", "", text).strip()
+
+    for item in re.findall(r"<item>(.*?)</item>", xml_text, re.DOTALL)[:max_results]:
+        title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", item, re.DOTALL)
+        if not title:
+            continue
+        link = re.search(r"<link>(.*?)</link>", item, re.DOTALL)
+        pub = re.search(r"<pubDate>(.*?)</pubDate>", item, re.DOTALL)
+        desc = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", item, re.DOTALL)
+        items.append(
+            {
+                "title": _clean(title.group(1)),
+                "url": (link.group(1).strip() if link else ""),
+                "snippet": _clean(desc.group(1)) if desc else "",
+                "date": (pub.group(1).strip() if pub else ""),
+            }
+        )
+    return items
+
+
+async def _fetch_news_headlines(client, query: str, max_results: int) -> list[dict[str, str]]:
+    """Google News Top Stories RSS（泛新闻请求：返回真实头条条目）。
+
+    中文查询优先中文头条；无结果时回退英文头条（部分内容只有英文源，
+    2026-08-17 按用户反馈补充英文兜底；最终语言由编排层 LLM 重述统一）。
+    """
+    langs = ["zh", "en"] if _looks_chinese(query) else ["en"]
+    for lang in langs:
+        resp = await client.get("https://news.google.com/rss", params=_NEWS_LOCALES[lang])
+        resp.raise_for_status()
+        results = _parse_rss_items(resp.text, max_results)
+        if results:
+            return results
+    return []
+
+
+async def _fetch_news_search(client, query: str, max_results: int) -> list[dict[str, str]]:
+    """Google News 搜索 RSS（含主题的新闻查询：命中相关报道）。
+
+    中文查询优先中文源；无结果时回退英文源（部分内容只有英文有）。
+    """
+    langs = ["zh", "en"] if _looks_chinese(query) else ["en"]
+    for lang in langs:
+        resp = await client.get(
+            "https://news.google.com/rss/search",
+            params={"q": query, **_NEWS_LOCALES[lang]},
+        )
+        resp.raise_for_status()
+        results = _parse_rss_items(resp.text, max_results)
+        if results:
+            return results
+    return []
+
+
+async def _search_duckduckgo(client, query: str, max_results: int) -> list[dict[str, str]]:
+    """DuckDuckGo HTML 搜索（主后端）。
+
+    注意：DDG 被反爬时返回 HTTP 202 挑战页（2xx，raise_for_status 不抛异常），
+    解析结果为空——此时须抛异常让调用方降级 Bing，否则会静默返回空结果。
+    """
+    resp = await client.get("https://html.duckduckgo.com/html/", params={"q": query})
+    resp.raise_for_status()
+    results = _parse_ddg_results(resp.text, max_results)
+    if not results:
+        raise RuntimeError("duckduckgo returned no parseable results (challenge page?)")
+    return results
+
+
+async def _search_bing(client, query: str, max_results: int) -> list[dict[str, str]]:
+    """Bing 搜索（DDG 降级后端；再失败则 fail-open 返回 failed）。
+
+    按查询语言指定市场（mkt），避免无 locale 时对中文查询返回无关语言的
+    垃圾结果（2026-08-17 实测：不带 mkt 的中文查询返回日文/英文无关页）。
+    中文市场无结果时回退英文市场（部分内容只有英文源；最终语言由编排层
+    LLM 重述统一）。
+    """
+    markets = ["zh-CN", "en-US"] if _looks_chinese(query) else ["en-US"]
+    for mkt in markets:
+        resp = await client.get("https://www.bing.com/search", params={"q": query, "mkt": mkt})
+        resp.raise_for_status()
+        results = _parse_bing_results(resp.text, max_results)
+        if results:
+            return results
+    return []
+
+
 @mcp.tool()
 async def web_search(query: str, max_results: int = 5) -> str:
-    """联网搜索（DuckDuckGo HTML 端点，无需 API key；2026-08-15 接入）。
+    """联网搜索（2026-08-15 接入；2026-08-17 修复新闻查询与反爬降级）。
 
-    返回最多 max_results 条结果（标题/链接/摘要）。搜索失败时返回 status=failed
-    并附错误信息（低风险读操作，fail-open：绝不抛异常中断调用链）。
+    新闻类查询（含"新闻/头条/latest news/What's the news?"等）走 Google News
+    RSS：无具体主题的泛新闻请求返回 Top Stories 真实头条，含主题的新闻查询
+    返回相关报道（标题/链接/时间/摘要），避免通用搜索返回新闻站首页。
+    通用查询走 DuckDuckGo HTML，被反爬（HTTP 202/异常）时降级 Bing。
+    返回最多 max_results 条结果。搜索失败时返回 status=failed 并附错误信息
+    （低风险读操作，fail-open：绝不抛异常中断调用链）。
     """
+    max_results = max(1, min(10, int(max_results)))
     try:
         import httpx
 
@@ -508,8 +647,29 @@ async def web_search(query: str, max_results: int = 5) -> str:
                 )
             },
         ) as client:
-            response = await client.get("https://html.duckduckgo.com/html/", params={"q": query})
-            response.raise_for_status()
+            if _is_news_query(query):
+                # 新闻类：泛请求 → Top Stories 头条；含主题 → 新闻搜索 RSS
+                if _is_generic_news_query(query):
+                    results = await _fetch_news_headlines(client, query, max_results)
+                else:
+                    results = await _fetch_news_search(client, query, max_results)
+            else:
+                try:
+                    results = await _search_duckduckgo(client, query, max_results)
+                except Exception:
+                    # DDG 反爬/异常 → 降级 Bing；Bing 再失败则 fail-open
+                    try:
+                        results = await _search_bing(client, query, max_results)
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "query": query,
+                                "results": [],
+                                "error": f"search failed: {exc}",
+                                "status": "failed",
+                            },
+                            ensure_ascii=False,
+                        )
     except Exception as exc:
         return json.dumps(
             {
@@ -520,7 +680,6 @@ async def web_search(query: str, max_results: int = 5) -> str:
             },
             ensure_ascii=False,
         )
-    results = _parse_ddg_results(response.text, max_results)
     return json.dumps(
         {
             "query": query,
