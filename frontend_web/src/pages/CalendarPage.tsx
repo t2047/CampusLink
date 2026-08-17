@@ -265,11 +265,12 @@ export function CalendarPage() {
             </Typography>
           </Box>
         </Stack>
-        <Stack direction="row" spacing={1} flexWrap="wrap">
+        <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
           <Button
             variant="outlined"
             startIcon={<EventAvailableIcon />}
             onClick={() => setImportOpen(true)}
+            sx={{ height: 45, minHeight: 45 }}
           >
             Import from mail
           </Button>
@@ -277,6 +278,7 @@ export function CalendarPage() {
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => openCreate(today)}
+            sx={{ height: 45, minHeight: 45 }}
           >
             New event
           </Button>
@@ -290,7 +292,7 @@ export function CalendarPage() {
         elevation={0}
         sx={{
           display: 'flex',
-          height: 'calc(100vh - 320px)',
+          flexGrow: 1,
           minHeight: 520,
           flexDirection: 'column',
           border: 1,

@@ -70,9 +70,11 @@ export default function LoginPage() {
         <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           {/* Header */}
           <div className="mb-6 text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-2xl font-bold text-white shadow-md">
-              C
-            </div>
+            <img
+              src="/campuslink-icon.png"
+              alt="CampusLink"
+              className="mx-auto mb-3 h-14 w-14 rounded-2xl object-contain p-1.5"
+            />
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               Campus Link
             </h1>

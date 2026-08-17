@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, FormControl, Grid, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, FormControl, Grid, InputLabel, MenuItem, Pagination, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { FormEvent, useEffect, useState } from 'react'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { apiErrorMessage } from '../../api/client'
@@ -46,6 +46,7 @@ function filtersFromParams(params: URLSearchParams): SpaceSearchFilters {
 }
 
 const displayLabel = (value: string) => value.replaceAll('_', ' ')
+const pageSize = 6
 
 export function SpacesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -54,6 +55,10 @@ export function SpacesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const queryKey = searchParams.toString()
+  const requestedPage = Math.max(1, Number(searchParams.get('page') ?? '1') || 1)
+  const pageCount = Math.ceil(spaces.length / pageSize)
+  const currentPage = Math.min(requestedPage, Math.max(pageCount, 1))
+  const visibleSpaces = spaces.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   useEffect(() => {
     let active = true
@@ -79,6 +84,7 @@ export function SpacesPage() {
     form.equipment.split(',').map((item) => item.trim()).filter(Boolean).forEach((item) => next.append('equipment', item))
     setIfPresent('startDateTime', form.startDateTime)
     setIfPresent('endDateTime', form.endDateTime)
+    next.delete('page')
     setSearchParams(next)
   }
 
@@ -114,8 +120,9 @@ export function SpacesPage() {
       {error && <Alert severity="error">{error}</Alert>}
       {!loading && !error && <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography color="text.secondary">{spaces.length} {spaces.length === 1 ? 'space' : 'spaces'} found</Typography>{searchParams.toString() && <Button size="small" onClick={reset}>Clear filters</Button>}</Stack>}
       {loading ? <Box sx={{ py: 8, textAlign: 'center' }}><CircularProgress /></Box> : spaces.length ? (
-        <Grid container spacing={3}>
-          {spaces.map((space) => (
+        <>
+          <Grid container spacing={3}>
+          {visibleSpaces.map((space) => (
             <Grid key={space.spaceId} size={{ xs: 12, sm: 6, md: 4 }}>
               <Card variant="outlined" sx={{ height: '100%' }}>
                 <CardActionArea component={RouterLink} to={`/facilities/spaces/${space.spaceId}`} sx={{ height: '100%', alignItems: 'stretch' }} aria-label={`View ${space.name}`}>
@@ -129,7 +136,21 @@ export function SpacesPage() {
               </Card>
             </Grid>
           ))}
-        </Grid>
+          </Grid>
+          {pageCount > 1 && (
+          <Pagination
+            sx={{ mt: 1, alignSelf: 'center' }}
+            page={currentPage}
+            count={pageCount}
+            color="primary"
+            onChange={(_, page) => {
+              const next = new URLSearchParams(searchParams)
+              next.set('page', String(page))
+              setSearchParams(next)
+            }}
+          />
+          )}
+        </>
       ) : !error && <Paper sx={{ p: 6, textAlign: 'center' }}><Typography variant="h6">No matching spaces</Typography><Typography color="text.secondary">Try clearing one or more filters.</Typography></Paper>}
     </Stack>
   )

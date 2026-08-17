@@ -1,8 +1,9 @@
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import AddIcon from '@mui/icons-material/Add'
+import ArticleIcon from '@mui/icons-material/Article'
 import { Alert, Box, Button, Chip, CircularProgress, Grid, Pagination, Paper, Stack, Typography } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
 import { searchReports } from '../api/lostFound'
 import { ReportCard } from '../components/ReportCard'
@@ -15,6 +16,8 @@ const statusOptions: StatusFilter[] = ['ALL', 'OPEN', 'CLAIMED', 'CLOSED']
 
 /** 我的失物/拾物列表（个人中心需求 §10.1）：owner=me + reportType，复用 ReportCard 与 searchReports。 */
 export function MyReportsPage({ reportType }: { reportType: ReportType }) {
+  const [searchParams] = useSearchParams()
+  const showBack = searchParams.get('from') === 'profile'
   const [status, setStatus] = useState<StatusFilter>('ALL')
   const [page, setPage] = useState(0)
   const [result, setResult] = useState<PageResponse<LostFoundReport> | null>(null)
@@ -51,12 +54,17 @@ export function MyReportsPage({ reportType }: { reportType: ReportType }) {
 
   return (
     <Stack spacing={3}>
+      {showBack && <Button component={RouterLink} to="/lost-found/profile" startIcon={<ArrowBackIcon />} sx={{ textTransform: 'none', alignSelf: 'flex-start' }}>Back to personal center</Button>}
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={2}>
-        <Box>
-          <Button component={RouterLink} to="/lost-found/profile" startIcon={<ArrowBackIcon />} sx={{ mb: 1, textTransform: 'none' }}>Back to personal center</Button>
-          <Typography variant="h4" fontWeight={700}>{title}</Typography>
-          <Typography color="text.secondary">Reports you published are listed here, including any removed by an administrator.</Typography>
-        </Box>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Box sx={{ width: 46, height: 46, borderRadius: 3, display: 'grid', placeItems: 'center', flexShrink: 0, color: '#fff', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)' }}>
+            <ArticleIcon />
+          </Box>
+          <Box>
+            <Typography variant="h4" fontWeight={700}>{title}</Typography>
+            <Typography color="text.secondary">Reports you published are listed here, including any removed by an administrator.</Typography>
+          </Box>
+        </Stack>
         <Button component={RouterLink} to={createPath} variant="contained" startIcon={<AddIcon />}>
           Report {reportTypeLabels[reportType].toLowerCase()}
         </Button>
