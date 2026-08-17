@@ -2,6 +2,7 @@ package com.app.campusagent.service;
 
 import com.app.campusagent.domain.Role;
 import com.app.campusagent.domain.User;
+import com.app.campusagent.dto.ChangePasswordRequest;
 import com.app.campusagent.dto.UpdateProfileRequest;
 import com.app.campusagent.dto.UserProfileResponse;
 import com.app.campusagent.exception.BusinessException;
@@ -14,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Base64;
@@ -34,6 +36,9 @@ class UserProfileServiceTest {
 
     @Mock
     private ObjectStorageService storageService;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private UserProfileService profileService;
@@ -77,6 +82,69 @@ class UserProfileServiceTest {
         assertThatThrownBy(() -> profileService.updateNickname(user, new UpdateProfileRequest("x".repeat(31))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode.code").isEqualTo("NICKNAME_INVALID_LENGTH");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordValidatesCurrentPasswordAndPersists() {
+        User user = user();
+        when(passwordEncoder.matches("current-pass", user.getPassword())).thenReturn(true);
+        when(passwordEncoder.encode("new-pass-123")).thenReturn("new-hash");
+        when(userRepository.save(user)).thenReturn(user);
+
+        profileService.changePassword(user, new ChangePasswordRequest("current-pass", "new-pass-123"));
+
+        assertThat(user.getPassword()).isEqualTo("new-hash");
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void changePasswordRejectsBlankOrMissingFields() {
+        User user = user();
+        assertThatThrownBy(() -> profileService.changePassword(user, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_REQUIRED");
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest(null, "new-pass")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_REQUIRED");
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "   ")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_REQUIRED");
+        verify(userRepository, never()).save(any(User.class));
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+    }
+
+    @Test
+    void changePasswordRejectsInvalidNewLength() {
+        User user = user();
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "12345")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("current-pass", "x".repeat(65))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_INVALID_LENGTH");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordRejectsIncorrectCurrentPassword() {
+        User user = user();
+        when(passwordEncoder.matches("wrong", user.getPassword())).thenReturn(false);
+
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("wrong", "new-pass-123")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_CURRENT_INCORRECT");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void changePasswordRejectsSameAsCurrent() {
+        User user = user();
+        when(passwordEncoder.matches("same-pass", user.getPassword())).thenReturn(true);
+
+        assertThatThrownBy(() -> profileService.changePassword(user, new ChangePasswordRequest("same-pass", "same-pass")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode.code").isEqualTo("PASSWORD_SAME_AS_CURRENT");
         verify(userRepository, never()).save(any(User.class));
     }
 

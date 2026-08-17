@@ -1,6 +1,7 @@
 package com.app.campusagent.service;
 
 import com.app.campusagent.domain.User;
+import com.app.campusagent.dto.ChangePasswordRequest;
 import com.app.campusagent.dto.UpdateProfileRequest;
 import com.app.campusagent.dto.UserProfileResponse;
 import com.app.campusagent.exception.BusinessException;
@@ -9,6 +10,7 @@ import com.app.campusagent.lostfound.service.LostFoundImageRules;
 import com.app.campusagent.lostfound.storage.ObjectStorageService;
 import com.app.campusagent.lostfound.storage.StoredObject;
 import com.app.campusagent.repository.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,12 +30,20 @@ public class UserProfileService {
 
     private static final String AVATAR_URL_TEMPLATE = "/api/users/avatar/%s";
 
+    /** 新密码长度范围（6 与注册一致，64 为 BCrypt 72 字节上限内的安全取值）。 */
+    private static final int PASSWORD_MIN_LENGTH = 6;
+    private static final int PASSWORD_MAX_LENGTH = 64;
+
     private final UserRepository userRepository;
     private final ObjectStorageService storageService;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserProfileService(UserRepository userRepository, ObjectStorageService storageService) {
+    public UserProfileService(UserRepository userRepository,
+                              ObjectStorageService storageService,
+                              PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.storageService = storageService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional(readOnly = true)
@@ -56,6 +66,34 @@ public class UserProfileService {
         currentUser.setNickname(nickname);
         userRepository.save(currentUser);
         return toProfile(currentUser);
+    }
+
+    /**
+     * 修改登录密码：校验当前密码、新密码长度后以 BCrypt 重哈希落库。
+     * 密码不做 trim（空格可能为有效字符），仅空白校验用 trim。
+     */
+    @Transactional
+    public void changePassword(User currentUser, ChangePasswordRequest request) {
+        if (request == null || isBlank(request.currentPassword()) || isBlank(request.newPassword())) {
+            throw new BusinessException(ErrorCode.PASSWORD_REQUIRED);
+        }
+        String currentPassword = request.currentPassword();
+        String newPassword = request.newPassword();
+        if (newPassword.length() < PASSWORD_MIN_LENGTH || newPassword.length() > PASSWORD_MAX_LENGTH) {
+            throw new BusinessException(ErrorCode.PASSWORD_INVALID_LENGTH);
+        }
+        if (!passwordEncoder.matches(currentPassword, currentUser.getPassword())) {
+            throw new BusinessException(ErrorCode.PASSWORD_CURRENT_INCORRECT);
+        }
+        if (currentPassword.equals(newPassword)) {
+            throw new BusinessException(ErrorCode.PASSWORD_SAME_AS_CURRENT);
+        }
+        currentUser.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(currentUser);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     @Transactional

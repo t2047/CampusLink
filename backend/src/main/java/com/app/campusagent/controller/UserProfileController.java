@@ -1,6 +1,7 @@
 package com.app.campusagent.controller;
 
 import com.app.campusagent.domain.User;
+import com.app.campusagent.dto.ChangePasswordRequest;
 import com.app.campusagent.dto.UpdateProfileRequest;
 import com.app.campusagent.dto.UserProfileResponse;
 import com.app.campusagent.lostfound.exception.LostFoundApiException;
@@ -56,6 +57,14 @@ public class UserProfileController {
             @RequestBody UpdateProfileRequest request,
             @AuthenticationPrincipal User currentUser) {
         return profileService.updateNickname(currentUser, request);
+    }
+
+    /** 修改登录密码：校验当前密码与长度后重哈希落库，返回 200 表示成功。 */
+    @PutMapping("/me/password")
+    public void changePassword(
+            @RequestBody ChangePasswordRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        profileService.changePassword(currentUser, request);
     }
 
     @PostMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

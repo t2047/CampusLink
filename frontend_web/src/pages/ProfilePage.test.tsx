@@ -3,14 +3,19 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TOKEN_KEY, USER_KEY } from '../api/client'
 import { getMyClaims, searchReports } from '../api/lostFound'
-import { getMyProfile, updateNickname } from '../api/users'
+import { changePassword, getMyProfile, updateNickname } from '../api/users'
 import { facilitiesApi } from '../api/facilities'
 import { AuthProvider } from '../auth/AuthContext'
 import type { UserProfile } from '../types'
 import { ProfilePage } from './ProfilePage'
 
 vi.mock('../api/lostFound', () => ({ getMyClaims: vi.fn(), searchReports: vi.fn() }))
-vi.mock('../api/users', () => ({ getMyProfile: vi.fn(), updateNickname: vi.fn(), uploadAvatar: vi.fn() }))
+vi.mock('../api/users', () => ({
+  getMyProfile: vi.fn(),
+  updateNickname: vi.fn(),
+  uploadAvatar: vi.fn(),
+  changePassword: vi.fn(),
+}))
 vi.mock('../api/facilities', () => ({ facilitiesApi: { listBookings: vi.fn(), listMaintenanceRequests: vi.fn() } }))
 
 const baseProfile: UserProfile = { email: 'student@example.edu', role: 'STUDENT', nickname: 'Alex', avatarUrl: null }
@@ -41,6 +46,8 @@ beforeEach(() => {
   vi.mocked(searchReports).mockResolvedValue(emptyPage())
   vi.mocked(facilitiesApi.listBookings).mockResolvedValue([])
   vi.mocked(facilitiesApi.listMaintenanceRequests).mockResolvedValue([])
+  vi.mocked(changePassword).mockResolvedValue(undefined)
+  vi.clearAllMocks()
 })
 
 afterEach(() => {
@@ -97,5 +104,48 @@ describe('ProfilePage', () => {
 
     await waitFor(() => expect(updateNickname).toHaveBeenCalledWith('Bob'))
     expect(await screen.findByText('Bob')).toBeInTheDocument()
+  })
+
+  it('lets the user change their password and shows a success message', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }))
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'old-pass' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-pass-123' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new-pass-123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    await waitFor(() => expect(changePassword).toHaveBeenCalledWith('old-pass', 'new-pass-123'))
+    expect(await screen.findByText(/Password updated/)).toBeInTheDocument()
+  })
+
+  it('rejects a password change when the current password is incorrect', async () => {
+    vi.mocked(changePassword).mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { code: 'PASSWORD_CURRENT_INCORRECT' } },
+    })
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }))
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'wrong-pass' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-pass-123' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new-pass-123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(await screen.findByText('Current password is incorrect.')).toBeInTheDocument()
+    expect(changePassword).toHaveBeenCalledWith('wrong-pass', 'new-pass-123')
+  })
+
+  it('blocks a password change when the confirmation does not match', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }))
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'old-pass' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-pass-123' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'different-pass' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(await screen.findByText('New password and confirmation do not match.')).toBeInTheDocument()
+    expect(changePassword).not.toHaveBeenCalled()
   })
 })
