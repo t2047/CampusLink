@@ -238,7 +238,7 @@ class CreateLostFoundReportViewModel(
             mutableState.value = CreateReportUiState.Error("You can upload at most 5 images.")
             return
         }
-        if (images.any { it.bytes.size > MAX_IMAGE_BYTES }) {
+        if (images.any { it.bytes.size > MAX_UPLOAD_IMAGE_BYTES }) {
             mutableState.value = CreateReportUiState.Error("Each image must be 10 MB or smaller.")
             return
         }
@@ -291,9 +291,6 @@ class CreateLostFoundReportViewModel(
         clearFeedback()
     }
 
-    companion object {
-        private const val MAX_IMAGE_BYTES = 10 * 1024 * 1024
-    }
 }
 
 enum class ClaimsMode {
