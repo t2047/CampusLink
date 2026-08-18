@@ -52,7 +52,7 @@ function ReportStatusChart({ open, claimed, closed }: ReportStatusChartProps) {
                     <Typography fontWeight={600}>{label}</Typography>
                     <Typography aria-label={`${label} report count`}>{count}</Typography>
                   </Stack>
-                  <Box sx={{ height: 12, borderRadius: 999, bgcolor: 'action.hover', overflow: 'hidden' }}>
+                  <Box sx={{ height: '0.75rem', borderRadius: 999, bgcolor: 'action.hover', overflow: 'hidden' }}>
                     <Box
                       role="img"
                       aria-label={`${label} reports: ${count}`}

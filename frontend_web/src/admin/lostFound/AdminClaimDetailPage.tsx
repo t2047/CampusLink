@@ -186,7 +186,7 @@ export function AdminClaimDetailPage() {
     return (
       <Stack spacing={3}>
         {backLink}
-        <Box sx={{ minHeight: 320, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
+        <Box sx={{ minHeight: '20rem', display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
       </Stack>
     )
   }
@@ -305,9 +305,9 @@ export function AdminClaimDetailPage() {
         {claim.report.images.length ? (
           <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' } }}>
             {claim.report.images.map((image, index) => (
-              <Paper key={image.id} variant="outlined" sx={{ minHeight: 220, overflow: 'hidden' }}>
+              <Paper key={image.id} variant="outlined" sx={{ minHeight: '13.75rem', overflow: 'hidden' }}>
                 {brokenImages.has(image.id) ? (
-                  <Box sx={{ minHeight: 220, display: 'grid', placeItems: 'center', bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.100') }}>
+                  <Box sx={{ minHeight: '13.75rem', display: 'grid', placeItems: 'center', bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.800' : 'grey.100') }}>
                     <Typography color="text.secondary">Image unavailable.</Typography>
                   </Box>
                 ) : (
@@ -320,7 +320,7 @@ export function AdminClaimDetailPage() {
                       next.add(image.id)
                       return next
                     })}
-                    sx={{ display: 'block', width: '100%', height: 280, objectFit: 'cover' }}
+                    sx={{ display: 'block', width: '100%', height: '17.5rem', objectFit: 'cover' }}
                   />
                 )}
               </Paper>
