@@ -1,8 +1,10 @@
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import CheckIcon from '@mui/icons-material/Check'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CloseIcon from '@mui/icons-material/Close'
 import { Alert, Box, Button, Card, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { apiErrorMessage } from '../api/client'
 import { decideClaim, getMyClaims, getReceivedClaims } from '../api/lostFound'
 import { StatusChip } from '../components/StatusChip'
@@ -12,6 +14,8 @@ import type { LostFoundClaim } from '../types'
 interface Decision { claim: LostFoundClaim; action: 'approve' | 'reject' }
 
 export function ClaimsPage({ view }: { view: 'mine' | 'received' }) {
+  const [searchParams] = useSearchParams()
+  const showBack = searchParams.get('from') === 'profile'
   const [claims, setClaims] = useState<LostFoundClaim[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -53,7 +57,16 @@ export function ClaimsPage({ view }: { view: 'mine' | 'received' }) {
 
   return (
     <Stack spacing={3}>
-      <Box><Typography variant="h4" fontWeight={700}>Claims</Typography><Typography color="text.secondary">Track your requests and review requests for items you found.</Typography></Box>
+      {showBack && <Button component={RouterLink} to="/lost-found/profile" startIcon={<ArrowBackIcon />} sx={{ textTransform: 'none', alignSelf: 'flex-start' }}>Back to personal center</Button>}
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ width: 46, height: 46, borderRadius: 3, display: 'grid', placeItems: 'center', flexShrink: 0, color: '#fff', background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', boxShadow: '0 4px 12px rgba(109, 40, 217, 0.3)' }}>
+          <CheckCircleIcon />
+        </Box>
+        <Box>
+          <Typography variant="h4" fontWeight={700}>Claims</Typography>
+          <Typography color="text.secondary">Track your requests and review requests for items you found.</Typography>
+        </Box>
+      </Stack>
       <Stack direction="row" spacing={1}><Button component={RouterLink} to="/claims/mine" variant={view === 'mine' ? 'contained' : 'outlined'}>My claims</Button><Button component={RouterLink} to="/claims/received" variant={view === 'received' ? 'contained' : 'outlined'}>Received claims</Button></Stack>
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>}

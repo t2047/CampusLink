@@ -7,6 +7,7 @@ import FindInPageIcon from '@mui/icons-material/FindInPage'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import InboxIcon from '@mui/icons-material/Inbox'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
+import PersonIcon from '@mui/icons-material/Person'
 import PersonSearchIcon from '@mui/icons-material/PersonSearch'
 import {
   Alert, Avatar, Box, Button, Card, CardActionArea, Chip, CircularProgress,
@@ -120,7 +121,15 @@ export function ProfilePage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h4" fontWeight={700}>Personal Center</Typography>
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ width: 46, height: 46, borderRadius: 3, display: 'grid', placeItems: 'center', flexShrink: 0, color: '#fff', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)' }}>
+          <PersonIcon />
+        </Box>
+        <Box>
+          <Typography variant="h4" fontWeight={700}>Personal Center</Typography>
+          <Typography color="text.secondary">Manage your profile, preferences and account settings.</Typography>
+        </Box>
+      </Stack>
       {error && <Alert severity="error">{error}</Alert>}
 
       <Card sx={{ p: 3 }}>
@@ -157,31 +166,31 @@ export function ProfilePage() {
                 ? `${claimsCount} total · ${submittedCount} pending review`
                 : `${claimsCount} total`
             }
-            to="/claims/mine"
+            to="/claims/mine?from=profile"
           />
           <ServiceEntry
             icon={<PersonSearchIcon fontSize="large" />}
             title="My Lost Items"
             subtitle={<CountText value={lostCount} suffix="lost-item reports" />}
-            to="/lost-found/profile/lost"
+            to="/lost-found/profile/lost?from=profile"
           />
           <ServiceEntry
             icon={<FindInPageIcon fontSize="large" />}
             title="My Found Items"
             subtitle={<CountText value={foundCount} suffix="found-item reports" />}
-            to="/lost-found/profile/found"
+            to="/lost-found/profile/found?from=profile"
           />
           <ServiceEntry
             icon={<EventAvailableOutlinedIcon fontSize="large" />}
             title="My Bookings"
             subtitle={<CountText value={bookingsCount} suffix="bookings" />}
-            to="/facilities/bookings"
+            to="/facilities/bookings?from=profile"
           />
           <ServiceEntry
             icon={<BuildOutlinedIcon fontSize="large" />}
             title="My Maintenance Requests"
             subtitle={<CountText value={maintenanceCount} suffix="maintenance requests" />}
-            to="/facilities/maintenance"
+            to="/facilities/maintenance?from=profile"
           />
         </Stack>
       </Box>
@@ -192,7 +201,7 @@ export function ProfilePage() {
           icon={<HelpOutlineIcon fontSize="large" />}
           title="FAQ"
           subtitle="Lost & Found usage, claiming rules and common questions"
-          to="/lost-found/faq"
+          to="/lost-found/faq?from=profile"
         />
       </Box>
 

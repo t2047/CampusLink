@@ -105,9 +105,11 @@ docker build -t campuslink-mail-agent agent/mail_agent
 
 ## Per-user Gmail authorization
 
-1. The Google OAuth web client is preconfigured in `mail_agent/config.py`
-   (override via `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REDIRECT_URI`
-   env vars). `http://localhost:5000/callback` **must** be listed as an
+1. Configure the Google OAuth web client via **required** env vars
+   `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` (no built-in client ships anymore —
+   the service fails closed if they are missing; get them from Google Cloud
+   Console → APIs & Services → Credentials → OAuth 2.0 Client IDs).
+   `http://localhost:5000/callback` **must** be listed as an
    Authorized redirect URI in the Google Cloud Console.
 2. Start the service (port 5000).
 3. Each user authorises **their own** Gmail account. As an authenticated
@@ -132,9 +134,10 @@ sends this JWT as `Authorization: Bearer <jwt>`.
 
 The chat / MCP path cannot carry the user JWT (it never leaves the chat
 backend), so `mail-agent-mcp` mints a short-lived **internal token** (HS256,
-`MAIL_INTERNAL_SECRET` or `AGENT_SHARED_SECRET`, `aud=mail-service`, 30s TTL)
-with the delegation token's `sub` (numeric user id) and forwards that to this
-service; mail operations then use that user's own (chat-path) Gmail binding.
+`MAIL_INTERNAL_SECRET` or `AGENT_SHARED_SECRET`, `aud=mail-service`, 30s TTL).
+The Chat Backend resolves the numeric delegation subject to the user's email and
+adds it as `user_email`; `mail-agent-mcp` uses that value as the internal token
+subject, so chat operations and the native Mail page use the same Gmail binding.
 
 To re-authorize or switch accounts: call `POST /api/mail/oauth/disconnect`
 (removes **only your own** token) and repeat.

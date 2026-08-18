@@ -1,6 +1,7 @@
 import CloseIcon from '@mui/icons-material/Close'
 import AddIcon from '@mui/icons-material/Add'
 import ImageSearchIcon from '@mui/icons-material/ImageSearch'
+import SearchIcon from '@mui/icons-material/Search'
 import { Alert, Box, Button, CircularProgress, FormControl, Grid, IconButton, InputLabel, MenuItem, Pagination, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { FormEvent, useEffect, useState } from 'react'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
@@ -187,20 +188,28 @@ export function ReportsPage() {
 
   return (
     <Stack spacing={3}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={2}>
-        <Box><Typography variant="h4" fontWeight={700}>Lost & Found</Typography><Typography color="text.secondary">Search current reports or help the community by posting one.</Typography></Box>
-        <Stack direction="row" spacing={1}>
-          <Button component={RouterLink} to="/lost-found/new/lost" variant="outlined" startIcon={<AddIcon />}>Report lost</Button>
-          <Button component={RouterLink} to="/lost-found/new/found" variant="contained" startIcon={<AddIcon />}>Report found</Button>
-        </Stack>
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ width: 46, height: 46, borderRadius: 3, display: 'grid', placeItems: 'center', flexShrink: 0, color: '#fff', background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)', boxShadow: '0 4px 12px rgba(14, 116, 144, 0.3)' }}>
+          <SearchIcon />
+        </Box>
+        <Box>
+          <Typography variant="h4" fontWeight={700}>Lost & Found</Typography>
+          <Typography color="text.secondary">Search current reports or help the community by posting one.</Typography>
+        </Box>
       </Stack>
 
       <LostFoundAgentPanel onReportCreated={handleAgentReportCreated} />
 
       <Paper component="form" onSubmit={submit} sx={{ p: 2 }}>
-        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-          <Button variant={(searchParams.get('reportType') ?? 'FOUND') === 'FOUND' ? 'contained' : 'outlined'} onClick={() => setView('FOUND')}>Found items</Button>
-          <Button variant={searchParams.get('reportType') === 'LOST' ? 'contained' : 'outlined'} onClick={() => setView('LOST')}>Lost items</Button>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={1}>
+            <Button variant={(searchParams.get('reportType') ?? 'FOUND') === 'FOUND' ? 'contained' : 'outlined'} onClick={() => setView('FOUND')}>Found items</Button>
+            <Button variant={searchParams.get('reportType') === 'LOST' ? 'contained' : 'outlined'} onClick={() => setView('LOST')}>Lost items</Button>
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <Button component={RouterLink} to="/lost-found/new/lost" variant="outlined" startIcon={<AddIcon />}>Report lost</Button>
+            <Button component={RouterLink} to="/lost-found/new/found" variant="contained" startIcon={<AddIcon />}>Report found</Button>
+          </Stack>
         </Stack>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Keyword" value={form.keyword} onChange={(e) => setForm({ ...form, keyword: e.target.value })} /></Grid>
@@ -213,9 +222,9 @@ export function ReportsPage() {
           <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth label="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}><TextField fullWidth type="date" label="From date" slotProps={{ inputLabel: { shrink: true } }} value={form.dateFrom} onChange={(e) => setForm({ ...form, dateFrom: e.target.value })} /></Grid>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}><TextField fullWidth type="date" label="To date" slotProps={{ inputLabel: { shrink: true } }} value={form.dateTo} onChange={(e) => setForm({ ...form, dateTo: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }} sx={{ display: 'flex', alignItems: 'center' }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Button component="label" variant="outlined" startIcon={<ImageSearchIcon />}>
+              <Button component="label" variant="outlined" size="large" startIcon={<ImageSearchIcon />} sx={{ minHeight: 56 }}>
                 Search by image
                 <input hidden type="file" accept="image/jpeg,image/png,image/webp" aria-label="Search by image" onChange={(e) => { selectSearchImage(e.target.files); e.target.value = '' }} />
               </Button>
@@ -228,7 +237,7 @@ export function ReportsPage() {
               )}
             </Stack>
           </Grid>
-          <Grid size={{ xs: 12, md: 6 }}><Stack direction="row" spacing={1} justifyContent="flex-end"><Button onClick={reset}>Reset</Button><Button type="submit" variant="contained" disabled={imageUploading}>Search</Button></Stack></Grid>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}><Stack direction="row" spacing={1}><Button onClick={reset} size="large" sx={{ minHeight: 56 }}>Reset</Button><Button type="submit" variant="contained" size="large" sx={{ minHeight: 56 }} disabled={imageUploading}>Search</Button></Stack></Grid>
         </Grid>
       </Paper>
 

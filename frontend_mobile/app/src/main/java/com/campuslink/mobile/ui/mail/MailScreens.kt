@@ -3,6 +3,7 @@
 package com.campuslink.mobile.ui.mail
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,21 +13,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -49,15 +51,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,31 +67,48 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.campuslink.mobile.core.model.CalendarEvent
 import com.campuslink.mobile.core.model.ExtractedSchedule
 import com.campuslink.mobile.core.model.MailMessage
+import com.campuslink.mobile.ui.CalendarStrings
+import com.campuslink.mobile.ui.CampusActionCard
+import com.campuslink.mobile.ui.CampusActionCopy
+import com.campuslink.mobile.ui.CampusEmptyState
+import com.campuslink.mobile.ui.CampusErrorState
+import com.campuslink.mobile.ui.CampusInfoRow
+import com.campuslink.mobile.ui.CampusLoadingState
+import com.campuslink.mobile.ui.CampusPageHeader
+import com.campuslink.mobile.ui.CampusStatusChip
+import com.campuslink.mobile.ui.CampusStatusTone
+import com.campuslink.mobile.ui.CampusSurfaceCard
+import com.campuslink.mobile.ui.CampusTopAppBar
+import com.campuslink.mobile.ui.CampusSpacing
+import com.campuslink.mobile.ui.MailStrings
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
-private val MAIL_FOLDERS = listOf(
-    "inbox" to "Inbox",
-    "sent" to "Sent",
-    "archived" to "Archive",
-    "trash" to "Trash",
-    "spam" to "Spam",
+private fun mailFolders(text: MailStrings) = listOf(
+    "inbox" to text.inbox,
+    "sent" to text.sent,
+    "archived" to text.archive,
+    "trash" to text.trash,
+    "spam" to text.spam,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MailHomeScreen(
     viewModel: MailHomeViewModel,
+    text: MailStrings,
     onBack: () -> Unit,
     onOpenMessage: (String) -> Unit,
     onCompose: () -> Unit,
@@ -98,6 +116,7 @@ fun MailHomeScreen(
     openAuthorization: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var disconnectDialogVisible by remember { mutableStateOf(false) }
     LaunchedEffect(state.authUrl) {
         state.authUrl?.let {
             openAuthorization(it)
@@ -107,89 +126,96 @@ fun MailHomeScreen(
     }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Mail") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            CampusTopAppBar(
+                title = text.title,
+                onBack = onBack,
+                backDescription = text.back,
                 actions = {
                     IconButton(onClick = onCalendar) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = "Calendar")
+                        Icon(Icons.Default.CalendarMonth, contentDescription = text.calendar)
                     }
                     IconButton(onClick = onCompose) {
-                        Icon(Icons.Default.Add, contentDescription = "Compose")
+                        Icon(Icons.Default.Add, contentDescription = text.compose)
                     }
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = text.refresh)
                     }
                 },
             )
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = CampusSpacing.Large),
+            contentPadding = PaddingValues(vertical = CampusSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
         ) {
             if (state.connected != true) {
-                item { GmailConnectionCard(state, viewModel::requestAuthorization, viewModel::refresh) }
+                item { GmailConnectionCard(state, text, viewModel::requestAuthorization, viewModel::refresh) }
             } else {
                 item {
-                    Text(
-                        text = state.connectedEmail?.let { "Connected account: $it" } ?: "Gmail connected",
-                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                item {
-                    TabRow(selectedTabIndex = MAIL_FOLDERS.indexOfFirst { it.first == state.folder }.coerceAtLeast(0)) {
-                        MAIL_FOLDERS.forEach { (value, label) ->
-                            Tab(
-                                selected = state.folder == value,
-                                onClick = { viewModel.updateFolder(value) },
-                                text = { Text(label) },
-                            )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = state.connectedEmail?.let { text.connectedAccount.format(it) } ?: text.connected,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(CampusSpacing.Small))
+                        CampusStatusChip(text.connected, CampusStatusTone.SUCCESS)
+                        TextButton(onClick = { disconnectDialogVisible = true }) {
+                            Text(text.disconnect)
                         }
                     }
+                }
+                item {
+                    MailFolderTabs(
+                        selectedFolder = state.folder,
+                        text = text,
+                        onFolderSelected = viewModel::updateFolder,
+                    )
                 }
                 item {
                     OutlinedTextField(
                         value = state.query,
                         onValueChange = viewModel::updateQuery,
                         modifier = Modifier.fillMaxWidth().testTag("mail-search"),
-                        label = { Text("Search mail") },
+                        label = { Text(text.searchMail) },
                         singleLine = true,
                         trailingIcon = {
-                            TextButton(onClick = viewModel::search) { Text("Search") }
+                            TextButton(onClick = viewModel::search) { Text(text.search) }
                         },
                     )
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
                         FilterChip(
                             selected = state.unreadOnly,
                             onClick = { viewModel.updateUnreadOnly(!state.unreadOnly) },
-                            label = { Text("Unread") },
+                            label = { Text(text.unread) },
                         )
                         FilterChip(
                             selected = state.starredOnly,
                             onClick = { viewModel.updateStarredOnly(!state.starredOnly) },
-                            label = { Text("Starred") },
+                            label = { Text(text.starred) },
                         )
                     }
                 }
                 state.actionMessage?.let { message ->
-                    item { FeedbackText(message, MaterialThemeColors.Success) }
+                    item { FeedbackText(localizeMailFeedback(message, text)) }
                 }
                 state.error?.let { message ->
-                    item { ErrorBlock(message, viewModel::refresh) }
+                    item { ErrorBlock(text.unableToLoad, message, text.retry, viewModel::refresh) }
                 }
                 if (state.loading) {
-                    item { LoadingRow() }
+                    item { CampusLoadingState(text.loading) }
                 } else if (!state.loading && state.messages.isEmpty() && state.error == null) {
-                    item { EmptyMailState(state.folder) }
+                    item { EmptyMailState(state.folder, text) }
                 } else {
                     items(state.messages, key = MailMessage::id) { message ->
                         MailMessageCard(
@@ -199,6 +225,7 @@ fun MailHomeScreen(
                             onToggleStar = { viewModel.toggleStar(message) },
                             onArchive = { viewModel.archive(message) },
                             onDelete = { viewModel.delete(message) },
+                            text = text,
                         )
                     }
                     if (!state.lastPage) {
@@ -209,7 +236,7 @@ fun MailHomeScreen(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 if (state.loadingMore) CircularProgressIndicator()
-                                else Text("Load more")
+                                else Text(text.loadMore)
                             }
                         }
                     }
@@ -217,28 +244,76 @@ fun MailHomeScreen(
             }
         }
     }
+    if (disconnectDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { disconnectDialogVisible = false },
+            title = { Text(text.disconnectQuestion) },
+            text = { Text(text.disconnectMessage) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        disconnectDialogVisible = false
+                        viewModel.disconnect()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text(text.disconnect) }
+            },
+            dismissButton = {
+                TextButton(onClick = { disconnectDialogVisible = false }) { Text(text.cancel) }
+            },
+        )
+    }
+}
+
+@Composable
+internal fun MailFolderTabs(
+    selectedFolder: String,
+    text: MailStrings,
+    onFolderSelected: (String) -> Unit,
+) {
+    val folders = mailFolders(text)
+    ScrollableTabRow(
+        selectedTabIndex = folders.indexOfFirst { it.first == selectedFolder }.coerceAtLeast(0),
+        modifier = Modifier.fillMaxWidth().testTag("mail-folder-tabs"),
+        edgePadding = 0.dp,
+    ) {
+        folders.forEach { (value, label) ->
+            Tab(
+                selected = selectedFolder == value,
+                onClick = { onFolderSelected(value) },
+                modifier = Modifier.testTag("mail-folder-$value"),
+                text = {
+                    Text(
+                        text = label,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                    )
+                },
+            )
+        }
+    }
 }
 
 @Composable
 private fun GmailConnectionCard(
     state: MailHomeUiState,
+    text: MailStrings,
     connect: () -> Unit,
     retry: () -> Unit,
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer),
-        shape = RoundedCornerShape(22.dp),
-    ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Default.Link, contentDescription = null)
-            Text("Connect your Gmail", style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Authorize your own Gmail account to read and manage campus mail.")
-            state.error?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
-            state.actionMessage?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant) }
-            Button(onClick = connect, modifier = Modifier.fillMaxWidth()) {
-                Text("Authorize Gmail")
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(CampusSpacing.ExtraLarge), verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium)) {
+            Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            CampusPageHeader(title = text.connectTitle, subtitle = text.connectDescription)
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            state.actionMessage?.let {
+                Text(localizeMailFeedback(it, text), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextButton(onClick = retry, modifier = Modifier.align(Alignment.End)) { Text("Check again") }
+            Button(onClick = connect, modifier = Modifier.fillMaxWidth()) {
+                Text(text.authorizeGmail)
+            }
+            TextButton(onClick = retry, modifier = Modifier.align(Alignment.End)) { Text(text.checkAgain) }
         }
     }
 }
@@ -251,56 +326,75 @@ private fun MailMessageCard(
     onToggleStar: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
+    text: MailStrings,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
             containerColor = if (message.read) {
-                androidx.compose.material3.MaterialTheme.colorScheme.surface
+                MaterialTheme.colorScheme.surface
             } else {
-                androidx.compose.material3.MaterialTheme.colorScheme.secondaryContainer
+                MaterialTheme.colorScheme.secondaryContainer
             },
         ),
     ) {
         Column {
             ListItem(
                 headlineContent = {
-                    Text(message.subject.ifBlank { "(No subject)" }, fontWeight = if (message.read) FontWeight.Normal else FontWeight.Bold)
+                    Text(message.subject.ifBlank { text.noSubject }, fontWeight = if (message.read) FontWeight.Normal else FontWeight.Bold)
                 },
                 supportingContent = {
                     Column {
                         Text(message.sender, maxLines = 1)
-                        Text(message.preview, maxLines = 2, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(message.preview, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        CampusStatusChip(categoryLabel(message.category, text), CampusStatusTone.INFO)
                     }
                 },
                 trailingContent = {
                         IconButton(onClick = onToggleStar) {
                         Icon(
                             if (message.starred) Icons.Default.Star else Icons.Default.StarBorder,
-                            contentDescription = if (message.starred) "Unstar" else "Star",
+                            contentDescription = if (message.starred) text.unstar else text.star,
                         )
                     }
                 },
             )
             HorizontalDivider()
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.End,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = CampusSpacing.ExtraSmall),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                TextButton(onClick = onToggleRead) {
-                    Icon(Icons.Default.MarkEmailUnread, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (message.read) "Mark unread" else "Mark read")
+                TextButton(
+                    onClick = onToggleRead,
+                    contentPadding = PaddingValues(horizontal = CampusSpacing.ExtraSmall),
+                    modifier = Modifier.testTag("mail-action-read"),
+                ) {
+                    Icon(Icons.Default.MarkEmailUnread, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(CampusSpacing.ExtraSmall))
+                    Text(
+                        if (message.read) text.markUnread else text.markRead,
+                        maxLines = 1,
+                        softWrap = false,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
-                TextButton(onClick = onArchive) {
-                    Icon(Icons.Default.Archive, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Archive")
+                TextButton(
+                    onClick = onArchive,
+                    contentPadding = PaddingValues(horizontal = CampusSpacing.ExtraSmall),
+                    modifier = Modifier.testTag("mail-action-archive"),
+                ) {
+                    Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(CampusSpacing.ExtraSmall))
+                    Text(text.archive, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall)
                 }
-                TextButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Trash")
+                TextButton(
+                    onClick = onDelete,
+                    contentPadding = PaddingValues(horizontal = CampusSpacing.ExtraSmall),
+                    modifier = Modifier.testTag("mail-action-trash"),
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(CampusSpacing.ExtraSmall))
+                    Text(text.trash, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -311,7 +405,9 @@ private fun MailMessageCard(
 @Composable
 fun MailDetailsScreen(
     viewModel: MailDetailsViewModel,
+    text: MailStrings,
     onBack: () -> Unit,
+    onOpenCalendar: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message = state.message
@@ -320,21 +416,32 @@ fun MailDetailsScreen(
     }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Mail details") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
+            CampusTopAppBar(
+                title = text.detailsTitle,
+                onBack = onBack,
+                backDescription = text.back,
                 actions = {
+                    IconButton(onClick = onOpenCalendar) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = text.calendar)
+                    }
                     message?.let { message ->
+                        IconButton(onClick = viewModel::toggleRead) {
+                            Icon(
+                                Icons.Default.MarkEmailUnread,
+                                contentDescription = if (message.read) text.markUnread else text.markRead,
+                            )
+                        }
                         IconButton(onClick = viewModel::toggleStar) {
-                            Icon(if (message.starred) Icons.Default.Star else Icons.Default.StarBorder, contentDescription = "Star")
+                            Icon(
+                                if (message.starred) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = if (message.starred) text.unstar else text.star,
+                            )
                         }
                         IconButton(onClick = viewModel::archive) {
-                            Icon(Icons.Default.Archive, contentDescription = "Archive")
+                            Icon(Icons.Default.Archive, contentDescription = text.archive)
                         }
                         IconButton(onClick = viewModel::delete) {
-                            Icon(Icons.Default.Delete, contentDescription = "Trash")
+                            Icon(Icons.Default.Delete, contentDescription = text.trash)
                         }
                     }
                 },
@@ -342,9 +449,15 @@ fun MailDetailsScreen(
         },
     ) { padding ->
         when {
-            state.loading -> LoadingRow(Modifier.padding(padding))
-            state.error != null -> ErrorBlock(state.error, viewModel::retry, Modifier.padding(padding))
-            message != null -> MailDetailsContent(message, state.actionMessage, state.error, Modifier.padding(padding))
+            state.loading -> CampusLoadingState(text.loadingMessage, Modifier.padding(padding))
+            state.error != null -> ErrorBlock(
+                text.unableToLoadMessage,
+                state.error,
+                text.retry,
+                viewModel::retry,
+                Modifier.padding(padding).padding(horizontal = CampusSpacing.Large),
+            )
+            message != null -> MailDetailsContent(message, state.actionMessage, state.error, text, Modifier.padding(padding))
         }
     }
 }
@@ -354,27 +467,51 @@ private fun MailDetailsContent(
     message: MailMessage,
     actionMessage: String?,
     error: String?,
+    text: MailStrings,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier.fillMaxSize().padding(horizontal = CampusSpacing.Large),
+        contentPadding = PaddingValues(vertical = CampusSpacing.Medium),
+        verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+    ) {
         item {
-            Text(message.subject.ifBlank { "(No subject)" }, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(message.sender, fontWeight = FontWeight.SemiBold)
-            if (message.recipients.isNotEmpty()) Text("To: ${message.recipients.joinToString()}", color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(formatDate(message.created_at), color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+            CampusSurfaceCard(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.padding(CampusSpacing.ExtraLarge),
+                    verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+                ) {
+                    Text(
+                        message.subject.ifBlank { text.noSubject },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    CampusStatusChip(categoryLabel(message.category, text), CampusStatusTone.INFO)
+                    CampusInfoRow(text.from, message.sender)
+                    if (message.recipients.isNotEmpty()) {
+                        CampusInfoRow(text.recipients, message.recipients.joinToString())
+                    }
+                    CampusInfoRow(text.date, formatDate(message.created_at))
+                }
+            }
         }
-        actionMessage?.let { item { FeedbackText(it, MaterialThemeColors.Success) } }
-        error?.let { item { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) } }
+        actionMessage?.let { item { FeedbackText(localizeMailFeedback(it, text)) } }
+        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
         item {
-            HorizontalDivider()
-            Text(message.body.ifBlank { "(No message body)" }, modifier = Modifier.padding(vertical = 12.dp))
+            CampusSurfaceCard(Modifier.fillMaxWidth()) {
+                Text(
+                    message.body.ifBlank { text.noBody },
+                    modifier = Modifier.padding(CampusSpacing.ExtraLarge),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ComposeMailScreen(viewModel: ComposeMailViewModel, onBack: () -> Unit) {
+fun ComposeMailScreen(viewModel: ComposeMailViewModel, text: MailStrings, onBack: () -> Unit) {
     val form by viewModel.form.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(state) {
@@ -382,36 +519,35 @@ fun ComposeMailScreen(viewModel: ComposeMailViewModel, onBack: () -> Unit) {
     }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("New message") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
+            CampusTopAppBar(
+                title = text.newMessage,
+                onBack = onBack,
+                backDescription = text.back,
             )
         },
         bottomBar = {
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth().padding(CampusSpacing.Large), horizontalArrangement = Arrangement.End) {
                 Button(onClick = viewModel::send, enabled = state !is ComposeMailUiState.Sending) {
                     if (state is ComposeMailUiState.Sending) CircularProgressIndicator()
                     else {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Send")
+                        Spacer(Modifier.width(CampusSpacing.Small))
+                        Text(text.send)
                     }
                 }
             }
         },
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().padding(padding).padding(CampusSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
         ) {
             OutlinedTextField(
                 value = form.recipients,
                 onValueChange = viewModel::updateRecipients,
                 modifier = Modifier.fillMaxWidth().testTag("mail-recipients"),
-                label = { Text("Recipients") },
-                supportingText = { Text("Separate multiple addresses with commas") },
+                label = { Text(text.recipients) },
+                supportingText = { Text(text.recipientsHelper) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             )
@@ -419,14 +555,14 @@ fun ComposeMailScreen(viewModel: ComposeMailViewModel, onBack: () -> Unit) {
                 value = form.subject,
                 onValueChange = viewModel::updateSubject,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Subject") },
+                label = { Text(text.subject) },
                 singleLine = true,
             )
             OutlinedTextField(
                 value = form.body,
                 onValueChange = viewModel::updateBody,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                label = { Text("Message") },
+                label = { Text(text.message) },
             )
             when (val current = state) {
                 is ComposeMailUiState.Error -> Text(current.message, color = androidx.compose.material3.MaterialTheme.colorScheme.error)
@@ -438,66 +574,106 @@ fun ComposeMailScreen(viewModel: ComposeMailViewModel, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit) {
+fun CalendarScreen(
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+    onBack: () -> Unit,
+    onOpenSourceEmail: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<CalendarEvent?>(null) }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Calendar") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
+            CampusTopAppBar(
+                title = text.title,
+                onBack = onBack,
+                backDescription = text.back,
                 actions = {
-                    IconButton(onClick = viewModel::beginCreate) { Icon(Icons.Default.Add, contentDescription = "Add event") }
+                    IconButton(onClick = viewModel::beginCreate) { Icon(Icons.Default.Add, contentDescription = text.addEvent) }
                     IconButton(onClick = viewModel::extract, enabled = !state.extracting) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = "Extract from mail")
+                        Icon(Icons.Default.AutoAwesome, contentDescription = text.extractFromMail)
                     }
                 },
             )
         },
     ) { padding ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().padding(padding).padding(horizontal = CampusSpacing.Large),
+            contentPadding = PaddingValues(vertical = CampusSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
         ) {
-            state.error?.let { item { ErrorBlock(it, viewModel::clearFeedback) } }
-            state.actionMessage?.let { item { FeedbackText(it, MaterialThemeColors.Success) } }
+            state.error?.let { item { ErrorBlock(text.unableToLoad, it, text.retry, viewModel::clearFeedback) } }
+            state.actionMessage?.let { item { FeedbackText(localizeCalendarFeedback(it, text)) } }
             if (state.editorVisible) {
-                item { CalendarEditor(state, viewModel) }
+                item { CalendarEditor(state, viewModel, text) { pendingDelete = it } }
+            }
+            item {
+                CalendarMailScanOptions(state, viewModel, text)
             }
             item {
                 if (state.extracting) {
-                    Card(Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.padding(CampusSpacing.Large),
+                            horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Medium),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             CircularProgressIndicator()
-                            Text("Scanning recent emails for schedules…")
+                            Text(text.scanning)
                         }
                     }
                 }
             }
             if (state.proposals.isNotEmpty()) {
-                item { Text("Suggested events", style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                item { CampusPageHeader(text.suggestedEvents, text.extractFromMail) }
                 items(state.proposals, key = ExtractedSchedule::key) { proposal ->
-                    ExtractedScheduleCard(proposal, proposal.key in state.selectedProposalKeys, viewModel::toggleProposal)
+                    ExtractedScheduleCard(
+                        event = proposal,
+                        selected = proposal.key in state.selectedProposalKeys,
+                        onToggle = viewModel::toggleProposal,
+                        onOpenSourceEmail = { proposal.source_email_id?.let(onOpenSourceEmail) },
+                        text = text,
+                    )
                 }
                 item {
                     Button(onClick = viewModel::importSelected, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Check, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Import selected")
+                        Spacer(Modifier.width(CampusSpacing.Small))
+                        Text(text.importSelected)
                     }
                 }
             }
-            item { Text("My events", style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            item { CampusPageHeader(text.myEvents, text.events) }
+            item {
+                CalendarMonthGrid(
+                    state = state,
+                    viewModel = viewModel,
+                    text = text,
+                )
+            }
             if (state.loading) {
-                item { LoadingRow() }
+                item { CampusLoadingState(text.loading) }
             } else if (state.events.isEmpty()) {
-                item { Text("No calendar events yet.", color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant) }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium)) {
+                        CampusEmptyState(text.myEvents, text.noEvents, icon = Icons.Default.CalendarMonth)
+                        CampusActionCard(
+                            copy = CampusActionCopy(text.newEvent, text.addEvent),
+                            icon = Icons.Default.Add,
+                            onClick = { viewModel.beginCreate(state.displayMonth.atDay(1)) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             } else {
                 items(state.events, key = CalendarEvent::id) { event ->
-                    CalendarEventCard(event, viewModel::beginEdit) { pendingDelete = it }
+                    CalendarEventCard(
+                        event = event,
+                        onEdit = viewModel::beginEdit,
+                        onDelete = { pendingDelete = it },
+                        onOpenSourceEmail = { event.source_email_id?.let(onOpenSourceEmail) },
+                        text = text,
+                    )
                 }
             }
         }
@@ -505,53 +681,267 @@ fun CalendarScreen(viewModel: CalendarViewModel, onBack: () -> Unit) {
     pendingDelete?.let { event ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete this event?") },
-            text = { Text("${event.title} will be permanently removed.") },
+            title = { Text(text.deleteQuestion) },
+            text = { Text(text.deleteMessage.format(event.title)) },
             confirmButton = {
                 Button(
                     onClick = {
                         viewModel.delete(event)
                         pendingDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error),
-                ) { Text("Delete") }
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text(text.delete) }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(text.cancel) } },
         )
     }
 }
 
 @Composable
-private fun CalendarEditor(state: CalendarUiState, viewModel: CalendarViewModel) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (state.editingId == null) "New event" else "Edit event", style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            OutlinedTextField(state.form.title, viewModel::updateTitle, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(state.form.description, viewModel::updateDescription, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(state.form.location, viewModel::updateLocation, label = { Text("Location") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+private fun CalendarMonthGrid(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+) {
+    val month = state.displayMonth
+    val firstDay = month.atDay(1)
+    val leadingDays = firstDay.dayOfWeek.value % 7
+    val totalDays = month.lengthOfMonth()
+    val today = LocalDate.now()
+    val eventsByDay = state.events.groupBy { it.start_time.take(10) }
+
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(CampusSpacing.Small), verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                IconButton(onClick = viewModel::previousMonth) {
+                    Icon(Icons.Default.ChevronLeft, contentDescription = text.previousMonth)
+                }
+                Text(
+                    month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                IconButton(onClick = viewModel::nextMonth) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = text.nextMonth)
+                }
+            }
+            Text(text.monthView, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth()) {
+                text.weekdayLabels.forEach { label ->
+                    Text(
+                        text = label,
+                        modifier = Modifier.weight(1f).padding(vertical = CampusSpacing.ExtraSmall),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+            repeat(6) { week ->
+                Row(Modifier.fillMaxWidth()) {
+                    repeat(7) { dayOfWeek ->
+                        val index = week * 7 + dayOfWeek
+                        val dayNumber = index - leadingDays + 1
+                        val date = dayNumber.takeIf { it in 1..totalDays }?.let(month::atDay)
+                        val dayEvents = date?.let { eventsByDay[it.toString()] }.orEmpty()
+                        CalendarDayCell(
+                            modifier = Modifier.weight(1f),
+                            date = date,
+                            events = dayEvents,
+                            isToday = date == today,
+                            onCreate = { date?.let(viewModel::beginCreate) },
+                            onEdit = viewModel::beginEdit,
+                        )
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = viewModel::currentMonth,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                enabled = month != YearMonth.now(),
+            ) {
+                Text(text.today)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayCell(
+    modifier: Modifier,
+    date: LocalDate?,
+    events: List<CalendarEvent>,
+    isToday: Boolean,
+    onCreate: () -> Unit,
+    onEdit: (CalendarEvent) -> Unit,
+) {
+    Card(
+        modifier = modifier.height(76.dp).padding(1.dp).clickable(enabled = date != null, onClick = onCreate),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+        ),
+        colors = CardDefaults.cardColors(
+            containerColor = if (date == null) {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            } else if (isToday) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+    ) {
+        Column(Modifier.fillMaxSize().padding(CampusSpacing.ExtraSmall)) {
+            date?.let {
+                Text(
+                    text = it.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                )
+                events.take(2).forEach { event ->
+                    Text(
+                        text = event.title,
+                        modifier = Modifier.fillMaxWidth().clickable { onEdit(event) },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (event.source == "mail") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (events.size > 2) {
+                    Text("+${events.size - 2}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarMailScanOptions(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(CampusSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(text.extractFromMail, fontWeight = FontWeight.Bold)
+                    Text(text.scanWindow, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.extractionMode?.let { mode ->
+                        CampusStatusChip(
+                            label = "${text.mode}: ${calendarModeLabel(mode, text)}",
+                            tone = CampusStatusTone.INFO,
+                            modifier = Modifier.padding(top = CampusSpacing.ExtraSmall),
+                        )
+                    }
+                }
+                Button(onClick = viewModel::extract, enabled = !state.extracting) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    Spacer(Modifier.width(CampusSpacing.Small))
+                    Text(text.scan)
+                }
+            }
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(CampusSpacing.Small),
+            ) {
+                listOf(
+                    0 to text.scanToday,
+                    1 to text.scanTwoDays,
+                    2 to text.scanThreeDays,
+                    3 to text.scanFourDays,
+                    7 to text.scanEightDays,
+                ).forEach { (days, label) ->
+                    FilterChip(
+                        selected = state.extractionDays == days,
+                        onClick = { viewModel.updateExtractionDays(days) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarEditor(
+    state: CalendarUiState,
+    viewModel: CalendarViewModel,
+    text: CalendarStrings,
+    onDelete: (CalendarEvent) -> Unit,
+) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(CampusSpacing.Large), verticalArrangement = Arrangement.spacedBy(CampusSpacing.Medium)) {
+            Text(
+                if (state.editingId == null) text.newEvent else text.editEvent,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            OutlinedTextField(
+                state.form.title,
+                viewModel::updateTitle,
+                label = { Text(text.eventTitle) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            OutlinedTextField(
+                state.form.description,
+                viewModel::updateDescription,
+                label = { Text(text.description) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                state.form.location,
+                viewModel::updateLocation,
+                label = { Text(text.location) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
             OutlinedTextField(
                 state.form.startTime,
                 viewModel::updateStartTime,
-                label = { Text("Start (ISO, e.g. 2026-08-16T14:00:00)") },
+                label = { Text(text.startTime) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
             OutlinedTextField(
                 state.form.endTime,
                 viewModel::updateEndTime,
-                label = { Text("End (ISO, e.g. 2026-08-16T16:00:00)") },
+                label = { Text(text.endTime) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(state.form.allDay, viewModel::updateAllDay)
-                Text("All day")
+                Text(text.allDay)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = viewModel::cancelEdit) { Text("Cancel") }
+                if (state.editingId != null) {
+                    TextButton(
+                        onClick = {
+                            state.editingId?.let { id -> state.events.firstOrNull { it.id == id }?.let(onDelete) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(text.delete, color = MaterialTheme.colorScheme.error) }
+                }
+                TextButton(onClick = viewModel::cancelEdit) { Text(text.cancel) }
                 Button(onClick = viewModel::save, enabled = !state.saving) {
                     if (state.saving) CircularProgressIndicator()
-                    else Text("Save")
+                    else Text(text.save)
                 }
             }
         }
@@ -559,72 +949,141 @@ private fun CalendarEditor(state: CalendarUiState, viewModel: CalendarViewModel)
 }
 
 @Composable
-private fun CalendarEventCard(event: CalendarEvent, onEdit: (CalendarEvent) -> Unit, onDelete: (CalendarEvent) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        ListItem(
-            headlineContent = { Text(event.title, fontWeight = FontWeight.Bold) },
-            supportingContent = {
-                Column {
+private fun CalendarEventCard(
+    event: CalendarEvent,
+    onEdit: (CalendarEvent) -> Unit,
+    onDelete: (CalendarEvent) -> Unit,
+    onOpenSourceEmail: () -> Unit,
+    text: CalendarStrings,
+) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column {
+            ListItem(
+                headlineContent = { Text(event.title, fontWeight = FontWeight.Bold) },
+                supportingContent = {
+                    Column {
+                        Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
+                        if (event.location.isNotBlank()) Text(event.location)
+                        if (event.source == "mail") CampusStatusChip(text.fromMail, CampusStatusTone.INFO)
+                    }
+                },
+                trailingContent = {
+                    Row {
+                        IconButton(onClick = { onEdit(event) }) { Icon(Icons.Default.Edit, contentDescription = text.edit) }
+                        IconButton(onClick = { onDelete(event) }) { Icon(Icons.Default.Delete, contentDescription = text.delete) }
+                    }
+                },
+            )
+            if (!event.source_email_id.isNullOrBlank()) {
+                TextButton(onClick = onOpenSourceEmail, modifier = Modifier.padding(start = CampusSpacing.Medium)) {
+                    Icon(Icons.Default.Email, contentDescription = null)
+                    Spacer(Modifier.width(CampusSpacing.Small))
+                    Text(text.viewSourceEmail)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExtractedScheduleCard(
+    event: ExtractedSchedule,
+    selected: Boolean,
+    onToggle: (String) -> Unit,
+    onOpenSourceEmail: () -> Unit,
+    text: CalendarStrings,
+) {
+    CampusSurfaceCard(Modifier.fillMaxWidth()) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().clickable { onToggle(event.key) }.padding(CampusSpacing.Medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(selected, { onToggle(event.key) })
+                Column(Modifier.weight(1f)) {
+                    Text(event.title, fontWeight = FontWeight.Bold)
                     Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
-                    if (event.location.isNotBlank()) Text(event.location)
-                    if (event.source == "mail") Text("Imported from mail", color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
+                    if (event.location.isNotBlank()) Text(event.location, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (event.email_subject.isNotBlank()) {
+                        Text("${text.fromMail}: ${event.email_subject}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-            },
-            trailingContent = {
-                Row {
-                    IconButton(onClick = { onEdit(event) }) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
-                    IconButton(onClick = { onDelete(event) }) { Icon(Icons.Default.Delete, contentDescription = "Delete") }
+            }
+            if (!event.source_email_id.isNullOrBlank()) {
+                TextButton(onClick = onOpenSourceEmail, modifier = Modifier.padding(start = CampusSpacing.Medium)) {
+                    Icon(Icons.Default.Email, contentDescription = null)
+                    Spacer(Modifier.width(CampusSpacing.Small))
+                    Text(text.viewSourceEmail)
                 }
-            },
-        )
-    }
-}
-
-@Composable
-private fun ExtractedScheduleCard(event: ExtractedSchedule, selected: Boolean, onToggle: (String) -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable { onToggle(event.key) }) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(selected, { onToggle(event.key) })
-            Column(Modifier.weight(1f)) {
-                Text(event.title, fontWeight = FontWeight.Bold)
-                Text("${formatDate(event.start_time)} – ${formatDate(event.end_time)}")
-                if (event.location.isNotBlank()) Text(event.location, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
-                if (event.email_subject.isNotBlank()) Text("From: ${event.email_subject}", color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
 @Composable
-private fun LoadingRow(modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().padding(32.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
+private fun EmptyMailState(folder: String, text: MailStrings) {
+    val folderLabel = mailFolders(text).firstOrNull { it.first == folder }?.second ?: folder
+    CampusEmptyState(text.title, text.noMessages.format(folderLabel), icon = Icons.Default.Email)
 }
 
 @Composable
-private fun EmptyMailState(folder: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(Icons.Default.Email, contentDescription = null)
-        Text("No messages in ${MAIL_FOLDERS.firstOrNull { it.first == folder }?.second ?: folder}.")
+private fun ErrorBlock(
+    title: String,
+    message: String?,
+    retryLabel: String,
+    retry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    CampusErrorState(title, message ?: title, retryLabel, retry, modifier)
+}
+
+@Composable
+private fun FeedbackText(message: String) {
+    CampusStatusChip(message, CampusStatusTone.SUCCESS, Modifier.padding(horizontal = CampusSpacing.ExtraSmall))
+}
+
+private fun localizeMailFeedback(message: String, text: MailStrings): String = when (message) {
+    "Waiting for Gmail authorization…" -> text.waitingAuthorization
+    "Gmail connected" -> text.gmailConnectedMessage
+    "Gmail disconnected" -> text.gmailDisconnected
+    "Authorization not detected yet. Tap Check again." -> text.authorizationPending
+    "Message updated" -> text.messageUpdated
+    else -> message
+}
+
+private fun localizeCalendarFeedback(message: String, text: CalendarStrings): String = when (message) {
+    "Event created" -> text.eventCreated
+    "Event updated" -> text.eventUpdated
+    "Event deleted" -> text.eventDeleted
+    else -> {
+        val scanned = Regex("Scanned (\\d+) emails \\((.+) mode\\)").matchEntire(message)
+        val imported = Regex("Imported (\\d+) events; skipped (\\d+)").matchEntire(message)
+        when {
+            scanned != null -> text.scannedEmails.format(scanned.groupValues[1], scanned.groupValues[2])
+            imported != null -> text.importedEvents.format(imported.groupValues[1], imported.groupValues[2])
+            else -> message
+        }
     }
 }
 
-@Composable
-private fun ErrorBlock(message: String?, retry: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(message ?: "Something went wrong.", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
-        OutlinedButton(onClick = retry) { Text("Retry") }
-    }
+private fun categoryLabel(category: String, text: MailStrings): String = when (category.lowercase()) {
+    "campus" -> text.categoryCampus
+    "career" -> text.categoryCareer
+    "finance" -> text.categoryFinance
+    else -> text.categoryOther
 }
 
-private object MaterialThemeColors {
-    val Success = Color(0xFF1B7F4B)
-}
-
-@Composable
-private fun FeedbackText(message: String, color: Color) {
-    Text(message, color = color, modifier = Modifier.padding(horizontal = 4.dp))
+private fun calendarModeLabel(mode: String, text: CalendarStrings): String = when (mode.lowercase()) {
+    "llm" -> text.aiMode
+    "rules" -> text.rulesMode
+    else -> mode
 }
 
 private fun formatDate(value: String): String = runCatching {
-    LocalDateTime.parse(value.substringBefore('+').substringBefore('Z')).format(DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm"))
+    val parsed = runCatching { java.time.OffsetDateTime.parse(value) }.getOrElse {
+        LocalDateTime.parse(value.substringBefore('[').substringBefore('Z'))
+            .atZone(java.time.ZoneId.systemDefault())
+            .toOffsetDateTime()
+    }
+    parsed.format(DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm z"))
 }.getOrElse { value.replace('T', ' ') }

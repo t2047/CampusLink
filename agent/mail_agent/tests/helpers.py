@@ -27,17 +27,20 @@ def user_jwt(email: str, role: str = "STUDENT") -> str:
     )
 
 
-def internal_token(user_id: str) -> str:
+def internal_token(user_id: str, user_email: str | None = None) -> str:
     """Mint the internal token the mail MCP gateway forwards."""
     secret = config.MAIL_INTERNAL_SECRET.encode("utf-8")
     now = int(time.time())
+    claims = {
+        "sub": user_id,
+        "aud": "mail-service",
+        "iat": now,
+        "exp": now + 60,
+    }
+    if user_email:
+        claims["user_email"] = user_email
     return jwt.encode(
-        {
-            "sub": user_id,
-            "aud": "mail-service",
-            "iat": now,
-            "exp": now + 60,
-        },
+        claims,
         secret,
         algorithm="HS256",
     )

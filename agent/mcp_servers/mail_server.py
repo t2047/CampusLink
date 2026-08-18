@@ -14,13 +14,13 @@ streamable HTTP 端点（/mcp/），编排层可经标准 MCP 调用邮件能力
 安全：与其它 MCP Agent 一致 -- 挂 ``McpSecurityMiddleware``（RS256
 Delegation Token 验签 + aud=mail-agent + X-Timestamp 窗口）；工具内用
 ``identity_from_context``（mcp_servers.security 公共 helper）从 Authorization
-解析身份（sub = 数字 userId）。
+解析身份（sub = 数字 userId，user_email = 后端解析的邮箱）。
 
 **mail REST 侧现在按用户绑定各自的 Gmail**：REST 只接受两种 Bearer —— 用户 JWT
 （HS256，JWT_SECRET，sub=邮箱，Web 路径）或内部服务令牌（HS256，
 MAIL_INTERNAL_SECRET/AGENT_SHARED_SECRET，aud=mail-service）。用户 JWT 不离开
-Chat Backend，因此本适配层用共享密钥**代签一个短时内部令牌**（sub=delegation
-sub）转发给 mail REST，聊天路径因此能按同一数字 userId 使用自己的 Gmail 绑定。
+Chat Backend，因此本适配层用共享密钥**代签一个短时内部令牌**（sub=后端解析的
+用户邮箱）转发给 mail REST，聊天路径因此能与原生 Mail 页面使用同一 Gmail 绑定。
 
 运行（独立进程，端口 8081；替换原 domain_server 的 mail-agent mock 实例）：
     uvicorn mcp_servers.mail_server:app --host 0.0.0.0 --port 8081 --reload
@@ -99,7 +99,8 @@ def _internal_token(user_id: str) -> str:
 
     mail REST 只接受用户 JWT 或内部令牌；本适配层无法拿到用户 JWT（用户 JWT 不
     离开 Chat Backend），所以用与 REST 共享的密钥代签一个 30s 令牌（aud 固定为
-    mail-service），sub 沿用 delegation token 的数字 userId。
+    mail-service）。Delegation Token 中的 user_email 由 Chat Backend 根据用户 ID 解析，
+    作为内部令牌的 sub，避免原生 Mail（按邮箱）与 Chat（按数字 ID）出现两个绑定。
     """
     if not MAIL_INTERNAL_SECRET:
         raise RuntimeError(
@@ -131,8 +132,7 @@ class MailRestClient:
     """调 mail REST 服务的异步客户端。
 
     mail REST 按用户绑定 Gmail：请求头用本适配层代签的内部 HS256 令牌
-    （sub = delegation token 的数字 userId），REST 验签后按该 userId
-    取用户自己的 Gmail 凭据。
+    （sub = 后端解析的用户邮箱），REST 验签后按该邮箱取用户自己的 Gmail 凭据。
     """
 
     def __init__(self, base_url: str) -> None:
@@ -488,11 +488,15 @@ async def invoke(
     except ValueError as exc:
         logger.warning("mail invoke auth failed: %s", exc)
         return _failed(f"鉴权失败：{exc}", request_id)
-    user_id = str(claims.get("sub", ""))
+    delegation_user_id = str(claims.get("sub", ""))
+    # Delegation Token 的 sub 必须保持数字用户 ID，便于 Agent 权限校验；
+    # Mail 服务的 Gmail OAuth 文件此前按用户邮箱绑定，因此使用后端从用户表解析
+    # 并写入 Token 的 user_email，确保 Chat Core 与 Mail 原生页面访问同一账号。
+    user_id = str(claims.get("user_email") or delegation_user_id)
 
     logger.info(
         "mail invoke start: request_id=%s user_id=%s message=%.60r",
-        request_id, user_id, message,
+        request_id, delegation_user_id, message,
     )
 
     try:

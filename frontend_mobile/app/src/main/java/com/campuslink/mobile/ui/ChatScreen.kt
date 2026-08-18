@@ -1,6 +1,7 @@
 package com.campuslink.mobile.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,7 +55,12 @@ import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
+fun ChatScreen(
+    viewModel: ChatViewModel,
+    text: UiStrings,
+    onBack: () -> Unit,
+    onOpenMatch: (Long) -> Unit = {},
+) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
@@ -120,6 +126,7 @@ fun ChatScreen(viewModel: ChatViewModel, text: UiStrings, onBack: () -> Unit) {
                     MessageBubble(
                         message = message,
                         text = text,
+                        onOpenMatch = onOpenMatch,
                         onRetry = retryContent
                             ?.takeIf { message.status.name == "FAILED" || message.status.name == "INTERRUPTED" }
                             ?.let { { viewModel.retry(message.id) } },
@@ -209,7 +216,12 @@ private fun ChatComposer(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, text: UiStrings, onRetry: (() -> Unit)?) {
+private fun MessageBubble(
+    message: ChatMessage,
+    text: UiStrings,
+    onOpenMatch: (Long) -> Unit,
+    onRetry: (() -> Unit)?,
+) {
     val user = message.role == MessageRole.USER
     var activityExpanded by remember(message.id) { mutableStateOf(false) }
     Row(
@@ -242,7 +254,7 @@ private fun MessageBubble(message: ChatMessage, text: UiStrings, onRetry: (() ->
             }
             if (message.matches.isNotEmpty()) {
                 Text(text.matches, style = MaterialTheme.typography.labelLarge)
-                message.matches.forEach { MatchCard(it) }
+                message.matches.forEach { MatchCard(it, text, onOpenMatch) }
             }
             if (onRetry != null) {
                 AssistChip(onClick = onRetry, label = { Text(text.retry) })
@@ -252,8 +264,15 @@ private fun MessageBubble(message: ChatMessage, text: UiStrings, onRetry: (() ->
 }
 
 @Composable
-private fun MatchCard(item: MatchResult) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+private fun MatchCard(item: MatchResult, text: UiStrings, onOpenMatch: (Long) -> Unit) {
+    // 后端通常返回纯数字，但兼容 "#7"、带空格等展示格式，避免因此隐藏详情入口。
+    val reportId = item.itemId.trim().removePrefix("#").toLongOrNull()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = reportId != null) { reportId?.let(onOpenMatch) },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             item.imageUrls.firstOrNull()?.let { url ->
                 val resolved = if (url.startsWith("http")) url else BuildConfig.API_BASE_URL.trimEnd('/') + "/" + url.trimStart('/')
@@ -265,7 +284,9 @@ private fun MatchCard(item: MatchResult) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("#${item.itemId} ${item.itemName}", fontWeight = FontWeight.Bold)
-                Text("${(item.matchScore * 100).toInt()}%")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${(item.matchScore * 100).toInt()}%")
+                }
             }
             Text("${item.reportType} · ${item.category} · ${item.location} · ${item.eventDate}")
             if (item.description.isNotBlank()) Text(item.description)
@@ -275,6 +296,14 @@ private fun MatchCard(item: MatchResult) {
                     item.scoreBreakdown.entries.take(4).forEach { (name, score) ->
                         AssistChip(onClick = {}, label = { Text("$name ${(score * 100).toInt()}%") })
                     }
+                }
+            }
+            if (reportId != null) {
+                TextButton(
+                    onClick = { onOpenMatch(reportId) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text.viewDetails)
                 }
             }
         }

@@ -28,6 +28,9 @@ _STRONG_HEX32 = (
     "LOST_FOUND_EMBEDDING_SHARED_SECRET",
 )
 _STRONG_PASSWORD = ("SUPER_ADMIN_PASSWORD",)
+# 生成 .env 后仍必须手动补填（或由 CD 从 GitHub Secrets 同步）的密钥：
+# mail 服务已移除内置默认 Gmail 客户端，缺失会 fail-closed。
+_MANUAL_REQUIRED = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")
 
 
 def _random_hex(length: int) -> str:
@@ -51,6 +54,7 @@ def prepare_env(api_key: str | None = None, out: Path | None = None) -> Path:
         )
 
     lines = []
+    missing_manual = []
     for raw in template.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -67,6 +71,8 @@ def prepare_env(api_key: str | None = None, out: Path | None = None) -> Path:
             value = _random_password()
         elif key in ("DEEPSEEK_API_KEY", "LOST_FOUND_LLM_API_KEY") and api_key:
             value = api_key
+        if key in _MANUAL_REQUIRED and not value:
+            missing_manual.append(key)
         lines.append(f"{key}={value}")
 
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -74,6 +80,12 @@ def prepare_env(api_key: str | None = None, out: Path | None = None) -> Path:
         os.chmod(target, 0o600)  # 仅属主可读写（Windows 上为 no-op 或受限支持）
     except OSError:
         pass
+    if missing_manual:
+        print(
+            f"[WARN] 必填密钥未配置（{', '.join(missing_manual)}）：mail 服务已移除"
+            "内置默认 Gmail 客户端，请从 Google Cloud Console 获取后手动填入生成的"
+            " .env，否则 mail OAuth 流程将报错（fail-closed）。"
+        )
     return target
 
 

@@ -297,9 +297,9 @@ export function MailPage() {
             <Typography color="text.secondary">Read, search, send, and organize campus mail.</Typography>
           </Box>
         </Stack>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center">
           {connected === true && (
-            <Button variant="outlined" color="error" onClick={disconnectGmail}>
+            <Button variant="outlined" color="error" onClick={disconnectGmail} sx={{ height: 45, minHeight: 45 }}>
               Disconnect
             </Button>
           )}
@@ -308,6 +308,7 @@ export function MailPage() {
               variant="contained"
               color="success"
               onClick={() => connectUrl && window.location.assign(connectUrl)}
+              sx={{ height: 45, minHeight: 45 }}
             >
               Connect Gmail
             </Button>
@@ -317,6 +318,7 @@ export function MailPage() {
               variant="outlined"
               startIcon={<ChatBubbleOutlineIcon />}
               onClick={() => setAssistantOpen(true)}
+              sx={{ height: 45, minHeight: 45 }}
             >
               Assistant
             </Button>
@@ -326,12 +328,13 @@ export function MailPage() {
               variant="outlined"
               startIcon={<EventAvailableIcon />}
               onClick={() => setImportOpen(true)}
+              sx={{ height: 45, minHeight: 45 }}
             >
               Import to Calendar
             </Button>
           )}
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadMessages()}>Refresh</Button>
-          <Button variant="contained" startIcon={<SendIcon />} onClick={() => setComposeOpen(true)}>Compose</Button>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadMessages()} sx={{ height: 45, minHeight: 45 }}>Refresh</Button>
+          <Button variant="contained" startIcon={<SendIcon />} onClick={() => setComposeOpen(true)} sx={{ height: 45, minHeight: 45 }}>Compose</Button>
         </Stack>
       </Stack>
 

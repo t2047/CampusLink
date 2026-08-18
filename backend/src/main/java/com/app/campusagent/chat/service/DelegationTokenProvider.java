@@ -126,11 +126,20 @@ public class DelegationTokenProvider {
      * @return 签好的 JWT 字符串
      */
     public String issueDelegationToken(String userId, String role, String targetAgent, String intendedAction, String jti) {
+        return issueDelegationToken(userId, role, targetAgent, intendedAction, jti, null);
+    }
+
+    /**
+     * 签发带有经过后端解析的用户邮箱的 Delegation Token。
+     * 邮箱只作为服务间的用户绑定提示，不能替代 sub、aud、签名和权限校验。
+     */
+    public String issueDelegationToken(String userId, String role, String targetAgent,
+                                       String intendedAction, String jti, String userEmail) {
         Instant now = Instant.now();
         Instant exp = now.plus(Duration.ofSeconds(tokenTtlSeconds));
         String tokenJti = (jti == null || jti.isBlank()) ? UUID.randomUUID().toString() : jti;
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .header().keyId(keyId).and()   // kid = RFC 7638 指纹，Agent 端 JWKS 按 kid 定位公钥
                 .subject(userId)
                 .claim("role", role)
@@ -140,9 +149,11 @@ public class DelegationTokenProvider {
                 .claim("delegated_by", DELEGATED_BY)
                 .id(tokenJti)
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(exp))
-                .signWith(privateKey, Jwts.SIG.RS256)
-                .compact();
+                .expiration(Date.from(exp));
+        if (userEmail != null && !userEmail.isBlank()) {
+            builder.claim("user_email", userEmail);
+        }
+        return builder.signWith(privateKey, Jwts.SIG.RS256).compact();
     }
 
     /**

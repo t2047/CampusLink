@@ -1,8 +1,10 @@
 """Gmail OAuth + runtime configuration for the CampusLink mail service.
 
 The mail service talks to Gmail directly via the Gmail API (v1) using a web
-OAuth2 flow. Credentials are read from environment variables, defaulting to the
-project's Google Cloud web client so the service works out of the box.
+OAuth2 flow. Credentials are read from environment variables **only**: the
+project ships no built-in Google client (removed to keep the OAuth client
+secret out of the repository), so ``GMAIL_CLIENT_ID`` / ``GMAIL_CLIENT_SECRET``
+must be configured or the OAuth flow fails closed.
 
 Each CampusLink user authorises **their own** Gmail account: the resulting
 refresh token is persisted per user (keyed by the verified user identity, e.g.
@@ -27,20 +29,15 @@ _PACKAGE_DIR = Path(__file__).resolve().parent
 SERVICE_DIR = _PACKAGE_DIR.parent
 
 # ---- Google OAuth web client -------------------------------------------------
-# Defaults come from the project's Google Cloud credentials; override via env in
-# production. ``redirect_uris`` must exactly match an Authorized redirect URI in
-# the Google Cloud Console (here: http://localhost:5000/callback, i.e. the mail
-# service runs on port 5000).
-# 注意：.env 中留空（GMAIL_CLIENT_ID= / GMAIL_CLIENT_SECRET=）会被视为未设置，
-# 回退到项目默认客户端；否则空值会生成 client_id= 的授权 URL，Google 直接报
-# 「Access blocked: Authorization Error」。
-GMAIL_CLIENT_ID = os.environ.get("GMAIL_CLIENT_ID", "").strip() or (
-    "263896994066-obkionr7ma7decc6ic2ovonlgokfhdqg.apps.googleusercontent.com"
-)
-GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "").strip() or (
-    "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"
-)
-GMAIL_PROJECT_ID = os.environ.get("GMAIL_PROJECT_ID", "").strip() or "river-lantern-436006-s4"
+# 凭据必须由环境变量（或仓库根 .env）显式提供：项目已移除内置默认 Gmail 客户端
+# （避免 OAuth client secret 硬编码进仓库），缺失时 client_config() 抛错
+# （fail-closed），绝不回退到任何内置客户端。
+# ``redirect_uris`` must exactly match an Authorized redirect URI in the Google
+# Cloud Console (here: http://localhost:5000/callback, i.e. the mail service
+# runs on port 5000).
+GMAIL_CLIENT_ID = os.environ.get("GMAIL_CLIENT_ID", "").strip()
+GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
+GMAIL_PROJECT_ID = os.environ.get("GMAIL_PROJECT_ID", "").strip()
 
 # Google 授权回调地址。留空时（生产默认）由 API 按请求的 Host /
 # X-Forwarded-Proto 动态推导为 ``https://<public-host>/callback``，部署到任意
@@ -62,8 +59,9 @@ GMAIL_SCOPES = [
 # 相同派生方式验签）。未配置时用户 JWT 通道不可用（fail-closed，返回 401）。
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 
-# 内部服务令牌（HS256）：供 mail MCP 网关等受信内部组件代用户调用本服务
-# （聊天路径的 delegation token 只携带数字 userId，无法直接当作用户 JWT）。
+# 内部服务令牌（HS256）：供 mail MCP 网关等受信内部组件代用户调用本服务。
+# Chat Backend 会在 delegation token 中写入经过用户表解析的 user_email，供 Mail
+# MCP 与原生 Mail 页面复用同一邮箱绑定；没有该字段的旧令牌仍可兼容验签。
 # 显式配置 MAIL_INTERNAL_SECRET；未配置时回退到 AGENT_SHARED_SECRET
 # （与 LostFoundAgentGateway -> L&F agent 的 Java↔Python 共享密钥同一惯例）。
 MAIL_INTERNAL_SECRET = (
@@ -102,7 +100,18 @@ MAIL_AGENT_MAX_TOKENS = int(os.environ.get("MAIL_AGENT_MAX_TOKENS", "2000"))
 
 
 def client_config() -> dict:
-    """Build the Google ``web`` client config dict consumed by the OAuth flow."""
+    """Build the Google ``web`` client config dict consumed by the OAuth flow.
+
+    凭据必须来自环境变量（GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET）；未配置时
+    抛错（fail-closed），而不是退回任何内置客户端。
+    """
+    if not GMAIL_CLIENT_ID or not GMAIL_CLIENT_SECRET:
+        raise RuntimeError(
+            "Gmail OAuth 客户端未配置：mail 服务已移除内置默认客户端，必须在环境变量"
+            "（或仓库根 .env）中设置 GMAIL_CLIENT_ID 与 GMAIL_CLIENT_SECRET。"
+            "获取方式：Google Cloud Console → APIs & Services → Credentials → "
+            "OAuth 2.0 Client IDs（Web 客户端）。"
+        )
     return {
         "web": {
             "client_id": GMAIL_CLIENT_ID,

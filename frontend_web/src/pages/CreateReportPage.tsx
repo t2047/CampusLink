@@ -1,5 +1,6 @@
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EditNoteIcon from '@mui/icons-material/EditNote'
 import { Alert, Box, Button, Card, CardMedia, FormControl, Grid, IconButton, InputLabel, LinearProgress, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -93,28 +94,42 @@ export function CreateReportPage({ reportType }: { reportType: ReportType }) {
   }
 
   return (
-    <Stack spacing={3} component="form" onSubmit={submit} sx={{ minHeight: 'calc(100vh - 3rem)', justifyContent: 'center', py: 2 }}>
-      <Box><Typography variant="h4" fontWeight={700}>Report a {reportType === 'LOST' ? 'lost' : 'found'} item</Typography><Typography color="text.secondary">Provide details that will help another campus member identify the item.</Typography></Box>
+    <Stack spacing={3} component="form" onSubmit={submit} sx={{ height: 'calc(100vh - 3rem)' }}>
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ width: 46, height: 46, borderRadius: 3, display: 'grid', placeItems: 'center', flexShrink: 0, color: '#fff', background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', boxShadow: '0 4px 12px rgba(217, 119, 6, 0.3)' }}>
+          <EditNoteIcon />
+        </Box>
+        <Box>
+          <Typography variant="h4" fontWeight={700}>Report a {reportType === 'LOST' ? 'lost' : 'found'} item</Typography>
+          <Typography color="text.secondary">Provide details that will help another campus member identify the item.</Typography>
+        </Box>
+      </Stack>
       {error && <Alert severity="error">{error}</Alert>}
-      <Card sx={{ p: 3 }}>
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Item name" inputProps={{ minLength: 3, maxLength: 100 }} value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} onBlur={autoSuggestCategory} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><FormControl fullWidth required><InputLabel>Category</InputLabel><Select label="Category" value={form.category} onChange={(e) => { categoryTouchedRef.current = true; setForm({ ...form, category: e.target.value as ItemCategory }) }}>{categories.map((category) => <MenuItem key={category} value={category}>{categoryLabels[category]}</MenuItem>)}</Select></FormControl></Grid>
-          <Grid size={12}><TextField fullWidth required multiline minRows={4} label="Description" helperText="Include brand, distinguishing marks and other identifying details (10–2000 characters)." inputProps={{ minLength: 10, maxLength: 2000 }} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Colour" inputProps={{ maxLength: 50 }} value={form.colour} onChange={(e) => setForm({ ...form, colour: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Location" inputProps={{ maxLength: 200 }} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required type="date" label={reportType === 'LOST' ? 'Date lost' : 'Date found'} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: new Date().toISOString().slice(0, 10) } }} value={form.eventDate} onChange={(e) => setForm({ ...form, eventDate: e.target.value })} /></Grid>
-          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Approximate time" placeholder="e.g. Around 3 pm" inputProps={{ maxLength: 100 }} value={form.timeDescription} onChange={(e) => setForm({ ...form, timeDescription: e.target.value })} /></Grid>
-        </Grid>
-      </Card>
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <Card sx={{ p: 3, flexGrow: 2 }}>
+          <Grid container spacing={2} sx={{ height: '100%' }}>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Item name" inputProps={{ minLength: 3, maxLength: 100 }} value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} onBlur={autoSuggestCategory} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><FormControl fullWidth required><InputLabel>Category</InputLabel><Select label="Category" value={form.category} onChange={(e) => { categoryTouchedRef.current = true; setForm({ ...form, category: e.target.value as ItemCategory }) }}>{categories.map((category) => <MenuItem key={category} value={category}>{categoryLabels[category]}</MenuItem>)}</Select></FormControl></Grid>
+            <Grid size={12} sx={{ display: 'flex', flexDirection: 'column' }}><TextField fullWidth required multiline minRows={4} sx={{ flexGrow: 1 }} label="Description" helperText="Include brand, distinguishing marks and other identifying details (10–2000 characters)." inputProps={{ minLength: 10, maxLength: 2000 }} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Colour" inputProps={{ maxLength: 50 }} value={form.colour} onChange={(e) => setForm({ ...form, colour: e.target.value })} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Location" inputProps={{ maxLength: 200 }} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required type="date" label={reportType === 'LOST' ? 'Date lost' : 'Date found'} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: new Date().toISOString().slice(0, 10) } }} value={form.eventDate} onChange={(e) => setForm({ ...form, eventDate: e.target.value })} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Approximate time" placeholder="e.g. Around 3 pm" inputProps={{ maxLength: 100 }} value={form.timeDescription} onChange={(e) => setForm({ ...form, timeDescription: e.target.value })} /></Grid>
+          </Grid>
+        </Card>
 
-      <Card sx={{ p: 3 }}>
-        <Typography variant="h6">Images <Typography component="span" color="text.secondary" variant="body2">(optional, up to 5)</Typography></Typography>
-        <Button sx={{ mt: 2 }} component="label" variant="outlined" startIcon={<CloudUploadIcon />} disabled={images.length >= 5 || submitting}>
-          Select images<input hidden type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(e) => { selectImages(e.target.files); e.target.value = '' }} />
-        </Button>
-        {images.length > 0 && <Grid container spacing={2} sx={{ mt: 1 }}>{images.map((image, index) => <Grid key={`${image.file.name}-${image.file.lastModified}`} size={{ xs: 6, sm: 4, md: 2.4 }}><Box sx={{ position: 'relative' }}><CardMedia component="img" image={image.preview} alt={image.file.name} sx={{ height: 140, borderRadius: 1, objectFit: 'cover' }} /><IconButton aria-label={`Remove ${image.file.name}`} onClick={() => removeImage(index)} sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'background.paper' }}><DeleteOutlineIcon /></IconButton></Box><Typography variant="caption" noWrap display="block">{image.file.name}</Typography></Grid>)}</Grid>}
-      </Card>
+        <Card sx={{ p: 3, flexGrow: 1 }}>
+          <Typography variant="h6">Images <Typography component="span" color="text.secondary" variant="body2">(optional, up to 5)</Typography></Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2, height: 'calc(100% - 32px)' }}>
+            <Box>
+              <Button component="label" variant="outlined" startIcon={<CloudUploadIcon />} disabled={images.length >= 5 || submitting}>
+                Select images<input hidden type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(e) => { selectImages(e.target.files); e.target.value = '' }} />
+              </Button>
+            </Box>
+            {images.length > 0 && <Grid container spacing={2}>{images.map((image, index) => <Grid key={`${image.file.name}-${image.file.lastModified}`} size={{ xs: 6, sm: 4, md: 2.4 }}><Box sx={{ position: 'relative' }}><CardMedia component="img" image={image.preview} alt={image.file.name} sx={{ height: 140, borderRadius: 1, objectFit: 'cover' }} /><IconButton aria-label={`Remove ${image.file.name}`} onClick={() => removeImage(index)} sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'background.paper' }}><DeleteOutlineIcon /></IconButton></Box><Typography variant="caption" noWrap display="block">{image.file.name}</Typography></Grid>)}</Grid>}
+          </Box>
+        </Card>
+      </Box>
       {submitting && <Box><LinearProgress variant={progress ? 'determinate' : 'indeterminate'} value={progress} /><Typography variant="caption">Uploading {progress ? `${progress}%` : '…'}</Typography></Box>}
       <Stack direction="row" spacing={1} justifyContent="flex-end"><Button onClick={() => navigate(-1)} disabled={submitting}>Cancel</Button><Button type="submit" variant="contained" disabled={submitting}>Publish report</Button></Stack>
     </Stack>

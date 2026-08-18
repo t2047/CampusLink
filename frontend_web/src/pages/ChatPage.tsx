@@ -15,7 +15,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import LanguageOutlinedIcon from '@mui/icons-material/LanguageOutlined';
 import AddCommentOutlinedIcon from '@mui/icons-material/AddCommentOutlined';
-import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
@@ -696,7 +695,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
               title={t('servicesTitle')}
              className="flex h-9 items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 text-sm font-medium text-indigo-700 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 [&>span:nth-child(2)]:hidden"
             >
-              <span className="grid h-5 w-5 place-items-center rounded-md bg-white/80 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"><AppsOutlinedIcon sx={{ fontSize: 16 }} /></span>
+              <img src="/campuslink-icon.svg" alt="CampusLink" className="h-5 w-5 rounded-md" />
               <span className="text-base leading-none">🧩</span>
               {t('services')}
               <ExpandMoreIcon className={`text-indigo-500 transition-transform ${submenuOpen ? 'rotate-180' : ''}`} sx={{ fontSize: 18 }} />

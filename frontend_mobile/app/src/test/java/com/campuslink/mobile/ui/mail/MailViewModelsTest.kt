@@ -70,6 +70,18 @@ class MailViewModelsTest {
     }
 
     @Test
+    fun `mail details toggles read through repository`() = runTest {
+        val repository = FakeMailDataSource()
+        val viewModel = MailDetailsViewModel("mail-1", repository)
+        advanceUntilIdle()
+
+        viewModel.toggleRead()
+        advanceUntilIdle()
+
+        assertEquals(UpdateMailRequest(read = true), repository.lastUpdate)
+    }
+
+    @Test
     fun `calendar rejects invalid range before saving`() = runTest {
         val repository = FakeMailDataSource()
         val viewModel = CalendarViewModel(repository)
@@ -87,13 +99,49 @@ class MailViewModelsTest {
         assertEquals("End time must be after start time.", viewModel.state.value.error)
     }
 
+    @Test
+    fun `calendar extraction uses selected mail window and bounded result size`() = runTest {
+        val repository = FakeMailDataSource()
+        val viewModel = CalendarViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.updateExtractionDays(7)
+        viewModel.extract()
+        advanceUntilIdle()
+
+        assertEquals(7, repository.lastExtractDays)
+        assertEquals(50, repository.lastExtractMaxResults)
+    }
+
+    @Test
+    fun `deleting the event being edited closes the editor and returns to calendar list`() = runTest {
+        val repository = FakeMailDataSource().apply { calendarEvents = listOf(EVENT) }
+        val viewModel = CalendarViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.beginEdit(EVENT)
+        assertTrue(viewModel.state.value.editorVisible)
+        viewModel.delete(EVENT)
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.state.value.editorVisible)
+        assertEquals(null, viewModel.state.value.editingId)
+        assertEquals("", viewModel.state.value.form.title)
+        assertTrue(viewModel.state.value.events.isEmpty())
+        assertEquals("Event deleted", viewModel.state.value.actionMessage)
+    }
+
     private class FakeMailDataSource : MailDataSource {
         var connected = false
         var lastFolder = ""
         var lastQuery = ""
         var lastUnread: Boolean? = null
         var sentRequest: SendMailRequest? = null
+        var lastUpdate: UpdateMailRequest? = null
         var createCalendarCalls = 0
+        var calendarEvents: List<CalendarEvent> = emptyList()
+        var lastExtractDays: Int? = null
+        var lastExtractMaxResults: Int? = null
 
         override suspend fun oauthUrl() = OAuthUrlResponse("https://accounts.example/authorize", connected)
         override suspend fun oauthStatus() = OAuthStatusResponse(connected, if (connected) "student@example.com" else null)
@@ -119,10 +167,16 @@ class MailViewModelsTest {
             return MESSAGE
         }
 
-        override suspend fun updateMessage(messageId: String, request: UpdateMailRequest) = MESSAGE
+        override suspend fun updateMessage(messageId: String, request: UpdateMailRequest): MailMessage {
+            lastUpdate = request
+            return MESSAGE.copy(
+                read = request.read ?: MESSAGE.read,
+                starred = request.starred ?: MESSAGE.starred,
+            )
+        }
         override suspend fun archiveMessage(messageId: String) = MESSAGE
         override suspend fun deleteMessage(messageId: String) = MESSAGE
-        override suspend fun listCalendarEvents(start: String?, end: String?) = emptyList<CalendarEvent>()
+        override suspend fun listCalendarEvents(start: String?, end: String?) = calendarEvents
 
         override suspend fun createCalendarEvent(request: CalendarEventRequest): CalendarEvent {
             createCalendarCalls++
@@ -131,7 +185,11 @@ class MailViewModelsTest {
 
         override suspend fun updateCalendarEvent(eventId: String, request: CalendarEventUpdate) = EVENT
         override suspend fun deleteCalendarEvent(eventId: String) = Unit
-        override suspend fun extractCalendarSchedules(days: Int, maxResults: Int) = ExtractResponse(days, 0, events = emptyList())
+        override suspend fun extractCalendarSchedules(days: Int, maxResults: Int): ExtractResponse {
+            lastExtractDays = days
+            lastExtractMaxResults = maxResults
+            return ExtractResponse(days, 0, events = emptyList())
+        }
         override suspend fun importCalendarSchedules(request: ImportRequest) = ImportResponse(0, request.events.size)
     }
 
