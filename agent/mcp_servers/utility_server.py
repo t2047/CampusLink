@@ -183,64 +183,6 @@ _CURRENCY_ALIASES = {
     "林吉特": "MYR",
 }
 
-# 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
-_EXCHANGE_RATE_API = os.environ.get("EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest")
-
-# 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）
-_FALLBACK_RATES: dict[tuple[str, str], float] = {
-    ("人民币", "美元"): 1 / 7.2,
-    ("美元", "人民币"): 7.2,
-    ("人民币", "欧元"): 1 / 7.8,
-    ("欧元", "人民币"): 7.8,
-}
-
-# 货币换算结果缓存（TTL 1 小时，避免每次调用打汇率 API）
-_rate_cache: dict[str, tuple[float, dict[str, float] | None]] = {}
-_RATE_CACHE_TTL = 3600.0
-# 失败负缓存 TTL（API 故障时短缓存，避免每请求阻塞 5s 重试）
-_RATE_FAIL_TTL = 60.0
-
-logger = logging.getLogger(__name__)
-
-
-def _to_iso_code(name: str) -> str | None:
-    """货币名 → ISO 4217 代码。支持中文别名与直接输入 ISO 代码（USD/CNY 等）。"""
-    upper = name.strip().upper()
-    if re.fullmatch(r"[A-Z]{3}", upper):
-        return upper
-    return _CURRENCY_ALIASES.get(name)
-
-
-def _get_rates(base: str) -> dict[str, float] | None:
-    """获取 base 货币对全货币汇率（带 1h 缓存）。失败返回 None（调用方回退固定汇率）。"""
-    import time
-
-    cached = _rate_cache.get(base)
-    if cached and time.monotonic() - cached[0] < (_RATE_CACHE_TTL if cached[1] else _RATE_FAIL_TTL):
-        return cached[1]
-    try:
-        import httpx
-
-        response = httpx.get(
-            f"{_EXCHANGE_RATE_API}/{base}",
-            timeout=5.0,
-            headers={"User-Agent": "CampusLink/1.0"},
-        )
-        response.raise_for_status()
-        payload = response.json()
-        rates = payload.get("rates") if isinstance(payload, dict) else None
-        if not isinstance(rates, dict) or not rates:
-            raise ValueError(f"empty rates payload: {str(payload)[:200]}")
-        parsed = {k: float(v) for k, v in rates.items() if isinstance(v, (int, float))}
-        _rate_cache[base] = (time.monotonic(), parsed)
-        return parsed
-    except Exception as exc:
-        # 失败负缓存 + 日志：避免每请求阻塞 5s 重试且无迹可查
-        logger.warning("exchange rate fetch failed: base=%s err=%s", base, exc)
-        _rate_cache[base] = (time.monotonic(), None)
-        return None
-
-
 # 货币代码映射（用户常用中文货币名 → ISO 4217）
 _CURRENCY_ALIASES = {
     "人民币": "CNY",
@@ -263,13 +205,41 @@ _CURRENCY_ALIASES = {
 # 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
 _EXCHANGE_RATE_API = os.environ.get("EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest")
 
-# 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）
+# 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）。
+# key 用 ISO 4217 代码（中文别名经 _to_iso_code 归一化后同样命中）；
+# 这些是本地记录的大致汇率，非实时，调用方返回时必须显式说明。
+# 数值更新于 2026-08-18（open.er-api.com 实时值，保留 6 位有效数字）。
 _FALLBACK_RATES: dict[tuple[str, str], float] = {
-    ("人民币", "美元"): 1 / 7.2,
-    ("美元", "人民币"): 7.2,
-    ("人民币", "欧元"): 1 / 7.8,
-    ("欧元", "人民币"): 7.8,
+    ("CNY", "USD"): 0.14808,
+    ("USD", "CNY"): 6.75311,
+    ("CNY", "EUR"): 0.127935,
+    ("EUR", "CNY"): 7.81647,
+    ("SGD", "CNY"): 5.28703,
+    ("CNY", "SGD"): 0.189142,
+    ("USD", "SGD"): 1.2773,
+    ("SGD", "USD"): 0.782904,
+    ("CNY", "HKD"): 1.16168,
+    ("HKD", "CNY"): 0.860823,
+    ("CNY", "JPY"): 23.6056,
+    ("JPY", "CNY"): 0.0423629,
+    ("GBP", "CNY"): 9.14185,
+    ("CNY", "GBP"): 0.109387,
+    ("AUD", "CNY"): 4.79352,
+    ("CNY", "AUD"): 0.208615,
+    ("CAD", "CNY"): 4.86928,
+    ("CNY", "CAD"): 0.205369,
+    ("KRW", "CNY"): 0.004769,
+    ("CNY", "KRW"): 209.688,
+    ("MYR", "CNY"): 1.6581,
+    ("CNY", "MYR"): 0.6031,
+    ("THB", "CNY"): 0.204389,
+    ("CNY", "THB"): 4.89264,
+    ("RUB", "CNY"): 0.0802,
+    ("CNY", "RUB"): 12.4688,
 }
+
+# 走本地固定汇率兜底时返回的显式说明（非实时汇率提示）
+_FALLBACK_RATE_NOTE = "本地记录的大致汇率，并非实时汇率，仅供参考"
 
 # 货币换算结果缓存（TTL 1 小时，避免每次调用打汇率 API）
 _rate_cache: dict[str, tuple[float, dict[str, float] | None]] = {}
@@ -357,8 +327,8 @@ def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
                     },
                     ensure_ascii=False,
                 )
-            # API 失败 → 回退固定汇率
-            fallback = _FALLBACK_RATES.get((from_unit, to_unit))
+            # API 失败 → 回退本地固定汇率（key 为 ISO 码；返回时显式说明非实时）
+            fallback = _FALLBACK_RATES.get((from_code, to_code))
             if fallback is not None:
                 return json.dumps(
                     {
@@ -368,6 +338,7 @@ def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
                         "result": value * fallback,
                         "rate": fallback,
                         "source": "fallback",
+                        "note": _FALLBACK_RATE_NOTE,
                     },
                     ensure_ascii=False,
                 )
