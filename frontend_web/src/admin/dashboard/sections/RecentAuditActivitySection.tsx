@@ -143,7 +143,7 @@ export function RecentAuditActivitySection() {
                       </Stack>
                     </TableCell>
                     <TableCell>{log.actorEmail}</TableCell>
-                    <TableCell sx={{ minWidth: 220 }}><AuditDetail log={log} /></TableCell>
+                    <TableCell sx={{ minWidth: '13.75rem' }}><AuditDetail log={log} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

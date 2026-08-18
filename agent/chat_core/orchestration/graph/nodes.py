@@ -518,12 +518,25 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
 
     # 确认门：web_search 在计划中且尚未确认/取消 → 先征求人工确认
     if "web_search" in utility_plan and pending.get("tool") != "web_search":
+        # 语言跟随：确认文案按用户消息语言输出（2026-08-17 修复：此前固定中文）
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        user_zh = _looks_chinese(user_msg)
         query = _extract_utility_params("web_search", state).get("query", "")
-        message = (
-            f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
-            if query
-            else "即将进行联网搜索，是否继续？"
-        )
+        if query:
+            message = (
+                f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
+                if user_zh
+                else (
+                    f'About to search the web for "{query}". This will send the query '
+                    "to an external search service. Continue?"
+                )
+            )
+        else:
+            message = (
+                "即将进行联网搜索，是否继续？"
+                if user_zh
+                else "About to perform a web search. Continue?"
+            )
         return {
             "requires_approval": True,
             "approval_agent": "utility:web_search",
@@ -531,7 +544,7 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
                 "type": "confirm_external_call",
                 "tool": "web_search",
                 "message": message,
-                "summary": "联网搜索",
+                "summary": "联网搜索" if user_zh else "Web search",
             },
         }
 
@@ -921,6 +934,10 @@ def human_approval(state: AgentState) -> AgentState:
 
     approval_agent = state.get("approval_agent", "")
     approval_context = state.get("approval_context", {}) or {}
+    # 语言跟随：兜底文案按用户语言输出（2026-08-17 检查确认门时发现：
+    # 无 message/summary 时的兜底此前固定中文）
+    user_msg = state["messages"][-1].content if state.get("messages") else ""
+    user_zh = _looks_chinese(user_msg)
     decision = interrupt(
         {
             "type": "confirm_action",
@@ -928,7 +945,11 @@ def human_approval(state: AgentState) -> AgentState:
             "details": approval_context,
             # 确认信息优先用 Agent 的真实摘要（L&F confirmation_required.summary），
             # 前端确认框展示的就是用户要确认的具体内容
-            "message": (approval_context.get("message") or approval_context.get("summary") or "请确认此操作"),
+            "message": (
+                approval_context.get("message")
+                or approval_context.get("summary")
+                or ("请确认此操作" if user_zh else "Please confirm this action")
+            ),
         }
     )
 
@@ -961,7 +982,9 @@ def human_approval(state: AgentState) -> AgentState:
         else:
             invocations[-1] = {
                 **invocations[-1],
-                "output_response": "操作已取消。",
+                "output_response": (
+                    "操作已取消。" if user_zh else "The operation has been cancelled."
+                ),
                 "output_status": "cancelled",
             }
             # 用户取消：跳过该 Agent（不再重调），index 前进到下一个

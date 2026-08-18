@@ -9,7 +9,7 @@ interface AdminPlaceholderPageProps {
 
 export function AdminPlaceholderPage({ title, description, status }: AdminPlaceholderPageProps) {
   return (
-    <Card variant="outlined" sx={{ maxWidth: 720 }}>
+    <Card variant="outlined" sx={{ maxWidth: '45rem' }}>
       <CardContent sx={{ p: { xs: 3, md: 4 } }}>
         <Stack spacing={3} alignItems="flex-start">
           <Typography component="h1" variant="h4" fontWeight={700}>{title}</Typography>
