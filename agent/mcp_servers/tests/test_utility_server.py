@@ -69,7 +69,10 @@ def test_fallback_when_rates_unavailable(monkeypatch) -> None:
     monkeypatch.setattr("mcp_servers.utility_server._get_rates", lambda _base: None)
     r = json.loads(unit_converter(100, "美元", "人民币"))
     assert r["source"] == "fallback"
-    assert abs(r["result"] - 720) < 1
+    # 结果应等于本地固定汇率表对应值（动态读取，汇率更新时无需改测试）
+    from mcp_servers.utility_server import _FALLBACK_RATES
+
+    assert abs(r["result"] - 100 * _FALLBACK_RATES[("USD", "CNY")]) < 1
 
 
 def test_unsupported_pair_returns_error(monkeypatch) -> None:
