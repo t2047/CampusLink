@@ -46,3 +46,14 @@ ml = ["models/*.joblib", "models/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# 保守规则集：只启用能直接反映代码缺陷的检查（未定义名 F821、未使用导入 F401、
+# 语法/缩进/括号 E4/E7/E9 等），不启用风格类规则 —— 本模块从未按 ruff 风格规则
+# 整理过（70+ 处 UP/SIM/DTZ 等风格建议），避免把既有风格问题当合并门禁。
+select = ["E4", "E7", "E9", "F"]
+
+
