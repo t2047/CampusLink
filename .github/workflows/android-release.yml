@@ -1,0 +1,80 @@
+# ─── Android 正式版发布 ─────────────────────────────────────────────
+# 触发：推送 v* tag（如 v0.1.0），或手动 workflow_dispatch（输入 tag 名）
+# 产物：正式签名 prodRelease APK（R8 混淆 + campuslinkRelease signingConfig），
+#       发布为 GitHub Release（自动生成 release notes）。
+#
+# 前置：仓库 Secrets 需配置签名（密钥文件不提交到 Git）：
+#   CAMPUSLINK_RELEASE_STORE_B64      release keystore 文件的 base64
+#   CAMPUSLINK_RELEASE_STORE_PASSWORD keystore 密码
+#   CAMPUSLINK_RELEASE_KEY_ALIAS      签名 key 别名
+#   CAMPUSLINK_RELEASE_KEY_PASSWORD   key 密码
+# 缺少签名配置时 prodRelease 构建会主动失败（fail-closed，
+# 见 frontend_mobile/app/build.gradle.kts 的 validateProdReleaseSigning）。
+
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag name (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build signed APK & publish Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: Restore release signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.CAMPUSLINK_RELEASE_STORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Missing secret CAMPUSLINK_RELEASE_STORE_B64 (base64 of the release .jks keystore)"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/campuslink-release.jks"
+
+      - name: Build signed prodRelease APK
+        env:
+          CAMPUSLINK_RELEASE_STORE_FILE: ${{ runner.temp }}/campuslink-release.jks
+          CAMPUSLINK_RELEASE_STORE_PASSWORD: ${{ secrets.CAMPUSLINK_RELEASE_STORE_PASSWORD }}
+          CAMPUSLINK_RELEASE_KEY_ALIAS: ${{ secrets.CAMPUSLINK_RELEASE_KEY_ALIAS }}
+          CAMPUSLINK_RELEASE_KEY_PASSWORD: ${{ secrets.CAMPUSLINK_RELEASE_KEY_PASSWORD }}
+        working-directory: frontend_mobile
+        run: ./gradlew assembleProdRelease --stacktrace
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        working-directory: frontend_mobile
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/prod/release/app-prod-release.apk"
+          test -f "$APK"
+          cp "$APK" "CampusLink-$TAG.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::warning::Release $TAG already exists; uploading APK asset to it"
+            gh release upload "$TAG" "CampusLink-$TAG.apk" --clobber
+          else
+            gh release create "$TAG" "CampusLink-$TAG.apk" --title "$TAG" --generate-notes
+          fi
