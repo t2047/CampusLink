@@ -75,14 +75,14 @@ describe('ProfilePage', () => {
     renderPage()
 
     expect(await screen.findByText('My Claims')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /My Claims/ })).toHaveAttribute('href', '/claims/mine')
-    expect(screen.getByRole('link', { name: /My Lost Items/ })).toHaveAttribute('href', '/lost-found/profile/lost')
-    expect(screen.getByRole('link', { name: /My Found Items/ })).toHaveAttribute('href', '/lost-found/profile/found')
-    expect(screen.getByRole('link', { name: /My Bookings/ })).toHaveAttribute('href', '/facilities/bookings')
-    expect(screen.getByRole('link', { name: /My Maintenance Requests/ })).toHaveAttribute('href', '/facilities/maintenance')
+    expect(screen.getByRole('link', { name: /My Claims/ })).toHaveAttribute('href', '/claims/mine?from=profile')
+    expect(screen.getByRole('link', { name: /My Lost Items/ })).toHaveAttribute('href', '/lost-found/profile/lost?from=profile')
+    expect(screen.getByRole('link', { name: /My Found Items/ })).toHaveAttribute('href', '/lost-found/profile/found?from=profile')
+    expect(screen.getByRole('link', { name: /My Bookings/ })).toHaveAttribute('href', '/facilities/bookings?from=profile')
+    expect(screen.getByRole('link', { name: /My Maintenance Requests/ })).toHaveAttribute('href', '/facilities/maintenance?from=profile')
     expect(await screen.findByText('0 bookings')).toBeInTheDocument()
     expect(screen.getByText('0 maintenance requests')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /FAQ/ })).toHaveAttribute('href', '/lost-found/faq')
+    expect(screen.getByRole('link', { name: /FAQ/ })).toHaveAttribute('href', '/lost-found/faq?from=profile')
   })
 
   it('shows report counts from the owner=me search totalElements', async () => {
