@@ -657,6 +657,41 @@ async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> s
         return None
 
 
+# 单位换算支持的单位词（货币中文别名 + 常用 ISO 码 + 长度/重量/温度）。
+# 顺序按消息中出现位置取前两个：第一个为 from_unit，第二个为 to_unit。
+_UNIT_CONVERTER_TERMS = [
+    # 货币（与 utility_server._CURRENCY_ALIASES 保持一致）
+    "人民币", "美元", "欧元", "英镑", "日元", "港币", "新币", "新加坡元",
+    "澳元", "加元", "韩元", "卢布", "泰铢", "马来西亚令吉", "林吉特",
+    "CNY", "USD", "EUR", "GBP", "JPY", "HKD", "SGD", "AUD", "CAD", "KRW",
+    "RUB", "THB", "MYR",
+    # 长度 / 重量 / 温度
+    "米", "公里", "英里", "英尺", "千克", "公斤", "斤", "磅", "摄氏度", "华氏度",
+]
+
+
+def _extract_unit_converter_params(msg: str) -> dict[str, Any]:
+    """从消息提取 unit_converter 参数（value / from_unit / to_unit）。
+
+    规则：取第一个数字为 value；单位词按消息中首次出现顺序取前两个，
+    第一个为 from_unit、第二个为 to_unit（"100美元是多少人民币" →
+    from=美元, to=人民币）。提取不足时返回 {}（由 MCP 工具报缺参，
+    编排层转主 Agent 兜底，避免误算）。
+    """
+    value_m = re.search(r"(\d+(?:\.\d+)?)", msg)
+    hits = sorted(
+        ((msg.find(t), t) for t in _UNIT_CONVERTER_TERMS if t in msg),
+        key=lambda p: p[0],
+    )
+    if not value_m or len(hits) < 2:
+        return {}
+    return {
+        "value": float(value_m.group(1)),
+        "from_unit": hits[0][1],
+        "to_unit": hits[1][1],
+    }
+
+
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:
     """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。"""
     msg = state["messages"][-1].content if state.get("messages") else ""
@@ -666,6 +701,11 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
     if tool_name == "calculator":
         match = re.search(r"[\d+\-*/().\s^]+", msg)
         return {"expression": match.group(0).strip() if match else "0"}
+    if tool_name == "unit_converter":
+        # 单位/货币换算：规则提取 value + from_unit + to_unit
+        # （修复：此前无该分支，params 为空 → MCP 必填参数缺失 → 工具失败
+        # 显示"货币换算服务暂时不可用"，2026-08-18）
+        return _extract_unit_converter_params(msg)
     if tool_name == "web_search":
         # 规则级提取 query：去除搜索引导词后作为检索词（"搜索/查一下/search for" 等）
         query = re.sub(
