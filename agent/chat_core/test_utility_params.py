@@ -1,11 +1,10 @@
-"""测试 — Utility 工具参数提取（_extract_utility_params）。
+"""测试 — Utility 工具参数提取。
 
 覆盖两类：
 1. 搜索词提取与回指复用："再查一下/继续"等回指请求复用上一次实际查询词
    （state.last_search_query），修复回指请求被当作字面查询词搜索的问题。
-2. unit_converter 参数提取：货币对（中文/ISO）、反向顺序、小数、温度、
-   缺单位回退。修复此前无该分支导致 params 为空、MCP 必填参数缺失、
-   工具失败显示"货币换算服务暂时不可用"。
+2. unit_converter 参数解析（全 LLM，2026-08-19）：主流货币、词表外货币
+   （越南盾）、回指继承、长度/重量/温度、无法解析降级。规则词表已废弃。
 """
 
 from langchain_core.messages import HumanMessage
@@ -54,33 +53,77 @@ def test_search_policy_anaphora() -> None:
     assert r.get("reused_last") is True
 
 
-# ─── unit_converter 参数提取 ───
+# ─── unit_converter 参数解析（全 LLM）───
 
 
-def test_unit_converter_extracts_currency_pair() -> None:
-    r = _extract_utility_params("unit_converter", _state("100美元是多少人民币"))
-    assert r == {"value": 100.0, "from_unit": "美元", "to_unit": "人民币"}
+class _FakeLLM:
+    """返回固定 content 的假 LLM（ainvoke 异步）。"""
+
+    def __init__(self, content: str) -> None:
+        self._content = content
+
+    async def ainvoke(self, messages: list) -> object:  # noqa: ARG002
+        class _Response:
+            content = self._content
+
+        return _Response()
 
 
-def test_unit_converter_reverse_order() -> None:
-    r = _extract_utility_params("unit_converter", _state("100人民币等于多少美元"))
-    assert r["from_unit"] == "人民币"
-    assert r["to_unit"] == "美元"
+def _patch_llm(monkeypatch, content: str) -> None:
+    from orchestration.graph import nodes
+
+    def fake_chat_llm() -> _FakeLLM:
+        return _FakeLLM(content)
+
+    monkeypatch.setattr(nodes, "chat_llm", fake_chat_llm)
 
 
-def test_unit_converter_decimal_and_iso() -> None:
-    r = _extract_utility_params("unit_converter", _state("把15.5 USD 换算成 CNY"))
-    assert r["value"] == 15.5
-    assert r["from_unit"] == "USD"
-    assert r["to_unit"] == "CNY"
+async def test_llm_parse_mainstream_currency(monkeypatch) -> None:
+    """主流货币对（美元→人民币）由 LLM 解析为 ISO 码。"""
+    from orchestration.graph import nodes
+
+    _patch_llm(monkeypatch, '{"value": 100, "from_unit": "USD", "to_unit": "CNY"}')
+    r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="100美元是多少人民币")]})
+    assert r == {"value": 100.0, "from_unit": "USD", "to_unit": "CNY"}
 
 
-def test_unit_converter_temperature() -> None:
-    r = _extract_utility_params("unit_converter", _state("100摄氏度换成华氏度"))
-    assert r["from_unit"] == "摄氏度"
-    assert r["to_unit"] == "华氏度"
+async def test_llm_parse_unknown_currency(monkeypatch) -> None:
+    """词表外货币（越南盾）→ LLM 解析为 ISO 码。"""
+    from orchestration.graph import nodes
+
+    _patch_llm(monkeypatch, '{"value": 100, "from_unit": "SGD", "to_unit": "VND"}')
+    r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="100新币是多少越南盾")]})
+    assert r == {"value": 100.0, "from_unit": "SGD", "to_unit": "VND"}
 
 
-def test_unit_converter_missing_units_returns_empty() -> None:
-    assert _extract_utility_params("unit_converter", _state("100美元多少钱")) == {}
-    assert _extract_utility_params("unit_converter", _state("多少钱")) == {}
+async def test_llm_parse_anaphora(monkeypatch) -> None:
+    """回指（'是多少美元'）→ LLM 结合历史继承金额与基准币，只更新目标币。"""
+    from orchestration.graph import nodes
+
+    _patch_llm(monkeypatch, '{"value": 100, "from_unit": "SGD", "to_unit": "USD"}')
+    state = {
+        "messages": [
+            HumanMessage(content="100新币是多少人民币"),
+            HumanMessage(content="是多少美元"),
+        ]
+    }
+    r = await nodes._llm_extract_unit_converter(state)
+    assert r == {"value": 100.0, "from_unit": "SGD", "to_unit": "USD"}
+
+
+async def test_llm_parse_temperature(monkeypatch) -> None:
+    """长度/重量/温度 → LLM 输出中文单位词。"""
+    from orchestration.graph import nodes
+
+    _patch_llm(monkeypatch, '{"value": 100, "from_unit": "摄氏度", "to_unit": "华氏度"}')
+    r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="100摄氏度换成华氏度")]})
+    assert r == {"value": 100.0, "from_unit": "摄氏度", "to_unit": "华氏度"}
+
+
+async def test_llm_unparseable(monkeypatch) -> None:
+    """LLM 无法解析（返回 error）→ None，维持原失败路径。"""
+    from orchestration.graph import nodes
+
+    _patch_llm(monkeypatch, '{"error": "无法解析"}')
+    r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="随便聊聊")]})
+    assert r is None

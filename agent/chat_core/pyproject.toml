@@ -15,6 +15,10 @@ dependencies = [
     "langchain-openai>=0.2",
     "langchain-community>=0.3",
     "httpx>=0.27",
+    # truststore：openai SDK 的 httpx2/httpcore2 硬性依赖（Requires-Dist:
+    # truststore>=0.10），漏装会致 LLM 调用报 "No module named 'truststore'"，
+    # 显式声明确保本地/镜像都装上（2026-08-19）
+    "truststore>=0.10",
     "pydantic>=2.7",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",

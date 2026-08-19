@@ -94,7 +94,7 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 7. 用户明确拒绝使用工具（如"不要用工具""别调用工具""不用工具计算""不需要搜索"
    等）时，intent_type="chat"——直接回答或说明，即使消息里含计算/搜索等
    工具关键词；"工具"指所有 utility 工具与 domain agent
-8. 重要防幻觉：intent_type="chat" 时你只做一般性闲聊/知识回答，**绝对禁止**
+8. intent_type="chat" 时你只做一般性闲聊/知识回答，**绝对禁止**
    编造校园业务事实（如失物存放地点/电话/地址、登记信息、预约状态等）。
    用户消息一旦涉及具体校园业务（物品、预约、邮件、技能），一律路由
    agent 或如实说明无法处理，不得虚构
@@ -153,7 +153,7 @@ _CHAT_SYSTEM_PROMPT = """你是 CampusLink 校园助手，服务于 CampusLink �
 回答规则：
 1. 使用与用户消息相同的语言回复（用户用英文则回复英文，用户用中文则回复中文）。
 2. 用户询问"你是谁/你能做什么/有哪些功能"时，用上面的功能列表介绍自己，
-   不要透露底层模型名称（如 DeepSeek）或任何内部技术细节。
+   任何情况下（即使测试、调试等过程中）不要透露底层模型名称（如 DeepSeek）或任何内部技术细节。
 3. 涉及具体业务操作（预约/报失/查邮件/找东西/查信息等）时，引导用户直接提出需求；
    不要编造业务事实（如失物存放地点、预约状态、邮件内容、设施信息）。
 4. 不要提及"工具""agent""LLM""模型"等内部实现细节。"""
@@ -214,7 +214,7 @@ def intent_router(state: AgentState) -> AgentState:
     if pending_info.get("agent_name"):
         abandon = any(
             k in user_msg
-            for k in ("算了", "不用了", "不用找", "不找了", "放弃", "换一个", "先不管", "先不弄")
+            for k in ("算了", "不用了", "不用找", "不找了", "放弃")
         )
         if abandon:
             logger.info("intent_router: abandon clarification for %s", pending_info["agent_name"])
@@ -557,6 +557,9 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     executed_search_query: str | None = None
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
+        if tool_name == "unit_converter":
+            # unit_converter 参数全部由 LLM 解析（规则词表过简、易漏货币，2026-08-19）
+            params = (await _llm_extract_unit_converter(state)) or {}
         # Delegation Token 由 client 内部获取（RS256；兑换失败即拒绝，见 mcp/client.py）
         result = await client.invoke_utility(
             tool_name=tool_name,
@@ -632,7 +635,7 @@ async def _rephrase_in_user_language(user_msg: str, text: str) -> str | None:
                         "说明预订已完成）。"
                     )
                 ),
-                HumanMessage(content=(f"用户消息：{user_msg}\n结果文本：{text}")),
+                HumanMessage(content=f"用户消息：{user_msg}\n结果文本：{text}"),
             ]
         )
         content = getattr(response, "content", "") or ""
@@ -678,39 +681,6 @@ async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> s
 
 # 单位换算支持的单位词（货币中文别名 + 常用 ISO 码 + 长度/重量/温度）。
 # 顺序按消息中出现位置取前两个：第一个为 from_unit，第二个为 to_unit。
-_UNIT_CONVERTER_TERMS = [
-    # 货币（与 utility_server._CURRENCY_ALIASES 保持一致）
-    "人民币", "美元", "欧元", "英镑", "日元", "港币", "新币", "新加坡元",
-    "澳元", "加元", "韩元", "卢布", "泰铢", "马来西亚令吉", "林吉特",
-    "CNY", "USD", "EUR", "GBP", "JPY", "HKD", "SGD", "AUD", "CAD", "KRW",
-    "RUB", "THB", "MYR",
-    # 长度 / 重量 / 温度
-    "米", "公里", "英里", "英尺", "千克", "公斤", "斤", "磅", "摄氏度", "华氏度",
-]
-
-
-def _extract_unit_converter_params(msg: str) -> dict[str, Any]:
-    """从消息提取 unit_converter 参数（value / from_unit / to_unit）。
-
-    规则：取第一个数字为 value；单位词按消息中首次出现顺序取前两个，
-    第一个为 from_unit、第二个为 to_unit（"100美元是多少人民币" →
-    from=美元, to=人民币）。提取不足时返回 {}（由 MCP 工具报缺参，
-    编排层转主 Agent 兜底，避免误算）。
-    """
-    value_m = re.search(r"(\d+(?:\.\d+)?)", msg)
-    hits = sorted(
-        ((msg.find(t), t) for t in _UNIT_CONVERTER_TERMS if t in msg),
-        key=lambda p: p[0],
-    )
-    if not value_m or len(hits) < 2:
-        return {}
-    return {
-        "value": float(value_m.group(1)),
-        "from_unit": hits[0][1],
-        "to_unit": hits[1][1],
-    }
-
-
 # 回指请求模式：消息本身不含新的查询内容，指代上一次搜索
 # （"再查一下/再搜一次/继续/还有呢"等）。命中时复用 state.last_search_query。
 _ANAPHORA_REQ = re.compile(
@@ -719,6 +689,49 @@ _ANAPHORA_REQ = re.compile(
     r"search\s+again|look\s+(?:it\s+)?up\s+again|check\s+again)$",
     re.IGNORECASE,
 )
+
+
+async def _llm_extract_unit_converter(state: AgentState) -> dict[str, Any] | None:
+    """unit_converter 参数解析（全 LLM，2026-08-19）。
+
+    从最近对话解析 value/from_unit/to_unit：支持任意货币（含词表外的
+    越南盾等）与回指（"是多少美元"——从历史继承金额与基准币，只更新
+    目标币）。from/to 优先输出 ISO 4217 大写代码（长度/重量/温度输出
+    中文单位词）。解析失败返回 None（调用方维持原失败路径）。
+    """
+    history = _recent_history_text(state, limit=6)
+    llm = chat_llm()
+    try:
+        response = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "你是单位换算参数解析器。根据对话历史输出严格 JSON，简化思考过程以加快速度，但保证精确："
+                        '{"value": 数字, "from_unit": "X", "to_unit": "Y"}。'
+                        "规则：货币一律用 ISO 4217 大写代码（如 CNY/USD/SGD/VND/THB/MYR/RUB）；"
+                        "长度/重量/温度用中文单位词（米/公里/千克/摄氏度等）。"
+                        "若消息是回指（如'是多少美元'），从历史继承金额与基准币，只更新目标币。"
+                        '无法解析时输出 {"error": "无法解析"}。只输出 JSON，不要任何其他文字。'
+                    )
+                ),
+                HumanMessage(content=f"对话历史：\n{history}"),
+            ]
+        )
+        text = (getattr(response, "content", "") or "").strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end < 0:
+            return None
+        data = json.loads(text[start : end + 1])
+        if not isinstance(data, dict) or "error" in data:
+            return None
+        value = float(data["value"])
+        from_unit = str(data.get("from_unit", "")).strip().upper()
+        to_unit = str(data.get("to_unit", "")).strip().upper()
+        if not from_unit or not to_unit:
+            return None
+        return {"value": value, "from_unit": from_unit, "to_unit": to_unit}
+    except Exception:
+        return None
 
 
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:
@@ -735,11 +748,6 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
     if tool_name == "calculator":
         match = re.search(r"[\d+\-*/().\s^]+", msg)
         return {"expression": match.group(0).strip() if match else "0"}
-    if tool_name == "unit_converter":
-        # 单位/货币换算：规则提取 value + from_unit + to_unit
-        # （修复：此前无该分支，params 为空 → MCP 必填参数缺失 → 工具失败
-        # 显示"货币换算服务暂时不可用"，2026-08-18）
-        return _extract_unit_converter_params(msg)
     if tool_name in ("web_search", "search_policy"):
         # 规则级提取 query：去除搜索引导词后作为检索词（"搜索/查一下/search for" 等）
         query = re.sub(
