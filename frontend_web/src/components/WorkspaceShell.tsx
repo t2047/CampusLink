@@ -63,7 +63,7 @@ export function WorkspaceShell() {
         </NavLink>
 
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto" aria-label="Main navigation">
-          <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Main Menu</p>
+          <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Menu</p>
           <SidebarLink to="/chat" label="Agent" icon={<ChatBubbleOutlineOutlinedIcon sx={{ fontSize: 19 }} />} />
           <button type="button" onClick={() => setLostFoundOpen((value) => !value)} className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
             <span className="flex items-center gap-3"><SearchOutlinedIcon sx={{ fontSize: 19 }} />Lost &amp; Found</span>
