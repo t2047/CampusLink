@@ -55,6 +55,10 @@ class AgentState(TypedDict, total=False):
     utility_results: dict[str, dict[str, Any]]
     # 工具成功结果经 LLM 按用户语言重述后的最终回复（无则聚合器回退格式化拼接）
     utility_response: str | None
+    # 最近一次联网/政策搜索实际使用的查询词（跨轮保留，供"再查一下/继续"等
+    # 回指请求复用；机制同 pending_info——_build_initial_state 不重置，靠 checkpoint
+    # 跨轮保留，见 orchestration/main.py）
+    last_search_query: str | None
 
     # ── Human-in-the-loop ──
     requires_approval: bool
