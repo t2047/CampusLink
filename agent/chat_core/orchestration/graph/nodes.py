@@ -518,12 +518,25 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
 
     # 确认门：web_search 在计划中且尚未确认/取消 → 先征求人工确认
     if "web_search" in utility_plan and pending.get("tool") != "web_search":
+        # 语言跟随：确认文案按用户消息语言输出（2026-08-17 修复：此前固定中文）
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        user_zh = _looks_chinese(user_msg)
         query = _extract_utility_params("web_search", state).get("query", "")
-        message = (
-            f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
-            if query
-            else "即将进行联网搜索，是否继续？"
-        )
+        if query:
+            message = (
+                f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
+                if user_zh
+                else (
+                    f'About to search the web for "{query}". This will send the query '
+                    "to an external search service. Continue?"
+                )
+            )
+        else:
+            message = (
+                "即将进行联网搜索，是否继续？"
+                if user_zh
+                else "About to perform a web search. Continue?"
+            )
         return {
             "requires_approval": True,
             "approval_agent": "utility:web_search",
@@ -531,7 +544,7 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
                 "type": "confirm_external_call",
                 "tool": "web_search",
                 "message": message,
-                "summary": "联网搜索",
+                "summary": "联网搜索" if user_zh else "Web search",
             },
         }
 
@@ -541,6 +554,7 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
 
     results: dict[str, Any] = {}
     failures: list[str] = []
+    executed_search_query: str | None = None
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
         # Delegation Token 由 client 内部获取（RS256；兑换失败即拒绝，见 mcp/client.py）
@@ -551,6 +565,9 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
             user_role=state.get("user_role", "STUDENT"),
         )
         results[tool_name] = result
+        if tool_name in ("web_search", "search_policy") and params.get("query"):
+            # 记录实际使用的查询词，供下一轮回指请求（"再查一下"）复用
+            executed_search_query = params["query"]
         if not isinstance(result, dict) or result.get("status") == "failed":
             failures.append(f"工具 {tool_name} 暂时不可用")
 
@@ -559,6 +576,8 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
         # 消费联网确认标记（确认/取消只生效一次）
         "pending_utility_confirm": None,
     }
+    if executed_search_query is not None:
+        update["last_search_query"] = executed_search_query
     if failures:
         # 失败上下文：转主 Agent（LLM）兜底时使用
         update["service_failures"] = list(state.get("service_failures") or []) + failures
@@ -692,8 +711,23 @@ def _extract_unit_converter_params(msg: str) -> dict[str, Any]:
     }
 
 
+# 回指请求模式：消息本身不含新的查询内容，指代上一次搜索
+# （"再查一下/再搜一次/继续/还有呢"等）。命中时复用 state.last_search_query。
+_ANAPHORA_REQ = re.compile(
+    r"^(?:再(?:查|搜|找|看看)(?:一下|一次|一)?|接着(?:查|搜)|继续(?:查|搜|找|看看|一下)?|"
+    r"查查|搜搜|再查查|还有呢|然后呢|"
+    r"search\s+again|look\s+(?:it\s+)?up\s+again|check\s+again)$",
+    re.IGNORECASE,
+)
+
+
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:
-    """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。"""
+    """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。
+
+    web_search / search_policy：去除搜索引导词后作为检索词；消息为回指请求
+    （无实质查询内容）时复用上一次实际执行的查询词（state.last_search_query），
+    修复"再查一下"被当作字面查询词搜索的问题（2026-08-18）。
+    """
     msg = state["messages"][-1].content if state.get("messages") else ""
     if tool_name == "get_current_time":
         # Asia/Singapore：项目部署地（与 system_facts 一致，2026-08-15 统一）
@@ -706,28 +740,21 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
         # （修复：此前无该分支，params 为空 → MCP 必填参数缺失 → 工具失败
         # 显示"货币换算服务暂时不可用"，2026-08-18）
         return _extract_unit_converter_params(msg)
-    if tool_name == "web_search":
+    if tool_name in ("web_search", "search_policy"):
         # 规则级提取 query：去除搜索引导词后作为检索词（"搜索/查一下/search for" 等）
         query = re.sub(
-            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查|帮我搜|查询|"
+            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查(?:一下|一)?|帮我搜(?:一下|一)?|查询|"
             r"search(?:\s+for)?\s*[:：]?\s*|find\s*[:：]?\s*)",
             "",
             msg,
             flags=re.IGNORECASE,
         ).strip()
+        if not query or _ANAPHORA_REQ.match(msg.strip()):
+            # 回指：复用上一次实际执行的查询词；无历史时回退整句（原行为）
+            prev = state.get("last_search_query")
+            if prev:
+                return {"query": prev, "reused_last": True}
         return {"query": query or msg.strip()}
-    if tool_name == "search_policy":
-        # 规则级提取 query：与 web_search 相同去除引导词；无引导词时用整句（如"考试可以带计算器吗"）
-        query = re.sub(
-            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查|帮我搜|查询|"
-            r"search(?:\s+for)?\s*[:：]?\s*|find\s*[:：]?\s*)",
-            "",
-            msg,
-            flags=re.IGNORECASE,
-        ).strip()
-        return {"query": query or msg.strip()}
-    # text_translator 已移除（2026-08-08）：翻译由 chat_responder 的 LLM 直答
-    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -961,6 +988,10 @@ def human_approval(state: AgentState) -> AgentState:
 
     approval_agent = state.get("approval_agent", "")
     approval_context = state.get("approval_context", {}) or {}
+    # 语言跟随：兜底文案按用户语言输出（2026-08-17 检查确认门时发现：
+    # 无 message/summary 时的兜底此前固定中文）
+    user_msg = state["messages"][-1].content if state.get("messages") else ""
+    user_zh = _looks_chinese(user_msg)
     decision = interrupt(
         {
             "type": "confirm_action",
@@ -968,7 +999,11 @@ def human_approval(state: AgentState) -> AgentState:
             "details": approval_context,
             # 确认信息优先用 Agent 的真实摘要（L&F confirmation_required.summary），
             # 前端确认框展示的就是用户要确认的具体内容
-            "message": (approval_context.get("message") or approval_context.get("summary") or "请确认此操作"),
+            "message": (
+                approval_context.get("message")
+                or approval_context.get("summary")
+                or ("请确认此操作" if user_zh else "Please confirm this action")
+            ),
         }
     )
 
@@ -1001,7 +1036,9 @@ def human_approval(state: AgentState) -> AgentState:
         else:
             invocations[-1] = {
                 **invocations[-1],
-                "output_response": "操作已取消。",
+                "output_response": (
+                    "操作已取消。" if user_zh else "The operation has been cancelled."
+                ),
                 "output_status": "cancelled",
             }
             # 用户取消：跳过该 Agent（不再重调），index 前进到下一个

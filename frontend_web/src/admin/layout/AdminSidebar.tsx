@@ -19,7 +19,7 @@ export function AdminSidebar({ onClose, onNavigate, showCloseButton = false }: A
   const location = useLocation()
 
   return (
-    <Box component="nav" aria-label="Administration" sx={{ width: 256 }}>
+    <Box component="nav" aria-label="Administration" sx={{ width: '16rem' }}>
       <Toolbar sx={{ justifyContent: 'space-between' }}>
         <Typography variant="subtitle1" fontWeight={700}>Administration</Typography>
         {showCloseButton && (

@@ -67,7 +67,7 @@ function SpaceStatusChart({ breakdown }: SpaceStatusChartProps) {
                     <Typography fontWeight={600}>{label}</Typography>
                     <Typography aria-label={`${label} count`}>{count}</Typography>
                   </Stack>
-                  <Box sx={{ height: 12, borderRadius: 999, bgcolor: 'action.hover', overflow: 'hidden' }}>
+                  <Box sx={{ height: '0.75rem', borderRadius: 999, bgcolor: 'action.hover', overflow: 'hidden' }}>
                     <Box
                       role="img"
                       aria-label={`${label} facilities: ${count}`}

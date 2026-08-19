@@ -992,7 +992,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
                 onClick={toggleMic}
                 title={speech.listening ? t('micStop') : t('micStart')}
                 aria-label={speech.listening ? t('micStop') : t('micStart')}
-                className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl transition-colors ${
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition-colors ${
                   speech.listening
                     ? 'animate-pulse bg-red-500 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
@@ -1022,7 +1022,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
                   {[0, 1, 2, 3, 4].map((bar) => (
                     <span
                       key={bar}
-                      className={`w-[3px] rounded-full transition-colors ${
+                      className={`w-[0.19rem] rounded-full transition-colors ${
                         speech.volume * 5 > bar
                           ? 'bg-red-500'
                           : 'bg-slate-200 dark:bg-slate-600'
@@ -1044,13 +1044,13 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
             }}
             onKeyDown={handleKeyDown}
             placeholder={compact ? 'Type a message' : t('placeholder')}
-            className="max-h-40 min-h-[44px] min-w-0 flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
+            className="max-h-40 min-h-11 min-w-0 flex-1 resize-none rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500 dark:focus:bg-slate-900"
           />
           {streaming ? (
             <button
               type="button"
               onClick={stop}
-              className="flex h-[44px] shrink-0 items-center gap-1.5 rounded-2xl bg-red-500 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600"
+              className="flex h-11 shrink-0 items-center gap-1.5 rounded-2xl bg-red-500 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600"
             >
               <svg
                 className="h-4 w-4"
@@ -1066,7 +1066,7 @@ export default function ChatPage({ compact = false }: { compact?: boolean }) {
               type="button"
               onClick={() => send()}
               disabled={!input.trim()}
-              className="flex h-[44px] shrink-0 items-center gap-1.5 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700"
+              className="flex h-11 shrink-0 items-center gap-1.5 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700"
             >
               <svg
                 className="h-4 w-4"
