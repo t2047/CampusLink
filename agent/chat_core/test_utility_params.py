@@ -84,3 +84,69 @@ def test_unit_converter_temperature() -> None:
 def test_unit_converter_missing_units_returns_empty() -> None:
     assert _extract_utility_params("unit_converter", _state("100美元多少钱")) == {}
     assert _extract_utility_params("unit_converter", _state("多少钱")) == {}
+
+
+# ─── LLM 兜底（规则提取失败时，2026-08-19）───
+
+
+class _FakeLLM:
+    """返回固定 content 的假 LLM（ainvoke 异步）。"""
+
+    def __init__(self, content: str) -> None:
+        self._content = content
+
+    async def ainvoke(self, messages: list) -> object:  # noqa: ARG002
+        class _Response:
+            content = self._content
+
+        return _Response()
+
+
+async def test_llm_fallback_unknown_currency(monkeypatch) -> None:
+    """词表未收录货币（越南盾）→ LLM 兜底解析为 ISO 码。"""
+    from orchestration.graph import nodes
+
+    def fake_chat_llm() -> _FakeLLM:
+        return _FakeLLM('{"value": 100, "from_unit": "SGD", "to_unit": "VND"}')
+
+    monkeypatch.setattr(nodes, "chat_llm", fake_chat_llm)
+    r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="100新币是多少越南盾")]})
+    assert r == {"value": 100.0, "from_unit": "SGD", "to_unit": "VND"}
+
+
+async def test_llm_fallback_anaphora(monkeypatch) -> None:
+    """回指（'是多少美元'）→ LLM 结合历史继承金额与基准币，只更新目标币。"""
+    from orchestration.graph import nodes
+
+    def fake_chat_llm() -> _FakeLLM:
+        return _FakeLLM('{"value": 100, "from_unit": "SGD", "to_unit": "USD"}')
+
+    monkeypatch.setattr(nodes, "chat_llm", fake_chat_llm)
+    state = {
+        "messages": [
+            HumanMessage(content="100新币是多少人民币"),
+            HumanMessage(content="是多少美元"),
+        ]
+    }
+    r = await nodes._llm_extract_unit_converter(state)
+    assert r == {"value": 100.0, "from_unit": "SGD", "to_unit": "USD"}
+
+
+async def test_llm_fallback_unparseable(monkeypatch) -> None:
+    """LLM 无法解析（返回 error）→ None，维持原失败路径。"""
+    from orchestration.graph import nodes
+
+    def fake_chat_llm() -> _FakeLLM:
+        return _FakeLLM('{"error": "无法解析"}')
+
+    monkeypatch.setattr(nodes, "chat_llm", fake_chat_llm)
+    r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="随便聊聊")]})
+    assert r is None
+
+
+def test_trimmed_terms_exclude_minor_currencies() -> None:
+    """词表精简：泰铢/卢布/令吉不再规则提取（交 LLM 兜底）。"""
+    r = _extract_utility_params("unit_converter", _state("100泰铢是多少人民币"))
+    assert r == {}
+    r2 = _extract_utility_params("unit_converter", _state("100卢布是多少人民币"))
+    assert r2 == {}

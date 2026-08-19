@@ -557,6 +557,11 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     executed_search_query: str | None = None
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
+        if tool_name == "unit_converter" and not params:
+            # 规则提取失败（未收录货币/回指等）→ LLM 兜底解析，成功则重试（2026-08-19）
+            llm_params = await _llm_extract_unit_converter(state)
+            if llm_params:
+                params = llm_params
         # Delegation Token 由 client 内部获取（RS256；兑换失败即拒绝，见 mcp/client.py）
         result = await client.invoke_utility(
             tool_name=tool_name,
@@ -679,11 +684,10 @@ async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> s
 # 单位换算支持的单位词（货币中文别名 + 常用 ISO 码 + 长度/重量/温度）。
 # 顺序按消息中出现位置取前两个：第一个为 from_unit，第二个为 to_unit。
 _UNIT_CONVERTER_TERMS = [
-    # 货币（与 utility_server._CURRENCY_ALIASES 保持一致）
+    # 货币（主流 + 新加坡元；其余货币如越南盾等由 LLM 解析兜底，2026-08-19）
     "人民币", "美元", "欧元", "英镑", "日元", "港币", "新币", "新加坡元",
-    "澳元", "加元", "韩元", "卢布", "泰铢", "马来西亚令吉", "林吉特",
+    "澳元", "加元", "韩元",
     "CNY", "USD", "EUR", "GBP", "JPY", "HKD", "SGD", "AUD", "CAD", "KRW",
-    "RUB", "THB", "MYR",
     # 长度 / 重量 / 温度
     "米", "公里", "英里", "英尺", "千克", "公斤", "斤", "磅", "摄氏度", "华氏度",
 ]
@@ -719,6 +723,48 @@ _ANAPHORA_REQ = re.compile(
     r"search\s+again|look\s+(?:it\s+)?up\s+again|check\s+again)$",
     re.IGNORECASE,
 )
+
+
+async def _llm_extract_unit_converter(state: AgentState) -> dict[str, Any] | None:
+    """规则提取失败时的 LLM 兜底：从最近对话解析 unit_converter 参数。
+
+    覆盖规则词表未收录的货币（如越南盾）与回指（"是多少美元"——从历史
+    继承金额与基准币，只更新目标币）。from/to 优先输出 ISO 4217 大写代码
+    （长度/重量/温度输出中文单位词）。解析失败返回 None（维持原失败路径）。
+    """
+    history = _recent_history_text(state, limit=6)
+    llm = chat_llm()
+    try:
+        response = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "你是单位换算参数解析器。根据对话历史输出严格 JSON："
+                        '{"value": 数字, "from_unit": "X", "to_unit": "Y"}。'
+                        "规则：货币一律用 ISO 4217 大写代码（如 CNY/USD/SGD/VND/THB/MYR/RUB）；"
+                        "长度/重量/温度用中文单位词（米/公里/千克/摄氏度等）。"
+                        "若消息是回指（如'是多少美元'），从历史继承金额与基准币，只更新目标币。"
+                        '无法解析时输出 {"error": "无法解析"}。只输出 JSON，不要任何其他文字。'
+                    )
+                ),
+                HumanMessage(content=f"对话历史：\n{history}"),
+            ]
+        )
+        text = (getattr(response, "content", "") or "").strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end < 0:
+            return None
+        data = json.loads(text[start : end + 1])
+        if not isinstance(data, dict) or "error" in data:
+            return None
+        value = float(data["value"])
+        from_unit = str(data.get("from_unit", "")).strip().upper()
+        to_unit = str(data.get("to_unit", "")).strip().upper()
+        if not from_unit or not to_unit:
+            return None
+        return {"value": value, "from_unit": from_unit, "to_unit": to_unit}
+    except Exception:
+        return None
 
 
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:

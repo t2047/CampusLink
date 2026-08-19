@@ -270,7 +270,7 @@ def _get_rates(base: str) -> dict[str, float] | None:
 
         response = httpx.get(
             f"{_EXCHANGE_RATE_API}/{base}",
-            timeout=5.0,
+            timeout=15.0,  # open.er-api.com 响应慢（实测可达 4.6s+），5s 过短导致间歇性失败
             headers={"User-Agent": "CampusLink/1.0"},
         )
         response.raise_for_status()
