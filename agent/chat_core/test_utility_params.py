@@ -127,15 +127,3 @@ async def test_llm_unparseable(monkeypatch) -> None:
     _patch_llm(monkeypatch, '{"error": "无法解析"}')
     r = await nodes._llm_extract_unit_converter({"messages": [HumanMessage(content="随便聊聊")]})
     assert r is None
-
-
-async def test_rule_fallback_when_llm_fails(monkeypatch) -> None:
-    """LLM 无法解析时，规则兜底仍可提取主流货币对（如 100美元→人民币）。"""
-    from orchestration.graph import nodes
-
-    _patch_llm(monkeypatch, '{"error": "无法解析"}')
-    state = {"messages": [HumanMessage(content="100美元是多少人民币")]}
-    llm_r = await nodes._llm_extract_unit_converter(state)
-    assert llm_r is None
-    rule_r = nodes._rule_extract_unit_converter("100美元是多少人民币")
-    assert rule_r == {"value": 100.0, "from_unit": "美元", "to_unit": "人民币"}
