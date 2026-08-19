@@ -214,7 +214,7 @@ def intent_router(state: AgentState) -> AgentState:
     if pending_info.get("agent_name"):
         abandon = any(
             k in user_msg
-            for k in ("算了", "不用了", "不用找", "不找了", "放弃")
+            for k in ("算了", "不用了", "不用找", "不找了", "放弃", "换一个", "先不管", "先不弄")
         )
         if abandon:
             logger.info("intent_router: abandon clarification for %s", pending_info["agent_name"])
@@ -558,8 +558,9 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
         if tool_name == "unit_converter":
-            # unit_converter 参数全部由 LLM 解析（规则词表过简、易漏货币，2026-08-19）
-            params = (await _llm_extract_unit_converter(state)) or {}
+            # 主路径：LLM 解析（任意货币/回指）；失败时回退规则提取主流货币（2026-08-19）
+            llm_params = await _llm_extract_unit_converter(state)
+            params = llm_params or _rule_extract_unit_converter(state["messages"][-1].content if state.get("messages") else "")
         # Delegation Token 由 client 内部获取（RS256；兑换失败即拒绝，见 mcp/client.py）
         result = await client.invoke_utility(
             tool_name=tool_name,
@@ -681,6 +682,32 @@ async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> s
 
 # 单位换算支持的单位词（货币中文别名 + 常用 ISO 码 + 长度/重量/温度）。
 # 顺序按消息中出现位置取前两个：第一个为 from_unit，第二个为 to_unit。
+# 主流货币规则兜底（LLM 解析失败时回退；主路径仍为 LLM，2026-08-19）
+_UNIT_CONVERTER_TERMS = [
+    "人民币", "美元", "欧元", "英镑", "日元", "港币", "新币", "新加坡元",
+    "澳元", "加元", "韩元",
+    "CNY", "USD", "EUR", "GBP", "JPY", "HKD", "SGD", "AUD", "CAD", "KRW",
+    # 长度 / 重量 / 温度
+    "米", "公里", "英里", "英尺", "千克", "公斤", "斤", "磅", "摄氏度", "华氏度",
+]
+
+
+def _rule_extract_unit_converter(msg: str) -> dict[str, Any]:
+    """规则提取（兜底）：取第一个数字为 value；单位词按消息中首次出现顺序取前两个。"""
+    value_m = re.search(r"(\d+(?:\.\d+)?)", msg)
+    hits = sorted(
+        ((msg.find(t), t) for t in _UNIT_CONVERTER_TERMS if t in msg),
+        key=lambda p: p[0],
+    )
+    if not value_m or len(hits) < 2:
+        return {}
+    return {
+        "value": float(value_m.group(1)),
+        "from_unit": hits[0][1],
+        "to_unit": hits[1][1],
+    }
+
+
 # 回指请求模式：消息本身不含新的查询内容，指代上一次搜索
 # （"再查一下/再搜一次/继续/还有呢"等）。命中时复用 state.last_search_query。
 _ANAPHORA_REQ = re.compile(
@@ -708,9 +735,12 @@ async def _llm_extract_unit_converter(state: AgentState) -> dict[str, Any] | Non
                     content=(
                         "你是单位换算参数解析器。根据对话历史输出严格 JSON，简化思考过程以加快速度，但保证精确："
                         '{"value": 数字, "from_unit": "X", "to_unit": "Y"}。'
-                        "规则：货币一律用 ISO 4217 大写代码（如 CNY/USD/SGD/VND/THB/MYR/RUB）；"
+                        "方向语义：from_unit = 金额所在的货币/单位，to_unit = 要换算成的目标货币/单位"
+                        "（如'100美元是多少人民币' → from=USD, to=CNY；切勿颠倒）。"
+                        "规则：货币一律用 ISO 4217 大写代码（如 CNY/USD/SGD/VND/THB/MYR/RUB/CHF）；"
                         "长度/重量/温度用中文单位词（米/公里/千克/摄氏度等）。"
                         "若消息是回指（如'是多少美元'），从历史继承金额与基准币，只更新目标币。"
+                        "货币名有歧义时选仍在流通的货币（如'法郎'→CHF 瑞士法郎，法国法郎已废止）。"
                         '无法解析时输出 {"error": "无法解析"}。只输出 JSON，不要任何其他文字。'
                     )
                 ),
@@ -730,7 +760,8 @@ async def _llm_extract_unit_converter(state: AgentState) -> dict[str, Any] | Non
         if not from_unit or not to_unit:
             return None
         return {"value": value, "from_unit": from_unit, "to_unit": to_unit}
-    except Exception:
+    except Exception as exc:
+        logger.warning("unit_converter LLM parse failed: err=%s", exc)
         return None
 
 
