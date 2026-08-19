@@ -203,7 +203,9 @@ _CURRENCY_ALIASES = {
 }
 
 # 实时汇率 API（免费、无需 key、JSON；货币换算优先实时，失败回退固定汇率）
-_EXCHANGE_RATE_API = os.environ.get("EXCHANGE_RATE_API_URL", "https://open.er-api.com/v6/latest")
+# 默认 exchangerate.fun（haxqer/FreeExchangeRateApi，每小时更新、170+ 货币）；
+# 2026-08-19 从 open.er-api.com 切换（实测 0.3s vs 4.6s，解决慢响应致间歇失败）
+_EXCHANGE_RATE_API = os.environ.get("EXCHANGE_RATE_API_URL", "https://api.exchangerate.fun/latest")
 
 # 固定汇率兜底（API 不可用时使用，2026-08-15 起仅作降级）。
 # key 用 ISO 4217 代码（中文别名经 _to_iso_code 归一化后同样命中）；
@@ -269,8 +271,9 @@ def _get_rates(base: str) -> dict[str, float] | None:
         import httpx
 
         response = httpx.get(
-            f"{_EXCHANGE_RATE_API}/{base}",
-            timeout=15.0,  # open.er-api.com 响应慢（实测可达 4.6s+），5s 过短导致间歇性失败
+            _EXCHANGE_RATE_API,
+            params={"base": base},  # exchangerate.fun：base 为 query 参数
+            timeout=15.0,  # 上游响应慢时兜底；实测 0.3s，余量充足
             headers={"User-Agent": "CampusLink/1.0"},
         )
         response.raise_for_status()
@@ -292,7 +295,7 @@ def _get_rates(base: str) -> dict[str, float] | None:
 def unit_converter(value: float, from_unit: str, to_unit: str) -> str:
     """单位换算（长度/重量/温度/货币）。
 
-    货币换算使用实时汇率（open.er-api.com，免费无 key，1 小时缓存）；
+    货币换算使用实时汇率（exchangerate.fun，免费无 key，1 小时缓存）；
     API 不可用时回退固定汇率。非货币换算为固定比率。
     """
     # 货币换算：中文别名/ISO 代码 → 实时汇率
