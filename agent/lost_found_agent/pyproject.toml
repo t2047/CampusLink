@@ -1,63 +1,83 @@
+# ============================================================
+# 文件作用：campuslink-lost-found-agent 的工程配置文件（pyproject.toml）
+#   - 定义 Python 工程元信息、运行时依赖与开发依赖
+#   - 配置构建/打包方式（hatchling）、测试与静态检查工具（pytest / ruff / mypy / bandit）
+#   - 与 uv.lock 配合管理依赖锁版本，供 Dockerfile 构建镜像使用
+# 说明：仅添加注释，未改动任何配置键、值、结构或版本号。
+# ============================================================
+
+# [build-system]：指定构建后端，用于安装/打包本工程
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27"]   # 构建所需的最小依赖版本
 build-backend = "hatchling.build"
 
+# [project]：工程元信息（名称、版本、描述、Python 版本要求等）
 [project]
-name = "campuslink-lost-found-agent"
-version = "0.7.0"
-description = "CampusLink Lost & Found domain agent"
-readme = "README.md"
-requires-python = ">=3.12"
+name = "campuslink-lost-found-agent"       # 工程名（安装/发布用）
+version = "0.7.0"                          # 版本号
+description = "CampusLink Lost & Found domain agent"   # 工程简介：失物招领领域 Agent
+readme = "README.md"                       # 工程说明文档
+requires-python = ">=3.12"                 # 最低支持的 Python 版本
+# dependencies：运行时依赖分组（生产环境安装所需）
 dependencies = [
-    "fastapi>=0.116,<1",
-    "httpx>=0.28,<1",
-    "mcp>=1.28,<2",
-    "pillow>=11,<13",
-    "pydantic>=2.11,<3",
-    "pydantic-settings>=2.10,<3",
-    "pyjwt>=2.10,<3",
-    "python-dotenv>=1.0,<2",
-    "uvicorn[standard]>=0.35,<1",
+    "fastapi>=0.116,<1",             # Web 框架，提供 HTTP 接口与健康检查
+    "httpx>=0.28,<1",                # HTTP 客户端，用于外部服务调用
+    "mcp>=1.28,<2",                  # MCP（模型上下文协议）SDK，实现 Agent 工具服务
+    "pillow>=11,<13",                # 图像处理（图片相似度/缩略图等）
+    "pydantic>=2.11,<3",             # 数据校验与模型定义
+    "pydantic-settings>=2.10,<3",    # 从环境变量/文件读取配置
+    "pyjwt>=2.10,<3",                # JWT 令牌生成与校验（用户身份认证）
+    "python-dotenv>=1.0,<2",         # 读取 .env 文件加载环境变量
+    "uvicorn[standard]>=0.35,<1",    # ASGI 服务器，运行 FastAPI 应用
 ]
 
+# [project.optional-dependencies]：可选依赖分组，dev = 开发/测试/静态检查工具
 [project.optional-dependencies]
 dev = [
-    "bandit>=1.8,<2",
-    "jsonschema>=4.25,<5",
-    "mypy>=1.17,<2",
-    "pip-audit>=2.9,<3",
-    "pytest>=9.0.3,<10",
-    "pytest-asyncio>=1.1,<2",
-    "ruff>=0.12,<1",
-    "types-jsonschema>=4.25,<5",
+    "bandit>=1.8,<2",              # Python 安全静态扫描
+    "jsonschema>=4.25,<5",         # JSON Schema 校验
+    "mypy>=1.17,<2",               # 静态类型检查
+    "pip-audit>=2.9,<3",           # 依赖安全审计
+    "pytest>=9.0.3,<10",           # 单元测试框架
+    "pytest-asyncio>=1.1,<2",      # pytest 异步测试支持
+    "ruff>=0.12,<1",               # 代码风格检查/lint 工具
+    "types-jsonschema>=4.25,<5",   # jsonschema 的类型注解
 ]
 
+# [tool.hatch.build.targets.wheel]：构建 wheel 时打包的 Python 包
 [tool.hatch.build.targets.wheel]
-packages = ["lost_found_agent"]
+packages = ["lost_found_agent"]   # 需要打进 wheel 的包目录
 
+# [tool.pytest.ini_options]：pytest 测试配置
 [tool.pytest.ini_options]
-addopts = "-q"
-testpaths = ["tests"]
-asyncio_mode = "auto"
+addopts = "-q"                    # 默认以安静模式运行
+testpaths = ["tests"]             # 测试文件所在目录
+asyncio_mode = "auto"             # 自动识别 async 测试用例
 
+# [tool.ruff]：ruff 全局配置（目标 Python 版本、行宽）
 [tool.ruff]
-target-version = "py312"
-line-length = 100
+target-version = "py312"          # 目标语法版本：Python 3.12
+line-length = 100                 # 单行最大长度
 
+# [tool.ruff.lint]：ruff 启用的 lint 规则类别
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]   # 错误/未定义名/导入排序/常见错误/升级写法/安全/异步
 
+# [tool.ruff.lint.per-file-ignores]：按文件路径忽略特定规则
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
+"tests/**" = ["S101", "S105", "S106"]   # 测试代码豁免：断言/硬编码凭据等安全规则
 
+# [tool.mypy]：mypy 静态类型检查配置
 [tool.mypy]
-python_version = "3.12"
-strict = true
-plugins = ["pydantic.mypy"]
+python_version = "3.12"           # 目标 Python 版本
+strict = true                     # 开启严格检查模式
+plugins = ["pydantic.mypy"]       # 加载 pydantic 官方 mypy 插件
 
+# [[tool.mypy.overrides]]：对特定模块放宽检查（Pillow 无类型注解）
 [[tool.mypy.overrides]]
-module = ["PIL", "PIL.*"]
-ignore_missing_imports = true
+module = ["PIL", "PIL.*"]         # 匹配 Pillow 相关模块
+ignore_missing_imports = true     # 忽略缺失的类型导入
 
+# [tool.bandit]：bandit 安全扫描配置
 [tool.bandit]
-exclude_dirs = ["tests"]
+exclude_dirs = ["tests"]          # 跳过 tests 目录
