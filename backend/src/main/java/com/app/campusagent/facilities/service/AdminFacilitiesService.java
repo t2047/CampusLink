@@ -1,5 +1,22 @@
 package com.app.campusagent.facilities.service;
 
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.function.ToLongFunction;
+import java.util.stream.Collectors;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
 import com.app.campusagent.domain.User;
 import com.app.campusagent.facilities.domain.Booking;
 import com.app.campusagent.facilities.domain.BookingStatus;
@@ -14,25 +31,12 @@ import com.app.campusagent.facilities.dto.admin.AdminFacilitiesOverviewResponse.
 import com.app.campusagent.facilities.dto.admin.AdminFacilitiesPageResponse;
 import com.app.campusagent.facilities.dto.admin.AdminFacilityBookingResponse;
 import com.app.campusagent.facilities.dto.admin.AdminFacilityMaintenanceResponse;
+import com.app.campusagent.facilities.exception.FacilityErrorCode;
+import com.app.campusagent.facilities.exception.FacilityException;
 import com.app.campusagent.facilities.repository.BookingRepository;
 import com.app.campusagent.facilities.repository.MaintenanceTicketRepository;
 import com.app.campusagent.facilities.repository.SpaceRepository;
 import com.app.campusagent.repository.UserRepository;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-
-import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Locale;
-import java.util.function.ToLongFunction;
-import java.util.stream.Collectors;
 
 @Service
 public class AdminFacilitiesService {
@@ -224,10 +228,10 @@ public class AdminFacilitiesService {
     @Transactional(readOnly = true)
     public AdminFacilityMaintenanceResponse getMaintenance(Long ticketId) {
         MaintenanceTicket ticket = maintenanceTicketRepository.findById(ticketId)
-                .orElseThrow(() -> new com.app.campusagent.facilities.exception.FacilityException(
-                        com.app.campusagent.facilities.exception.FacilityErrorCode.TICKET_NOT_FOUND,
+                .orElseThrow(() -> new FacilityException(
+                        FacilityErrorCode.TICKET_NOT_FOUND,
                         "Maintenance ticket not found",
-                        org.springframework.http.HttpStatus.NOT_FOUND));
+                        HttpStatus.NOT_FOUND));
         String userEmail = userRepository.findById(ticket.getUserId()).map(User::getEmail).orElse(null);
         return toAdminMaintenanceResponse(ticket, userEmail);
     }

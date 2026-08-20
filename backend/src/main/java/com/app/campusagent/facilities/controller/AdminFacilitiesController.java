@@ -100,33 +100,14 @@ public class AdminFacilitiesController {
     }
 
     private Pageable bookingPageable(int page, int size, String sortValue) {
-        if (page < 0 || size < 1 || size > 100) {
-            throw new IllegalArgumentException("page must be at least 0 and size must be between 1 and 100");
-        }
-
-        String[] parts = sortValue.trim().split(",", -1);
-        if (parts.length > 2) {
-            throw new IllegalArgumentException("sort must use the format field,direction");
-        }
-
-        String field = parts[0].trim();
-        if (!BOOKING_SORT_FIELDS.contains(field)) {
-            throw new IllegalArgumentException(
-                    "sort field must be id, startDateTime, endDateTime, createdAt, updatedAt or status");
-        }
-
-        Sort.Direction direction = parts.length == 1
-                ? Sort.Direction.ASC
-                : Sort.Direction.fromOptionalString(parts[1].trim()).orElseThrow(() ->
-                        new IllegalArgumentException("sort direction must be asc or desc"));
-
-        Sort bookingSort = Sort.by(direction, field);
-        if (!"id".equals(field)) {
-            bookingSort = bookingSort.and(Sort.by(Sort.Direction.ASC, "id"));
-        }
-        return PageRequest.of(page, size, bookingSort);
+        return buildPageable(page, size, sortValue, BOOKING_SORT_FIELDS);
     }
+
     private Pageable maintenancePageable(int page, int size, String sortValue) {
+        return buildPageable(page, size, sortValue, MAINTENANCE_SORT_FIELDS);
+    }
+
+    private Pageable buildPageable(int page, int size, String sortValue, Set<String> allowedSortFields) {
         if (page < 0 || size < 1 || size > 100) {
             throw new IllegalArgumentException("page must be at least 0 and size must be between 1 and 100");
         }
@@ -137,20 +118,21 @@ public class AdminFacilitiesController {
         }
 
         String field = parts[0].trim();
-        if (!MAINTENANCE_SORT_FIELDS.contains(field)) {
+        if (!allowedSortFields.contains(field)) {
             throw new IllegalArgumentException(
-                    "sort field must be id, createdAt, updatedAt, status, priority, building or roomNumber");
+                    "sort field must be one of: " + String.join(", ", allowedSortFields));
         }
 
         Sort.Direction direction = parts.length == 1
                 ? Sort.Direction.ASC
                 : Sort.Direction.fromOptionalString(parts[1].trim()).orElseThrow(() ->
                         new IllegalArgumentException("sort direction must be asc or desc"));
-        Sort maintenanceSort = Sort.by(direction, field);
+
+        Sort sort = Sort.by(direction, field);
         if (!"id".equals(field)) {
-            maintenanceSort = maintenanceSort.and(Sort.by(Sort.Direction.ASC, "id"));
+            sort = sort.and(Sort.by(Sort.Direction.ASC, "id"));
         }
-        return PageRequest.of(page, size, maintenanceSort);
+        return PageRequest.of(page, size, sort);
     }
 
 }

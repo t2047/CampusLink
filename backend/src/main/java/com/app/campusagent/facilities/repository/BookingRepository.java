@@ -41,4 +41,14 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
                            @Param("statuses") Collection<BookingStatus> statuses,
                            @Param("startDateTime") LocalDateTime startDateTime,
                            @Param("endDateTime") LocalDateTime endDateTime);
+
+    @Query("""
+            select b from Booking b
+            where b.status in :statuses
+              and b.startDateTime < :rangeEnd
+              and b.endDateTime > :rangeStart
+            """)
+    List<Booking> findAllInRange(@Param("statuses") Collection<BookingStatus> statuses,
+                                 @Param("rangeStart") LocalDateTime rangeStart,
+                                 @Param("rangeEnd") LocalDateTime rangeEnd);
 }

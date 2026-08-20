@@ -22,8 +22,7 @@ import { formatFacilityDateTime } from '../../../pages/facilities/bookingDateTim
 import type { AdminFacilityMaintenance, PageResponse } from '../../../types'
 
 function statusLabel(status: AdminFacilityMaintenance['status']) {
-  return status.replaceAll('_', ' ').replace(/^./, (value) => value.toUpperCase()).toLowerCase()
-    .replace(/(^| )\w/g, (value) => value.toUpperCase())
+  return status.replaceAll('_', ' ').toLowerCase().replace(/(^| )\w/g, (value) => value.toUpperCase())
 }
 
 function priorityColor(priority: AdminFacilityMaintenance['priority']): 'error' | 'warning' | 'default' {
