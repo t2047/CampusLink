@@ -169,7 +169,7 @@ export const facilitiesApi = {
     const [overview, spacesResponse, bookingsResponse] = await Promise.all([
       getAdminFacilitiesOverview(),
       apiClient.get<Space[]>('/facilities/spaces'),
-      searchAdminFacilityBookings({ startFrom: fromDate.toISOString(), size: 200, sort: 'startDateTime,desc' }),
+      searchAdminFacilityBookings({ startFrom: fromDate.toISOString(), size: 100, sort: 'startDateTime,desc' }),
     ])
     const spaces = spacesResponse.data
     const bookings = bookingsResponse.content
