@@ -239,3 +239,15 @@ project/
 ├── docker-compose.yml       MySQL, MinIO, Qdrant, and optional model profile
 └── docs/
 ```
+
+## Individual Contribution — Zhao Lei
+
+Zhao Lei's main contributions are:
+
+- The basic full-stack Lost & Found workflow, including publishing `LOST` and `FOUND` reports,
+  browsing, filtering, and viewing report details, excluding Claim and administrator features.
+- The explainable matching system using pretrained Multilingual-E5 text embeddings and CLIP image
+  embeddings, with structured-field scoring and fallback matching.
+- The native Kotlin and Jetpack Compose mobile frontend, excluding Facilities, covering
+  authentication, Core Chat, encrypted local history, Lost & Found screens, mobile Claim UI
+  integration, Mail and Calendar, navigation, bilingual support, and dark mode.
