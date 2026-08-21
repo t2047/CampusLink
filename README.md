@@ -251,3 +251,14 @@ Zhao Lei's main contributions are:
 - The native Kotlin and Jetpack Compose mobile frontend, excluding Facilities, covering
   authentication, Core Chat, encrypted local history, Lost & Found screens, mobile Claim UI
   integration, Mail and Calendar, navigation, bilingual support, and dark mode.
+
+## Individual Contribution — JIA QIANRUI
+
+JIA QIANRUI's main contributions are:
+
+- The Claim module, covering the full claim lifecycle from submitting an ownership-proof claim
+  on an open `FOUND` report to administrator-side approve/reject review with notifications.
+- The Agent image-upload pipeline, staging images to MinIO with visual fingerprint and embedding
+  generation, and image-based "search by image" retrieval on the Browse page.
+- The Personal Center (`/lost-found/profile`) with profile and avatar updates, password change
+  and JWT invalidation, and an aggregated view of the user's claims and reports.
