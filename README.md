@@ -281,3 +281,11 @@ Wu Tianzhuo's main contributions are:
 - The email classification system — LLM-first automatic tagging of emails into campus / career / finance / other categories, with a trained scikit-learn ML model (joblib) as a fallback classifier, plus a refresh of the module README for the classification feature.
 - The Calendar module — a per-user calendar service (event CRUD on SQLite) with automatic schedule extraction from emails via rule-based parsing with an LLM fallback (pre-filtering the Gmail window and raising the extract timeout to fix timeouts), a schedule import flow into the calendar, and a web Calendar page with a schedule-import dialog.
 - Security & delivery hardening — removed hardcoded Gmail OAuth client secrets in favor of enforced environment-variable configuration, derived OAuth redirect URIs from the request origin for multi-host deployments, fixed mail tests to be non-UTC timezone stable, and added a dedicated mail & calendar CI pipeline (pytest / ruff / bandit / pip-audit + image build + CodeQL).
+
+## Individual Contribution — Liu Zhuocheng
+
+Liu Zhuocheng main contributions are:
+
+- The Web Admin Dashboard foundation, including `ADMIN` and `SUPER_ADMIN` route protection, responsive administrative layouts, sidebar navigation, module entry points, and dedicated error pages.
+- The Lost & Found administration frontend, including real-time overview metrics, claim filtering and pagination, evidence and report details, approval and rejection workflows, conflict handling, and API integration.
+- The system-wide administration dashboard and reporting features, including cross-module KPIs, charts, operational monitoring tables, Facilities administration APIs, and the 30-day Administrative Usage Report.
