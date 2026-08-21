@@ -113,6 +113,24 @@ class MailViewModelsTest {
         assertEquals(50, repository.lastExtractMaxResults)
     }
 
+    @Test
+    fun `deleting the event being edited closes the editor and returns to calendar list`() = runTest {
+        val repository = FakeMailDataSource().apply { calendarEvents = listOf(EVENT) }
+        val viewModel = CalendarViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.beginEdit(EVENT)
+        assertTrue(viewModel.state.value.editorVisible)
+        viewModel.delete(EVENT)
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.state.value.editorVisible)
+        assertEquals(null, viewModel.state.value.editingId)
+        assertEquals("", viewModel.state.value.form.title)
+        assertTrue(viewModel.state.value.events.isEmpty())
+        assertEquals("Event deleted", viewModel.state.value.actionMessage)
+    }
+
     private class FakeMailDataSource : MailDataSource {
         var connected = false
         var lastFolder = ""
@@ -121,6 +139,7 @@ class MailViewModelsTest {
         var sentRequest: SendMailRequest? = null
         var lastUpdate: UpdateMailRequest? = null
         var createCalendarCalls = 0
+        var calendarEvents: List<CalendarEvent> = emptyList()
         var lastExtractDays: Int? = null
         var lastExtractMaxResults: Int? = null
 
@@ -157,7 +176,7 @@ class MailViewModelsTest {
         }
         override suspend fun archiveMessage(messageId: String) = MESSAGE
         override suspend fun deleteMessage(messageId: String) = MESSAGE
-        override suspend fun listCalendarEvents(start: String?, end: String?) = emptyList<CalendarEvent>()
+        override suspend fun listCalendarEvents(start: String?, end: String?) = calendarEvents
 
         override suspend fun createCalendarEvent(request: CalendarEventRequest): CalendarEvent {
             createCalendarCalls++

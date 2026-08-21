@@ -62,6 +62,11 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // CSRF 不适用于本项目：认证凭证完全走无状态 Bearer JWT（Authorization
+                // header），不使用 cookie/session 会话——前端 web 将 token 存于
+                // sessionStorage、安卓存于 SessionStore，请求时由客户端注入 header，
+                // 浏览器不会自动携带该凭证，因此不存在 CSRF 攻击路径。
+                // 若未来改为 httpOnly cookie 承载 token，需重新评估并启用 CSRF。
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

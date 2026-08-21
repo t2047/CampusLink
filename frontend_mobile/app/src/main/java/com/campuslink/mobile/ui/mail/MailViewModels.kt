@@ -563,8 +563,15 @@ class CalendarViewModel(private val repository: MailDataSource) : ViewModel() {
         viewModelScope.launch {
             try {
                 repository.deleteCalendarEvent(event.id)
+                val current = mutableState.value
+                val isEditingDeletedEvent = current.editingId == event.id
                 mutableState.value = mutableState.value.copy(
-                    events = mutableState.value.events.filterNot { it.id == event.id },
+                    events = current.events.filterNot { it.id == event.id },
+                    // 编辑器与列表位于同一个页面。删除当前正在编辑的事件后，
+                    // 必须关闭编辑器并清空表单，否则页面会继续显示已删除的事件。
+                    editorVisible = if (isEditingDeletedEvent) false else current.editorVisible,
+                    editingId = if (isEditingDeletedEvent) null else current.editingId,
+                    form = if (isEditingDeletedEvent) CalendarForm() else current.form,
                     actionMessage = "Event deleted",
                 )
             } catch (exception: CancellationException) {

@@ -1,0 +1,132 @@
+# ─── Mail & Calendar 模块 CI ────────────────────────────────
+# 覆盖 mail-service 后端（agent/mail_agent，FastAPI：Gmail 邮件 + SQLite 日历）、
+# 聊天侧 MCP 网关（agent/mcp_servers/mail_server.py）与 MCP 契约
+# （agent/schemas/mail-agent.json）。触发路径收窄到模块自身文件：
+# 只改 mail 模块时跑本工作流（快），全仓改动仍走 pr-fast-scan。
+#
+# 质量门禁与仓库其它 Python 模块（chat_core / lost_found_agent）对齐：
+#   * ruff lint（保守规则集，见 agent/mail_agent/pyproject.toml [tool.ruff.lint]）
+#   * pytest 全量单元测试（Gmail / LLM 全部 mock，无需真实凭据）
+#   * bandit 安全扫描（排除两个已核实的误报，见步骤注释）
+#   * pip-audit 依赖审计（非门禁：mail 依赖为宽松区间且无 lock 文件，
+#     报告上传 artifact，发现 CVE 不阻断合入，待全仓级升级）
+#   * Docker 镜像构建（与 cd-deploy.yml 同一 build context = agent/mail_agent）
+#   * Python CodeQL
+
+name: Mail & Calendar CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'agent/mail_agent/**'
+      - 'agent/mcp_servers/mail_server.py'
+      - 'agent/schemas/mail-agent.json'
+      - 'docs/mail/**'
+      - 'docker-compose.yml'
+      - '.env.example'
+      - '.github/workflows/mail-calendar-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'agent/mail_agent/**'
+      - 'agent/mcp_servers/mail_server.py'
+      - 'agent/schemas/mail-agent.json'
+      - 'docs/mail/**'
+      - 'docker-compose.yml'
+      - '.env.example'
+      - '.github/workflows/mail-calendar-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: mail-calendar-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint、单元测试与依赖审计
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: agent/mail_agent
+    env:
+      # CI checkout 不包含仓库根 .env（被 gitignore）；config.py 在 import 时读
+      # 环境变量，缺密钥会 auth fail-closed（401），因此必须提供占位值。测试的
+      # helpers 用同一值自签自验，绝不接触真实凭据：
+      #   JWT_SECRET            → user_jwt() 签发/验签的用户 JWT（HS256）
+      #   AGENT_SHARED_SECRET   → 回退为 MAIL_INTERNAL_SECRET，internal_token() 使用
+      #   MAIL_LLM_API_KEY      → 日历 LLM 抽取测试 monkeypatch 掉 ChatOpenAI，不会真调 LLM
+      JWT_SECRET: mail-ci-jwt-secret-0123456789abcdef
+      AGENT_SHARED_SECRET: mail-ci-internal-secret-0123456789
+      MAIL_LLM_API_KEY: mail-ci-dummy-llm-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/mail_agent/pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]" ruff bandit pip-audit
+
+      - name: Ruff lint
+        run: python -m ruff check .
+
+      - name: Pytest
+        run: python -m pytest
+
+      - name: Bandit (安全扫描)
+        # 排除两个已核实的误报：
+        #   B608 — calendar_service.py 的动态 SQL 仅用固定字面量拼结构
+        #          （clauses / 白名单列名），所有用户输入都走 '?' 参数绑定；
+        #   B105 — config.py 的 'https://oauth2.googleapis.com/token' 是
+        #          Google 公开端点常量，并非口令。
+        run: python -m bandit -r mail_agent -x tests -s B608,B105 -q
+
+      - name: Python dependency audit (报告上传，不阻断)
+        # 非门禁：mail 服务在 pyproject 里是宽松区间、无 lock 文件，当前解析出的
+        # 传递依赖（cryptography / idna / urllib3 / pip 等）存在已知 CVE，需要
+        # 全仓级统一升级；此处只产出报告供跟踪，失败不阻塞合入。
+        run: python -m pip_audit --format=json > pip-audit-report.json || true
+
+      - name: Upload dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-pip-audit-report
+          path: agent/mail_agent/pip-audit-report.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  build-image:
+    name: Build mail-service Docker 镜像
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        # 与 cd-deploy.yml 一致：镜像自包含，build context = agent/mail_agent
+        working-directory: agent/mail_agent
+        run: docker build -t campuslink-mail-agent:${{ github.sha }} .
+
+  codeql:
+    name: Mail Python CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize Python CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          source-root: agent/mail_agent
+      - name: Perform Python CodeQL Analysis
+        uses: github/codeql-action/analyze@v4

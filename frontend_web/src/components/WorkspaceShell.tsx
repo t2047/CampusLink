@@ -50,7 +50,7 @@ export function WorkspaceShell() {
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {workspaceOpen ? (
-      <aside className="relative flex w-72 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-4 dark:border-slate-800 dark:bg-slate-900">
+      <aside className="relative flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-4 xl:w-72 dark:border-slate-800 dark:bg-slate-900">
         <button type="button" onClick={() => setWorkspaceOpen(false)} aria-label="Hide Workspace" title="Hide Workspace" className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
           <KeyboardDoubleArrowLeftOutlinedIcon sx={{ fontSize: 18 }} />
         </button>
@@ -63,7 +63,7 @@ export function WorkspaceShell() {
         </NavLink>
 
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto" aria-label="Main navigation">
-          <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Main Menu</p>
+          <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Menu</p>
           <SidebarLink to="/chat" label="Agent" icon={<ChatBubbleOutlineOutlinedIcon sx={{ fontSize: 19 }} />} />
           <button type="button" onClick={() => setLostFoundOpen((value) => !value)} className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
             <span className="flex items-center gap-3"><SearchOutlinedIcon sx={{ fontSize: 19 }} />Lost &amp; Found</span>
@@ -113,7 +113,7 @@ export function WorkspaceShell() {
       </main>
       {!isAgent && (
         agentOpen ? (
-          <aside className="relative hidden w-[360px] shrink-0 border-l border-slate-200 bg-white xl:flex dark:border-slate-800 dark:bg-slate-900">
+          <aside className="relative hidden w-[22.5rem] shrink-0 border-l border-slate-200 bg-white xl:flex dark:border-slate-800 dark:bg-slate-900">
             <button type="button" onClick={() => setAgentOpen(false)} aria-label="Hide Agent" title="Hide Agent" className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-lg bg-white/90 text-slate-400 shadow-sm transition-colors hover:bg-slate-100 hover:text-slate-700 dark:bg-slate-800/90 dark:hover:bg-slate-700 dark:hover:text-slate-200">
               <KeyboardDoubleArrowRightOutlinedIcon sx={{ fontSize: 18 }} />
             </button>

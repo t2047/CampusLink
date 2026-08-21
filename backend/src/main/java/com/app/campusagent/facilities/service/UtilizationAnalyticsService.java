@@ -51,11 +51,7 @@ public class UtilizationAnalyticsService {
 
         LocalDateTime rangeStart = from.atStartOfDay();
         LocalDateTime rangeEnd = to.plusDays(1).atStartOfDay();
-        List<Booking> bookings = bookingRepository.findAll().stream()
-                .filter(booking -> COUNTED_STATUSES.contains(booking.getStatus()))
-                .filter(booking -> booking.getStartDateTime().isBefore(rangeEnd)
-                        && booking.getEndDateTime().isAfter(rangeStart))
-                .toList();
+        List<Booking> bookings = bookingRepository.findAllInRange(COUNTED_STATUSES, rangeStart, rangeEnd);
         List<Space> spaces = spaceRepository.findAll();
 
         long days = Duration.between(from.atStartOfDay(), rangeEnd).toDays();

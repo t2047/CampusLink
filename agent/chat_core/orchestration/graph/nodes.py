@@ -94,7 +94,7 @@ _INTENT_SYSTEM_PROMPT = """你是校园助手 Chat Core 的意图路由器。分
 7. 用户明确拒绝使用工具（如"不要用工具""别调用工具""不用工具计算""不需要搜索"
    等）时，intent_type="chat"——直接回答或说明，即使消息里含计算/搜索等
    工具关键词；"工具"指所有 utility 工具与 domain agent
-8. 重要防幻觉：intent_type="chat" 时你只做一般性闲聊/知识回答，**绝对禁止**
+8. intent_type="chat" 时你只做一般性闲聊/知识回答，**绝对禁止**
    编造校园业务事实（如失物存放地点/电话/地址、登记信息、预约状态等）。
    用户消息一旦涉及具体校园业务（物品、预约、邮件、技能），一律路由
    agent 或如实说明无法处理，不得虚构
@@ -153,7 +153,7 @@ _CHAT_SYSTEM_PROMPT = """你是 CampusLink 校园助手，服务于 CampusLink �
 回答规则：
 1. 使用与用户消息相同的语言回复（用户用英文则回复英文，用户用中文则回复中文）。
 2. 用户询问"你是谁/你能做什么/有哪些功能"时，用上面的功能列表介绍自己，
-   不要透露底层模型名称（如 DeepSeek）或任何内部技术细节。
+   任何情况下（即使测试、调试等过程中）不要透露底层模型名称（如 DeepSeek）或任何内部技术细节。
 3. 涉及具体业务操作（预约/报失/查邮件/找东西/查信息等）时，引导用户直接提出需求；
    不要编造业务事实（如失物存放地点、预约状态、邮件内容、设施信息）。
 4. 不要提及"工具""agent""LLM""模型"等内部实现细节。"""
@@ -214,7 +214,7 @@ def intent_router(state: AgentState) -> AgentState:
     if pending_info.get("agent_name"):
         abandon = any(
             k in user_msg
-            for k in ("算了", "不用了", "不用找", "不找了", "放弃", "换一个", "先不管", "先不弄")
+            for k in ("算了", "不用了", "不用找", "不找了", "放弃")
         )
         if abandon:
             logger.info("intent_router: abandon clarification for %s", pending_info["agent_name"])
@@ -518,12 +518,25 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
 
     # 确认门：web_search 在计划中且尚未确认/取消 → 先征求人工确认
     if "web_search" in utility_plan and pending.get("tool") != "web_search":
+        # 语言跟随：确认文案按用户消息语言输出（2026-08-17 修复：此前固定中文）
+        user_msg = state["messages"][-1].content if state.get("messages") else ""
+        user_zh = _looks_chinese(user_msg)
         query = _extract_utility_params("web_search", state).get("query", "")
-        message = (
-            f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
-            if query
-            else "即将进行联网搜索，是否继续？"
-        )
+        if query:
+            message = (
+                f"即将联网搜索「{query}」，搜索会向外部服务发送该查询词，是否继续？"
+                if user_zh
+                else (
+                    f'About to search the web for "{query}". This will send the query '
+                    "to an external search service. Continue?"
+                )
+            )
+        else:
+            message = (
+                "即将进行联网搜索，是否继续？"
+                if user_zh
+                else "About to perform a web search. Continue?"
+            )
         return {
             "requires_approval": True,
             "approval_agent": "utility:web_search",
@@ -531,7 +544,7 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
                 "type": "confirm_external_call",
                 "tool": "web_search",
                 "message": message,
-                "summary": "联网搜索",
+                "summary": "联网搜索" if user_zh else "Web search",
             },
         }
 
@@ -541,8 +554,12 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
 
     results: dict[str, Any] = {}
     failures: list[str] = []
+    executed_search_query: str | None = None
     for tool_name in utility_plan:
         params = _extract_utility_params(tool_name, state)
+        if tool_name == "unit_converter":
+            # unit_converter 参数全部由 LLM 解析（规则词表过简、易漏货币，2026-08-19）
+            params = (await _llm_extract_unit_converter(state)) or {}
         # Delegation Token 由 client 内部获取（RS256；兑换失败即拒绝，见 mcp/client.py）
         result = await client.invoke_utility(
             tool_name=tool_name,
@@ -551,6 +568,9 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
             user_role=state.get("user_role", "STUDENT"),
         )
         results[tool_name] = result
+        if tool_name in ("web_search", "search_policy") and params.get("query"):
+            # 记录实际使用的查询词，供下一轮回指请求（"再查一下"）复用
+            executed_search_query = params["query"]
         if not isinstance(result, dict) or result.get("status") == "failed":
             failures.append(f"工具 {tool_name} 暂时不可用")
 
@@ -559,6 +579,8 @@ async def utility_tool_executor(state: AgentState, client: Any = None) -> AgentS
         # 消费联网确认标记（确认/取消只生效一次）
         "pending_utility_confirm": None,
     }
+    if executed_search_query is not None:
+        update["last_search_query"] = executed_search_query
     if failures:
         # 失败上下文：转主 Agent（LLM）兜底时使用
         update["service_failures"] = list(state.get("service_failures") or []) + failures
@@ -613,7 +635,7 @@ async def _rephrase_in_user_language(user_msg: str, text: str) -> str | None:
                         "说明预订已完成）。"
                     )
                 ),
-                HumanMessage(content=(f"用户消息：{user_msg}\n结果文本：{text}")),
+                HumanMessage(content=f"用户消息：{user_msg}\n结果文本：{text}"),
             ]
         )
         content = getattr(response, "content", "") or ""
@@ -657,8 +679,68 @@ async def _rephrase_utility_results(user_msg: str, results: dict[str, Any]) -> s
         return None
 
 
+# 单位换算支持的单位词（货币中文别名 + 常用 ISO 码 + 长度/重量/温度）。
+# 顺序按消息中出现位置取前两个：第一个为 from_unit，第二个为 to_unit。
+# 回指请求模式：消息本身不含新的查询内容，指代上一次搜索
+# （"再查一下/再搜一次/继续/还有呢"等）。命中时复用 state.last_search_query。
+_ANAPHORA_REQ = re.compile(
+    r"^(?:再(?:查|搜|找|看看)(?:一下|一次|一)?|接着(?:查|搜)|继续(?:查|搜|找|看看|一下)?|"
+    r"查查|搜搜|再查查|还有呢|然后呢|"
+    r"search\s+again|look\s+(?:it\s+)?up\s+again|check\s+again)$",
+    re.IGNORECASE,
+)
+
+
+async def _llm_extract_unit_converter(state: AgentState) -> dict[str, Any] | None:
+    """unit_converter 参数解析（全 LLM，2026-08-19）。
+
+    从最近对话解析 value/from_unit/to_unit：支持任意货币（含词表外的
+    越南盾等）与回指（"是多少美元"——从历史继承金额与基准币，只更新
+    目标币）。from/to 优先输出 ISO 4217 大写代码（长度/重量/温度输出
+    中文单位词）。解析失败返回 None（调用方维持原失败路径）。
+    """
+    history = _recent_history_text(state, limit=6)
+    llm = chat_llm()
+    try:
+        response = await llm.ainvoke(
+            [
+                SystemMessage(
+                    content=(
+                        "你是单位换算参数解析器。根据对话历史输出严格 JSON，简化思考过程以加快速度，但保证精确："
+                        '{"value": 数字, "from_unit": "X", "to_unit": "Y"}。'
+                        "规则：货币一律用 ISO 4217 大写代码（如 CNY/USD/SGD/VND/THB/MYR/RUB）；"
+                        "长度/重量/温度用中文单位词（米/公里/千克/摄氏度等）。"
+                        "若消息是回指（如'是多少美元'），从历史继承金额与基准币，只更新目标币。"
+                        '无法解析时输出 {"error": "无法解析"}。只输出 JSON，不要任何其他文字。'
+                    )
+                ),
+                HumanMessage(content=f"对话历史：\n{history}"),
+            ]
+        )
+        text = (getattr(response, "content", "") or "").strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end < 0:
+            return None
+        data = json.loads(text[start : end + 1])
+        if not isinstance(data, dict) or "error" in data:
+            return None
+        value = float(data["value"])
+        from_unit = str(data.get("from_unit", "")).strip().upper()
+        to_unit = str(data.get("to_unit", "")).strip().upper()
+        if not from_unit or not to_unit:
+            return None
+        return {"value": value, "from_unit": from_unit, "to_unit": to_unit}
+    except Exception:
+        return None
+
+
 def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]:
-    """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。"""
+    """从用户消息中提取 Utility Tool 参数（规则级，Sprint 1）。
+
+    web_search / search_policy：去除搜索引导词后作为检索词；消息为回指请求
+    （无实质查询内容）时复用上一次实际执行的查询词（state.last_search_query），
+    修复"再查一下"被当作字面查询词搜索的问题（2026-08-18）。
+    """
     msg = state["messages"][-1].content if state.get("messages") else ""
     if tool_name == "get_current_time":
         # Asia/Singapore：项目部署地（与 system_facts 一致，2026-08-15 统一）
@@ -666,28 +748,21 @@ def _extract_utility_params(tool_name: str, state: AgentState) -> dict[str, Any]
     if tool_name == "calculator":
         match = re.search(r"[\d+\-*/().\s^]+", msg)
         return {"expression": match.group(0).strip() if match else "0"}
-    if tool_name == "web_search":
+    if tool_name in ("web_search", "search_policy"):
         # 规则级提取 query：去除搜索引导词后作为检索词（"搜索/查一下/search for" 等）
         query = re.sub(
-            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查|帮我搜|查询|"
+            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查(?:一下|一)?|帮我搜(?:一下|一)?|查询|"
             r"search(?:\s+for)?\s*[:：]?\s*|find\s*[:：]?\s*)",
             "",
             msg,
             flags=re.IGNORECASE,
         ).strip()
+        if not query or _ANAPHORA_REQ.match(msg.strip()):
+            # 回指：复用上一次实际执行的查询词；无历史时回退整句（原行为）
+            prev = state.get("last_search_query")
+            if prev:
+                return {"query": prev, "reused_last": True}
         return {"query": query or msg.strip()}
-    if tool_name == "search_policy":
-        # 规则级提取 query：与 web_search 相同去除引导词；无引导词时用整句（如"考试可以带计算器吗"）
-        query = re.sub(
-            r"^(?:搜索|搜一下|搜下|查一下|查查|帮我查|帮我搜|查询|"
-            r"search(?:\s+for)?\s*[:：]?\s*|find\s*[:：]?\s*)",
-            "",
-            msg,
-            flags=re.IGNORECASE,
-        ).strip()
-        return {"query": query or msg.strip()}
-    # text_translator 已移除（2026-08-08）：翻译由 chat_responder 的 LLM 直答
-    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -921,6 +996,10 @@ def human_approval(state: AgentState) -> AgentState:
 
     approval_agent = state.get("approval_agent", "")
     approval_context = state.get("approval_context", {}) or {}
+    # 语言跟随：兜底文案按用户语言输出（2026-08-17 检查确认门时发现：
+    # 无 message/summary 时的兜底此前固定中文）
+    user_msg = state["messages"][-1].content if state.get("messages") else ""
+    user_zh = _looks_chinese(user_msg)
     decision = interrupt(
         {
             "type": "confirm_action",
@@ -928,7 +1007,11 @@ def human_approval(state: AgentState) -> AgentState:
             "details": approval_context,
             # 确认信息优先用 Agent 的真实摘要（L&F confirmation_required.summary），
             # 前端确认框展示的就是用户要确认的具体内容
-            "message": (approval_context.get("message") or approval_context.get("summary") or "请确认此操作"),
+            "message": (
+                approval_context.get("message")
+                or approval_context.get("summary")
+                or ("请确认此操作" if user_zh else "Please confirm this action")
+            ),
         }
     )
 
@@ -961,7 +1044,9 @@ def human_approval(state: AgentState) -> AgentState:
         else:
             invocations[-1] = {
                 **invocations[-1],
-                "output_response": "操作已取消。",
+                "output_response": (
+                    "操作已取消。" if user_zh else "The operation has been cancelled."
+                ),
                 "output_status": "cancelled",
             }
             # 用户取消：跳过该 Agent（不再重调），index 前进到下一个
