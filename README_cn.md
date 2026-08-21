@@ -1,235 +1,357 @@
 # CampusLink
 
-[![English](https://img.shields.io/badge/English%20Version-blue?style=flat-square)](./README.md) [![中文文档](https://img.shields.io/badge/中文-blue?style=flat-square)](./README_cn.md)
+<p align="center">
+  <img src="./frontend_web/public/campuslink-icon.svg" alt="CampusLink 标志" width="112" />
+</p>
 
-CampusLink 是校园 **AI Agent 平台**：以 `agent/chat_core` 编排层（FastAPI + LangGraph）为核心，
-通过 MCP 协议驱动多领域 Agent（mail / facility / lost-found / utility-tools）完成
-聊天问答与业务操作，支持 SSE 流式输出与 HITL 人工确认。
+<p align="center">
+  <strong>把大学生日常要处理的校园事务，放进同一个工作台。</strong>
+</p>
 
-**Lost & Found 是平台首个完整落地的垂直切片**：既有 Web 端完整功能（发布/搜索/认领/管理），
-也已通过 `agent/mcp_servers/lost_found_server.py` 适配层接入 Agent 体系——用户可以用自然语言
-报失/登记拾获/查找/认领，写操作经用户确认后真正落库。
+<p align="center">
+  CampusLink 将邮件、日历、校园设施、失物招领、校规检索和常用工具整合到 Web 与 Android 端，并通过可执行任务的对话式 Agent，把分散在门户、收件箱、表单和文档中的流程串联起来。
+</p>
 
-Lost & Found 的开发状态、技术债和后续功能统一记录在[中文技术路线文档](docs/lost-found/TECHNICAL_ROADMAP_cn.md)中；预训练模型、权重、降级和评估方法见[多模态匹配说明](docs/lost-found/PRETRAINED_MULTIMODAL_MATCHING_cn.md)。
-需要复现 Web、Chat Core 和 Lost & Found Agent 完整链路时，请按[本地完整复现指南](docs/lost-found/LOCAL_REPRODUCTION_cn.md)操作。
+<p align="center">
+  <a href="https://campuslink.tokeninf.xyz/"><img alt="在线演示" src="https://img.shields.io/badge/在线演示-campuslink.tokeninf.xyz-0F766E?style=flat-square&logo=googlechrome&logoColor=white"></a>
+  <a href="https://github.com/t2047/CampusLink/actions/workflows/pr-fast-scan.yml"><img alt="PR Fast Scan" src="https://github.com/t2047/CampusLink/actions/workflows/pr-fast-scan.yml/badge.svg"></a>
+  <a href="https://github.com/t2047/CampusLink/actions/workflows/mobile-ci.yml"><img alt="Mobile CI" src="https://github.com/t2047/CampusLink/actions/workflows/mobile-ci.yml/badge.svg"></a>
+  <a href="https://github.com/t2047/CampusLink/actions/workflows/cd-deploy.yml"><img alt="CD Deploy" src="https://github.com/t2047/CampusLink/actions/workflows/cd-deploy.yml/badge.svg"></a>
+  <a href="./LICENSE"><img alt="MIT 许可证" src="https://img.shields.io/badge/License-MIT-22C55E?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <img alt="Java 21" src="https://img.shields.io/badge/Java-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white">
+  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=111827">
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Android-7F52FF?style=flat-square&logo=kotlin&logoColor=white">
+  <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white">
+  <a href="./README.md"><img alt="英文文档" src="https://img.shields.io/badge/Docs-English-2563EB?style=flat-square"></a>
+</p>
+
+> [!NOTE]
+> 线上环境位于 **[campuslink.tokeninf.xyz](https://campuslink.tokeninf.xyz/)**，以生产 Docker Compose 栈运行在 AWS EC2，并由 GitHub Actions 持续部署。
+
+## 目录
+
+- [为什么选择 CampusLink](#为什么选择-campuslink)
+- [核心特性](#核心特性)
+- [技术栈](#技术栈)
+- [系统架构](#系统架构)
+- [快速上手](#快速上手)
+- [项目结构](#项目结构)
+- [生产部署](#生产部署)
+- [质量保障](#质量保障)
+- [贡献指南](#贡献指南)
+- [团队分工](#团队分工)
+- [许可证](#许可证)
+
+## 为什么选择 CampusLink
+
+大学生往往需要在互不相通的门户、邮箱、表单与政策文档之间切换。CampusLink 提供统一的认证工作台：用户既可以直接使用各业务页面，也可以让校园 Agent 识别意图，并把请求交给正确的领域服务。
+
+项目的核心差异不是“再做一个聊天框”，而是受控执行：系统流式展示 Agent 进度、保留多轮上下文，并在敏感写操作到达业务服务前暂停流程，等待用户明确确认。
+
+## 核心特性
+
+- ✅ **对话式校园工作台** — 支持多轮会话、Token 级 SSE 流式输出、意图路由、多 Agent 规划与跨领域结果聚合。
+- ✅ **人工确认后执行** — 预约、报失、认领、邮件操作等会改变状态的 Agent 动作，通过 HITL 流程获得用户确认。
+- ✅ **邮件与日历** — 每位用户通过 OAuth 绑定自己的 Gmail，可搜索、阅读、发送、加星、归档和删除邮件，管理日历，并导入从邮件提取的日程。
+- ✅ **邮件智能分类** — 通过“大模型优先、训练好的 ML 模型兜底”的流水线，将邮件归入校园、职业、财务或其他类别。
+- ✅ **校园设施** — 搜索空间、查询空闲时段、创建或取消预约、提交维修工单并跟踪状态；管理员可查看运营列表和利用率分析。
+- ✅ **失物招领** — 发布带私有图片的遗失/拾获记录，筛选与匹配物品，提交所有权证明，审批认领，接收通知，并支持管理员审核和审计日志。
+- ✅ **多模态匹配** — 将 Multilingual-E5 文本向量、CLIP 图片/跨模态向量与结构化字段融合；模型服务不可用时自动降级到基础匹配。
+- ✅ **校规 RAG** — 通过 LlamaIndex、共享向量服务和 Qdrant，从 `docs/nus_docs/` 的政策 PDF 中检索答案。
+- ✅ **常用工具** — 通过 MCP 提供计算器、当前时间、单位与货币换算、网页及新闻搜索。
+- ✅ **Web 与原生 Android** — 两端共享账号和校园服务体验；Android 使用加密本地存储，并提供 local、demo、prod 三种构建变体。
+- ✅ **管理工作台** — 用户角色、系统概览、设施运营、失物招领审核和报表视图与学生流程分离。
 
 ## 技术栈
 
-| 模块 | 技术 |
+| 层级 | 技术 | 职责 |
+|---|---|---|
+| Web | React 19、TypeScript 6、Vite 8、MUI 7、Nginx | 学生/管理界面、SSE 对话、同源 API 代理 |
+| Android | Kotlin、Jetpack Compose、Room、SQLCipher、OkHttp | 原生校园服务客户端与加密本地数据 |
+| 后端 | Java 21、Spring Boot 4.1、Spring Security、Spring Data JPA、Spring AI MCP | 认证、领域 API、鉴权、持久化、令牌兑换 |
+| Agent 编排 | Python 3.12、FastAPI、LangGraph、LangChain | 意图路由、多 Agent 执行、检查点、HITL、SSE 事件 |
+| Agent 协议 | Model Context Protocol（Streamable HTTP）、JSON Schema | 邮件、设施、失物招领、工具能力契约 |
+| AI 与检索 | DeepSeek 兼容 API、Multilingual-E5、CLIP、LlamaIndex | 语言推理、分类、多模态匹配、政策检索 |
+| 数据 | MySQL 8、MinIO、Qdrant 1.19、SQLite | 业务数据、私有媒体、向量、用户邮件/日历状态 |
+| 交付 | Docker Compose、GHCR、GitHub Actions、AWS EC2、Certbot | 可复现构建、CI/CD、HTTPS 部署 |
+| 验证 | JUnit 5、pytest、Vitest、Testing Library、Robolectric、Detekt、CodeQL | 单元/集成测试、静态分析、依赖和安全扫描 |
+
+## 系统架构
+
+![CampusLink 系统架构](./docs/assets/campuslink-architecture.png)
+
+### 安全边界
+
+| 边界 | 控制措施 |
 |---|---|
-| 编排层（核心） | Python 3.12、FastAPI、LangGraph、MCP SDK |
-| 后端 | Java 21、Spring Boot 4.1、Spring Security、JWT |
-| Web 前端 | React 19、TypeScript、Vite、MUI、Axios |
-| Android | Kotlin、Jetpack Compose、Room/SQLCipher、OkHttp SSE |
-| 数据库 | MySQL 8 |
-| 图片存储 | 私有 MinIO Bucket、15 分钟预签名 URL |
-| 测试 | JUnit 5、Mockito、H2、Vitest、Testing Library、pytest |
+| 浏览器/移动端 → 后端 | CampusLink JWT 与基于角色的权限控制 |
+| 后端 → 编排层 | HMAC 签名、时间戳、Nonce 防重放 |
+| 编排层 → 领域 MCP | 短时效、受众隔离的 RS256 委托令牌，通过 JWKS 验证 |
+| Agent 写操作 | 挂起执行图，用户明确确认后恢复 |
+| 失物招领图片 | 私有 MinIO Bucket 与限时预签名 URL |
+| Gmail | 每用户独立 OAuth Token；OAuth 配置缺失时拒绝执行 |
 
-## 本地启动
+详细协议见[通信安全说明](./docs/communication-security.md)与 [Agent 接口契约](./docs/AGENT_INTERFACE_NOTICE.md)。
 
-需要预先安装 Java 21、Docker Desktop 和 Node.js 22 或更高版本。
+## 快速上手
+
+### 前置条件
+
+| 要求 | 版本或建议 |
+|---|---|
+| Git | 当前稳定版本 |
+| Docker | Docker Desktop，或带 Compose v2 的 Docker Engine |
+| 内存 | 建议 8 GB；多模态 profile 会额外占用约 2–3 GB |
+| 网络 | 首次构建需拉取容器镜像和预训练模型权重 |
+
+> [!IMPORTANT]
+> 官方启动路径是 Docker Compose。仅在脱离容器开发单个服务时，才需要自行安装 Java、Node.js 或 Python。
+
+### 1. 克隆并配置
 
 ```bash
-# 在项目根目录执行
+git clone https://github.com/t2047/CampusLink.git
+cd CampusLink
 cp .env.example .env
-# 编辑 .env，设置 JWT_SECRET 并替换示例密码
-openssl rand -base64 64
-
-# 后端会从 backend/ 读取本地 .env
-cp .env backend/.env
-
-# 启动基础设施、Spring Boot、Chat Core 与 MCP 服务
-docker compose up -d
 ```
 
-如需增加 Lost & Found 模块测试面板使用的可选 REST Agent，还需填写 `.env.example` 中的三个 Agent 密钥（每个可用 `openssl rand -hex 32` 生成），然后执行：
+编辑 `.env`，替换所选功能涉及的所有开发占位值。完整且权威的变量清单位于 `.env.example`，其中最重要的配置组如下：
+
+| 环境变量 | 用途 |
+|---|---|
+| `MYSQL_PASSWORD`、`JWT_SECRET`、`SUPER_ADMIN_EMAIL`、`SUPER_ADMIN_PASSWORD` | 数据库、登录与初始管理员 |
+| `AGENT_SHARED_SECRET`、`AGENT_BACKEND_SHARED_SECRET`、`LOST_FOUND_CONFIRMATION_SECRET` | 后端/编排层及失物招领可信通道 |
+| `MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET` | 私有图片存储 |
+| `DEEPSEEK_API_KEY` | 主对话路由与设施规划 |
+| `GMAIL_CLIENT_ID`、`GMAIL_CLIENT_SECRET` | 每用户 Gmail OAuth 与邮件功能 |
+| `LOST_FOUND_EMBEDDING_SHARED_SECRET` | 多模态匹配与校规 RAG |
+
+生成安全随机值：
 
 ```bash
-docker compose --profile agent up -d --build
+openssl rand -hex 32
 ```
 
-如需启用按需加载的 Multilingual-E5、CLIP 图片匹配和可选中文图文匹配：
+> [!WARNING]
+> `.env.example` 中的值仅供开发占位。不得将它们用于生产环境，不得提交 `.env`，也不要让多个生产信任边界共用同一个密钥。
+
+### 2. 启动平台
+
+启动完整交付栈，包括 Lost & Found REST Agent 与预训练多模态服务：
 
 ```bash
-docker compose --profile agent --profile multimodal up -d --build
+docker compose --profile agent --profile multimodal \
+  up -d --build --wait --wait-timeout 900
 ```
 
-模型缓存保存在 Docker 命名卷中。普通启动不会加载模型，模型服务异常时报告仍会保存，匹配自动降级为原有哈希文本、颜色直方图和规则算法。
-
-**政策/规章制度 RAG**（`search_policy` 工具）复用同一套多模态向量服务，向量存储在 Qdrant（默认栈随 compose 启动）。从 `docs/nus_docs/` 构建/重建索引：
+如果本地资源有限，可省略可选的模型和 REST Agent profiles。失物招领的 Web/API/MCP 主链路仍然可用，模型服务缺失时匹配会自动降级。
 
 ```bash
-docker compose --profile multimodal up -d lost-found-embedding
+docker compose up -d --build --wait
+```
+
+向量服务就绪后，构建或刷新校规索引：
+
+```bash
 docker compose --profile multimodal run --rm policy-index-builder
 ```
 
-详见 [docs/policy_rag.md](docs/policy_rag.md)。
-
-`LOST_FOUND_LLM_API_KEY` 可以保持为空，`auto` 模式会使用规则引擎。普通 `docker compose up -d` 会启动平台基础栈，但不会在 8083 端口暴露这个可选 REST Agent。
-
-如需脱离 Docker 开发，可在第二个终端启动后端：
+### 3. 验证
 
 ```bash
-cd backend
-./mvnw spring-boot:run
+curl http://localhost:8080/actuator/health
+curl http://localhost:8000/health
+curl http://localhost:5000/health
+docker compose ps
 ```
 
-在另一个终端启动编排层（开发模式，热重载；完整说明见 [agent/chat_core/README.md](agent/chat_core/README.md)）：
+| 地址 | 用途 |
+|---|---|
+| `https://localhost` | 容器化 Web 应用 |
+| `http://localhost:8080` | Spring Boot API |
+| `http://localhost:8000/health` | 编排层健康检查 |
+| `http://localhost:5000` | 邮件服务与本地 OAuth 回调 |
+| `http://localhost:9001` | MinIO 开发控制台 |
+| `http://localhost:6333/dashboard` | Qdrant 开发控制台 |
+
+> [!TIP]
+> 本地 Nginx 会把 HTTP 重定向到 HTTPS，并自动生成自签名开发证书。首次访问出现浏览器证书提示属于正常现象；生产环境使用 Let's Encrypt。
+
+停止容器但保留持久化数据：
 
 ```bash
-cd agent/chat_core
-uvicorn orchestration.main:app --host 0.0.0.0 --port 8000 --reload
+docker compose --profile agent --profile multimodal down
 ```
 
-在第三个终端启动 React：
+命名卷不会被删除。只有明确需要清空本地数据库、对象存储、向量、密钥和邮件/日历状态时，才应添加 `--volumes`。
 
-```bash
-cd frontend_web
-cp .env.example .env.local
-npm ci
-npm run dev
-```
+### Android 构建
 
-访问 [http://localhost:5173](http://localhost:5173)。MinIO 控制台为 [http://localhost:9001](http://localhost:9001)，原管理员测试页保留在 [http://localhost:5173/admin-test.html](http://localhost:5173/admin-test.html)。
-
-统一聊天入口位于 [http://localhost:5173/chat](http://localhost:5173/chat)，Lost & Found 页面另保留模块级自然语言联调面板。
-
-原生 Android Core Chat 位于 `frontend_mobile/`。构建云端演示 APK：
+`demo` 变体连接公开部署，`local` 变体通过模拟器连接本地后端。
 
 ```bash
 cd frontend_mobile
 ./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
 ```
 
-`demoDebug` 只连接 `https://campuslink.tokeninf.xyz/`；完整说明见 [Android 中文文档](frontend_mobile/README_cn.md)。
-
-`docker compose stop` 可停止基础设施但保留容器；`docker compose down` 会移除容器，但仍保留命名数据卷。
-
-## Agent 平台（核心）
-
-平台核心是**校园 AI 助手**（自然语言聊天 + 多领域 Agent 调度）：
-
-- **编排层**：`agent/chat_core`（FastAPI + LangGraph；意图路由、Agent 调用、HITL 人工确认、LLM 兜底）
-- **Agent**：`agent/mcp_servers/` 下的 MCP Server（mail / facility / lost-found / utility-tools——
-  计算器、当前时间、单位换算、联网搜索、**政策/规章制度检索 `search_policy`**），
-  以 streamable HTTP 暴露，按 `agent/schemas/*.json` 能力声明注册
-- **前端**：React 应用首页的聊天入口（SSE 流式打字机、意图展示、HITL 确认——确认后
-  经 `/api/chat/resume` 恢复挂起图并真正重调子 Agent 执行写操作，报失/认领等确认流程已可用）
-- **安全**：RS256 Delegation Token 链路，见 [docs/communication-security.md](docs/communication-security.md)
-- **本地开发**：[agent/chat_core/README.md](agent/chat_core/README.md)（编排层与 MCP Server 启动）
-- **Agent 接口契约**（给实现者）：[docs/AGENT_INTERFACE_NOTICE.md](docs/AGENT_INTERFACE_NOTICE.md)
-
-## Lost & Found 功能（首个垂直切片）
-
-以下为 L&F 子模块的 Web 端功能（Agent 接入见上文「Agent 平台（核心）」）：
-
-- 发布 `LOST` 或 `FOUND` 记录；图片可不上传，也可上传最多 5 张 JPEG、PNG 或 WebP，每张不超过 10 MB。
-- 按关键词、类别、颜色、地点、日期范围、记录类型和状态组合筛选。
-- 通过私有且会过期的图片地址查看详情。
-- 对开放的拾获记录提交认领证明；不能认领自己发布的记录，也不能重复提交有效申请。
-- 拾获记录发布者可以批准或拒绝；批准后记录变为 `CLAIMED`，其他待处理申请自动拒绝。
-- 认领证明只对申请人与拾获记录发布者可见。
-- `ADMIN` 和 `SUPER_ADMIN` 可以使用只读管理页面查看统计、筛选全部记录、分页浏览和识别记录发布者。
-- 登录用户可以在 Lost & Found 首页通过自然语言测试 Agent，支持多轮补充、报失与登记拾获确认、搜索和候选结果跳转；浏览器不会接触 Agent 共享密钥。
-
-当前 Lost & Found 已接入 Agent，并支持 Multilingual-E5 文本语义、CLIP 图片对图片、可选多语言文字对图片、结构化字段融合及基础算法自动降级。通知和移动端仍未实现。Agent 平台说明见上文“Agent 平台（核心）”。
-
-## 政策/规章制度 RAG
-
-`search_policy` 从 `docs/nus_docs/` 下 29 份 NUS 政策/规章 PDF（学生行为守则、考试条例、评估规则等）检索答案：
-
-- **流水线**：LlamaIndex 0.14（PDF → 分块 → 嵌入）→ Qdrant 向量库（`nus_policy`，384 维 COSINE）→ 查询时 Top-K 检索
-- **复用 embedding**：通过 HTTP 调用共享的 `lost-found-embedding` 服务（`intfloat/multilingual-e5-small`），utility 容器不加载模型
-- **离线可用**：`llama-index-core` wheel 内置 tiktoken/nltk 缓存，分块用正则切句避免联网下载
-- **索引生命周期**：`policy-index-builder` 一次性服务全量重建索引（幂等），CD 每次部署自动执行
-- **降级**：服务不可用时返回 `status=failed`，不中断聊天
-
-详见 [docs/policy_rag.md](docs/policy_rag.md)。
-
-## API
-
-认证接口仍为公开接口：
-
-```text
-POST /api/auth/register
-POST /api/auth/login
-```
-
-Lost & Found 接口均需携带 `Authorization: Bearer <token>`：
-
-| 方法 | 接口 | 功能 |
-|---|---|---|
-| `POST` | `/api/lost-found/reports` | 创建 multipart 记录 |
-| `GET` | `/api/lost-found/reports` | 条件筛选与分页 |
-| `GET` | `/api/lost-found/reports/{reportId}` | 查看详情 |
-| `GET` | `/api/lost-found/metadata` | 获取枚举元数据 |
-| `POST` | `/api/lost-found/reports/{reportId}/claims` | 提交认领证明 |
-| `GET` | `/api/lost-found/claims/mine` | 查看我提交的申请 |
-| `GET` | `/api/lost-found/claims/received` | 查看我收到的申请 |
-| `POST` | `/api/lost-found/claims/{claimId}/approve` | 批准申请 |
-| `POST` | `/api/lost-found/claims/{claimId}/reject` | 拒绝申请 |
-
-仅管理员可访问的 Lost & Found 接口：
-
-| 方法 | 接口 | 功能 |
-|---|---|---|
-| `GET` | `/api/admin/lost-found/overview` | 获取记录和待处理认领统计 |
-| `GET` | `/api/admin/lost-found/reports` | 筛选并分页查看全部记录 |
-
-创建拾获记录示例：
-
-```bash
-curl -X POST http://localhost:8080/api/lost-found/reports \
-  -H "Authorization: Bearer $TOKEN" \
-  -F 'report={"reportType":"FOUND","itemName":"Black headphones","category":"ELECTRONICS","description":"Black headphones in a small scratched case","colour":"Black","location":"Central Library","eventDate":"2026-08-06","timeDescription":"Around 3 pm"};type=application/json' \
-  -F 'images=@headphones.png;type=image/png'
-```
-
-筛选开放的拾获记录：
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  'http://localhost:8080/api/lost-found/reports?reportType=FOUND&status=OPEN&category=ELECTRONICS&colour=black&page=0&size=20&sort=createdAt,desc'
-```
-
-## 测试
-
-```bash
-cd backend
-./mvnw test -DskipDependencyCheck=true -Dspotbugs.skip=true
-
-cd ../frontend_web
-npm run lint
-npm test
-npm run build
-
-cd ../services/lost_found_embedding
-uv sync --frozen --all-extras
-uv run ruff check .
-uv run mypy lost_found_embedding tests
-uv run pytest
-```
-
-PR 流水线会执行前后端与 Android 测试、Lint、构建、CodeQL 和依赖审查。Android CI 会上传可安装的 Demo APK；夜间流水线运行模拟器测试。CD 流水线在推送到 `main` 时通过 SSH 部署到 AWS EC2——配置见 `DEPLOYMENT.md`。
+发布签名和构建变体说明见 [Android 中文文档](./frontend_mobile/README_cn.md)。
 
 ## 项目结构
 
 ```text
-project/
-├── agent/                   Agent 体系（平台核心）
-│   ├── chat_core/           编排层（FastAPI + LangGraph；意图路由/HITL/LLM 兜底）
-│   ├── mcp_servers/         MCP Server 适配层（mail/facility/lost-found/utility）
-│   │   └── policy_rag/      政策 RAG：config/embedding/retriever/indexer（LlamaIndex + Qdrant）
-│   ├── lost_found_agent/    L&F 业务引擎（规则 + LLM 意图解析）
-│   └── schemas/             Agent 能力声明（JSON Schema）
-├── backend/
-│   └── src/main/java/com/app/campusagent/
-│       ├── chat/            聊天中继（SSE）+ Token Service 端点
-│       └── lostfound/       L&F Web 业务（controller/ dto/ domain/ exception/ …）
-├── frontend_web/            React Web（聊天 + L&F 页面）和 public/admin-test.html
+CampusLink/
+├── agent/
+│   ├── chat_core/              # FastAPI + LangGraph 编排与 SSE
+│   ├── facilities_agent/       # 设施意图规划与领域适配
+│   ├── lost_found_agent/       # 规则、LLM 解析、工具与 MCP 网关
+│   ├── mail_agent/             # Gmail、日历、分类器与邮件 Agent
+│   ├── mcp_servers/            # 邮件/设施/工具 MCP 与校规 RAG
+│   ├── schemas/                # 版本化 Agent 能力契约
+│   └── shared/                 # 共享安全组件
+├── backend/                    # Spring Boot API、认证、对话转发、设施、失物招领
+├── frontend_web/               # React 学生/管理工作台与生产 Nginx 镜像
+├── frontend_mobile/            # 原生 Android 应用
 ├── services/
-│   └── lost_found_embedding/ 独立 E5/CLIP 预训练多模态服务
-├── frontend_mobile/         Kotlin + Compose Core Chat Android 客户端
-├── docker-compose.yml       MySQL、MinIO、Qdrant 与可选模型 profile
-└── docs/
+│   └── lost_found_embedding/   # Multilingual-E5 与 CLIP 推理服务
+├── deploy/                     # 环境生成与 HTTPS 初始化
+├── docs/                       # 架构、安全、领域与 RAG 文档
+├── .github/workflows/          # CI、安全扫描、Android 发布与 EC2 CD
+├── docker-compose.yml          # 开发/全栈服务编排
+├── docker-compose.prod.yml     # 生产 GHCR 镜像覆盖
+└── DEPLOYMENT.md               # AWS EC2 详细运维手册
 ```
+
+## 生产部署
+
+生产环境使用不可变 GHCR 镜像，并在单台 AWS EC2 上运行 Docker Compose。
+
+```mermaid
+flowchart LR
+    P[推送 main] --> CI[GitHub Actions]
+    CI --> B[构建 7 个服务镜像]
+    B --> R[推送 latest 与提交 SHA 到 GHCR]
+    R --> SSH[SSH 连接 AWS EC2]
+    SSH --> DC[Compose 拉取并更新]
+    DC --> TLS[Nginx + Let's Encrypt]
+    DC --> IDX[重建校规索引]
+```
+
+### 生产基线
+
+- 安装 Docker Engine 与 Compose v2 的 Ubuntu 主机
+- 建议最低配置：2 vCPU、8 GB 内存、30 GB 存储
+- 仅开放入站端口 `22`、`80`、`443`
+- 仓库检出到 `/opt/campuslink`
+- 从 `.env.prod.example` 创建生产 `.env`
+- 主机配置 `REGISTRY=ghcr.io/<github-owner>`
+
+生成带随机密钥的生产环境文件：
+
+```bash
+python deploy/prepare_env.py
+```
+
+在 GitHub Actions 中配置：
+
+| Secret | 用途 |
+|---|---|
+| `VM_HOST`、`VM_USER`、`VM_SSH_KEY` | EC2 SSH 部署 |
+| `CERT_DOMAIN`、`CERT_EMAIL` | Let's Encrypt 证书签发与续期 |
+| `GMAIL_CLIENT_ID`、`GMAIL_CLIENT_SECRET` | 可选：由 CI 管理 Gmail OAuth 配置 |
+| `GMAIL_PROJECT_ID` | 可选：Google Cloud 项目标识 |
+
+每次推送到 `main` 都会触发 `.github/workflows/cd-deploy.yml`：构建 7 个应用镜像，将 `latest` 与提交 SHA 标签推送到 GHCR，更新 EC2 上的代码，拉取镜像，以 `agent` 和 `multimodal` profiles 启动服务，初始化 HTTPS，并刷新政策索引。
+
+服务器上的等价命令是：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile agent --profile multimodal \
+  up -d --pull always --wait --wait-timeout 900
+```
+
+需要部署某个不可变历史版本时，将 `TAG` 设置为已发布的提交 SHA，再执行相同命令。
+
+> [!CAUTION]
+> `.env`、Gmail 凭据、SSH 私钥、JWT 密钥和服务间密钥必须留在 Git 之外。生产安全组不得向公网开放 MySQL、MinIO、Qdrant、Embedding 或 MCP 端口。
+
+服务器初始化、证书签发、健康检查、备份注意事项与故障排查见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
+## 质量保障
+
+仓库包含后端、Web、Python 和 Android 测试套件。Pull Request 执行快速门禁，定时工作流补充完整安全扫描和模型冒烟验证。
+
+```bash
+# 后端
+cd backend
+./mvnw test -DskipDependencyCheck=true -Dspotbugs.skip=true
+
+# Web
+cd ../frontend_web
+npm ci
+npm run lint
+npm test
+npm run build
+
+# Android
+cd ../frontend_mobile
+./gradlew testDemoDebugUnitTest lintDemoDebug detekt assembleDemoDebug
+```
+
+| 工作流 | 覆盖范围 |
+|---|---|
+| `pr-fast-scan.yml` | 后端/Web/Agent 检查、依赖审查和快速安全门禁 |
+| `mobile-ci.yml` | Android 单元测试、Lint、Detekt 与构建 |
+| `mail-calendar-ci.yml` | 邮件/日历测试、Lint、依赖审计、镜像构建与 CodeQL |
+| `multimodal-model-smoke.yml` | 预训练模型集成冒烟测试 |
+| `nightly-full-scan.yml` | 定时完整安全扫描 |
+| `android-release.yml` | Android 签名发布 |
+
+## 贡献指南
+
+欢迎参与贡献。每次改动应聚焦一个领域，并附带能够证明行为正确的验证。
+
+1. Fork 仓库并创建分支，例如 `feat/facilities-filter` 或 `fix/mail-oauth-state`。
+2. 修改接口前，先阅读 `docs/` 下对应领域文档和最近的模块 README。
+3. 在受影响的后端、Web、Python 或 Android 测试套件中添加或更新测试。
+4. 使用明确的 Conventional Commit，例如 `feat(lost-found): add claim filter`。
+5. 提交 Pull Request，说明用户可见变化、安全影响、配置变化和实际执行过的验证命令。
+
+修改 Agent 接口时，需要同步更新 `agent/schemas/` 下对应的 JSON 能力声明，并检查 [Agent 接口契约](./docs/AGENT_INTERFACE_NOTICE.md)。
+
+## 团队分工
+
+| 成员 | Git 身份 | 贡献领域 |
+|---|---|---|
+| TAO Yuchen | `t2047`、`TAO Yuchen` | 项目初始化与 Agent/MCP 总体架构、能力 Schema、服务间安全及 Spring Security/JWT 角色基础；Chat Core 与 Web 集成、SSE/多轮/HITL 编排、跨领域 Agent/工具及政策 RAG；DevSecOps 与交付，包括 PR 快速/夜间扫描、依赖与 Android Release 工作流、Docker/GHCR CI/CD，以及使用 Nginx/Certbot HTTPS 的 AWS EC2 自动部署。 |
+| Zhao Lei（赵磊） | `COKEiiii` | 失物招领基础全栈流程，包括发布 `LOST`/`FOUND`、浏览、筛选和详情（不含 Claim 与管理员功能）；以 Multilingual-E5、CLIP、结构化评分和降级策略构建可解释匹配；负责除 Facilities 外的 Kotlin/Compose 移动端，包括认证、Core Chat、加密历史、失物招领、移动端 Claim UI 集成、邮件/日历、导航、双语和深色模式。 |
+| JIA QIANRUI | `BeforeLanding` | 从所有权证明提交到管理员批准/拒绝及通知的完整 Claim 生命周期；Agent 图片暂存到 MinIO、视觉指纹/向量生成和 Browse 以图搜图；个人中心的资料/头像更新、修改密码与 JWT 失效，以及个人认领和报告聚合。 |
+| Xuhan Zhang | `zhangxuhan75-eng` | 设施全栈系统，包括搜索、预约/取消、冲突检测、维修、状态跟踪、角色管理、数据库集成和后端鉴权；Facilities Agent/MCP 工作流、上下文、确认、日期时间解析及工具/结果集成；Facilities Web 界面和 Android 共享开发与体验优化。 |
+| Wu Tianzhuo | `TonyWu`、`TonyWu2333` | 覆盖 FastAPI、Web、MCP 与 LangChain Agent 的 Gmail OAuth 邮件全栈模块；大模型优先、scikit-learn 兜底的邮件分类；每用户 SQLite 日历 CRUD、邮件日程提取/导入和 Web 日历；OAuth 密钥与回调加固、跨时区稳定测试、容器/生产接线及独立安全 CI。 |
+| lilfizz22 | `lilfizz22` | Web 工作台与管理端界面；设施管理和仪表盘集成；前后端测试维护。 |
+| Mx-May | `Mx-May` | CampusLink 视觉标识；Web 导航和布局；设施界面与代码质量优化。 |
+
+未直接列出提交数量，因为别名、合并提交和协作开发会让原始计数失去代表性。
+
+## 延伸文档
+
+| 文档 | 内容 |
+|---|---|
+| [部署指南](./DEPLOYMENT.md) | AWS EC2、Compose、GHCR、HTTPS 与运维 |
+| [系统架构](./docs/ARCHITECTURE_cn.md) | 系统级组件设计 |
+| [通信安全](./docs/communication-security.md) | HMAC、委托令牌、JWKS 与信任边界 |
+| [设施模块](./docs/facilities/README.md) | 领域规则、API、MCP 工具与测试 |
+| [邮件服务](./agent/mail_agent/README.md) | Gmail OAuth、日历、分类与邮件 Agent |
+| [政策 RAG](./docs/POLICY_RAG_GUIDE_cn.md) | 索引构建、Qdrant 与检索行为 |
+| [失物招领本地复现](./docs/lost-found/LOCAL_REPRODUCTION_cn.md) | 模块端到端验证 |
+| [Android 客户端](./frontend_mobile/README_cn.md) | 构建变体、本地开发与发布签名 |
+
+## 许可证
+
+CampusLink 使用 [MIT License](./LICENSE) 开源。
+
+Copyright © 2026 TAO Yuchen。
