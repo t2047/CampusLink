@@ -272,3 +272,12 @@ Xuhan Zhang's main contributions are:
 - The Facilities Agent and MCP integration, including agent workflow implementation, conversation context and confirmation handling, date/time parsing, tool invocation, result mapping, and integration with the CampusLink Chat Core and Facilities backend.
 
 - The Facilities web frontend and shared Android mobile development, including Facilities user interfaces, frontend API integration, mobile feature integration, navigation, responsive layout improvements, and overall mobile UI/UX optimization.
+
+## Individual Contribution — Wu Tianzhuo
+
+Wu Tianzhuo's main contributions are:
+
+- The full-stack Mail module (backend + web + agent) — a Gmail OAuth2-backed mail REST service (FastAPI) where each CampusLink user binds their own Gmail account (per-user token/identity resolution), a web mail page covering inbox reading, Gmail-style search, compose/send, archive, and delete, an MCP adapter, and a LangChain-based mail agent chat with fuzzy search that Core Chat routes to — including containerization (Docker/Compose) and prod deployment wiring.
+- The email classification system — LLM-first automatic tagging of emails into campus / career / finance / other categories, with a trained scikit-learn ML model (joblib) as a fallback classifier, plus a refresh of the module README for the classification feature.
+- The Calendar module — a per-user calendar service (event CRUD on SQLite) with automatic schedule extraction from emails via rule-based parsing with an LLM fallback (pre-filtering the Gmail window and raising the extract timeout to fix timeouts), a schedule import flow into the calendar, and a web Calendar page with a schedule-import dialog.
+- Security & delivery hardening — removed hardcoded Gmail OAuth client secrets in favor of enforced environment-variable configuration, derived OAuth redirect URIs from the request origin for multi-host deployments, fixed mail tests to be non-UTC timezone stable, and added a dedicated mail & calendar CI pipeline (pytest / ruff / bandit / pip-audit + image build + CodeQL).
