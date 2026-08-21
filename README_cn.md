@@ -328,7 +328,7 @@ cd ../frontend_mobile
 | 成员 | Git 身份 | 贡献领域 |
 |---|---|---|
 | TAO Yuchen | `t2047`、`TAO Yuchen` | 项目初始化与 Agent/MCP 总体架构、能力 Schema、服务间安全及 Spring Security/JWT 角色基础；Chat Core 与 Web 集成、SSE/多轮/HITL 编排、跨领域 Agent/工具及政策 RAG；DevSecOps 与交付，包括 PR 快速/夜间扫描、依赖与 Android Release 工作流、Docker/GHCR CI/CD，以及使用 Nginx/Certbot HTTPS 的 AWS EC2 自动部署。 |
-| Zhao Lei（赵磊） | `COKEiiii` | 失物招领基础全栈流程，包括发布 `LOST`/`FOUND`、浏览、筛选和详情（不含 Claim 与管理员功能）；以 Multilingual-E5、CLIP、结构化评分和降级策略构建可解释匹配；负责除 Facilities 外的 Kotlin/Compose 移动端，包括认证、Core Chat、加密历史、失物招领、移动端 Claim UI 集成、邮件/日历、导航、双语和深色模式。 |
+| Zhao Lei | `COKEiiii` | 失物招领基础全栈流程，包括发布 `LOST`/`FOUND`、浏览、筛选和详情（不含 Claim 与管理员功能）；以 Multilingual-E5、CLIP、结构化评分和降级策略构建可解释匹配；负责除 Facilities 外的 Kotlin/Compose 移动端，包括认证、Core Chat、加密历史、失物招领、移动端 Claim UI 集成、邮件/日历、导航、双语和深色模式。 |
 | JIA QIANRUI | `BeforeLanding` | 从所有权证明提交到管理员批准/拒绝及通知的完整 Claim 生命周期；Agent 图片暂存到 MinIO、视觉指纹/向量生成和 Browse 以图搜图；个人中心的资料/头像更新、修改密码与 JWT 失效，以及个人认领和报告聚合。 |
 | Xuhan Zhang | `zhangxuhan75-eng` | 设施全栈系统，包括搜索、预约/取消、冲突检测、维修、状态跟踪、角色管理、数据库集成和后端鉴权；Facilities Agent/MCP 工作流、上下文、确认、日期时间解析及工具/结果集成；Android 共享功能与 UI/UX、Facilities Web/API 集成，以及认证、权限、Chat Core/MCP 和跨模块回归测试。 |
 | Wu Tianzhuo | `TonyWu`、`TonyWu2333` | 覆盖 FastAPI、Web、MCP 与 LangChain Agent 的 Gmail OAuth 邮件全栈模块；大模型优先、scikit-learn 兜底的邮件分类；每用户 SQLite 日历 CRUD、邮件日程提取/导入和 Web 日历；OAuth 密钥与回调加固、跨时区稳定测试、容器/生产接线及独立安全 CI。 |
