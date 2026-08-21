@@ -64,7 +64,7 @@
 - ✅ **校规 RAG** — 通过 LlamaIndex、共享向量服务和 Qdrant，从 `docs/nus_docs/` 的政策 PDF 中检索答案。
 - ✅ **常用工具** — 通过 MCP 提供计算器、当前时间、单位与货币换算、网页及新闻搜索。
 - ✅ **Web 与原生 Android** — 两端共享账号和校园服务体验；Android 使用加密本地存储，并提供 local、demo、prod 三种构建变体。
-- ✅ **管理工作台** — 用户角色、系统概览、设施运营、失物招领审核和报表视图与学生流程分离。
+- ✅ **管理工作台** — 提供受保护的 `ADMIN`/`SUPER_ADMIN` 路由、跨模块 KPI 与图表、设施预约检索、维修运营、失物招领审核和 30 天使用报告。
 
 ## 技术栈
 
@@ -330,10 +330,10 @@ cd ../frontend_mobile
 | TAO Yuchen | `t2047`、`TAO Yuchen` | 项目初始化与 Agent/MCP 总体架构、能力 Schema、服务间安全及 Spring Security/JWT 角色基础；Chat Core 与 Web 集成、SSE/多轮/HITL 编排、跨领域 Agent/工具及政策 RAG；DevSecOps 与交付，包括 PR 快速/夜间扫描、依赖与 Android Release 工作流、Docker/GHCR CI/CD，以及使用 Nginx/Certbot HTTPS 的 AWS EC2 自动部署。 |
 | Zhao Lei（赵磊） | `COKEiiii` | 失物招领基础全栈流程，包括发布 `LOST`/`FOUND`、浏览、筛选和详情（不含 Claim 与管理员功能）；以 Multilingual-E5、CLIP、结构化评分和降级策略构建可解释匹配；负责除 Facilities 外的 Kotlin/Compose 移动端，包括认证、Core Chat、加密历史、失物招领、移动端 Claim UI 集成、邮件/日历、导航、双语和深色模式。 |
 | JIA QIANRUI | `BeforeLanding` | 从所有权证明提交到管理员批准/拒绝及通知的完整 Claim 生命周期；Agent 图片暂存到 MinIO、视觉指纹/向量生成和 Browse 以图搜图；个人中心的资料/头像更新、修改密码与 JWT 失效，以及个人认领和报告聚合。 |
-| Xuhan Zhang | `zhangxuhan75-eng` | 设施全栈系统，包括搜索、预约/取消、冲突检测、维修、状态跟踪、角色管理、数据库集成和后端鉴权；Facilities Agent/MCP 工作流、上下文、确认、日期时间解析及工具/结果集成；Facilities Web 界面和 Android 共享开发与体验优化。 |
+| Xuhan Zhang | `zhangxuhan75-eng` | 设施全栈系统，包括搜索、预约/取消、冲突检测、维修、状态跟踪、角色管理、数据库集成和后端鉴权；Facilities Agent/MCP 工作流、上下文、确认、日期时间解析及工具/结果集成；Android 共享功能与 UI/UX、Facilities Web/API 集成，以及认证、权限、Chat Core/MCP 和跨模块回归测试。 |
 | Wu Tianzhuo | `TonyWu`、`TonyWu2333` | 覆盖 FastAPI、Web、MCP 与 LangChain Agent 的 Gmail OAuth 邮件全栈模块；大模型优先、scikit-learn 兜底的邮件分类；每用户 SQLite 日历 CRUD、邮件日程提取/导入和 Web 日历；OAuth 密钥与回调加固、跨时区稳定测试、容器/生产接线及独立安全 CI。 |
-| lilfizz22 | `lilfizz22` | Web 工作台与管理端界面；设施管理和仪表盘集成；前后端测试维护。 |
-| Mx-May | `Mx-May` | CampusLink 视觉标识；Web 导航和布局；设施界面与代码质量优化。 |
+| Liu Zhuocheng | `lilfizz22` | Web 管理端基础，包括受保护路由、响应式布局、导航、模块入口和错误页；失物招领管理的实时指标、认领筛选、证据/详情、审批、冲突处理与 API 集成；跨模块 KPI、图表、运营表格、设施管理 API 和 30 天管理员使用报告。 |
+| Cai Hanbo | `Mx-May` | 设施管理仪表盘，包括概览统计、预约检索/筛选、维修管理、排序分页及 Spring Boot 动态查询；工作台导航、页面布局、返回流程、全高表单和 CampusLink 品牌标识；双语设施 FAQ、跨模块导航一致性、共享分页及服务端筛选聚合。 |
 
 未直接列出提交数量，因为别名、合并提交和协作开发会让原始计数失去代表性。
 
