@@ -353,5 +353,3 @@ Commit counts are intentionally omitted because aliases, merge commits, and pair
 ## License
 
 CampusLink is released under the [MIT License](./LICENSE).
-
-Copyright © 2026 TAO Yuchen.
