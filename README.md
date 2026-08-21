@@ -252,6 +252,18 @@ Zhao Lei's main contributions are:
   authentication, Core Chat, encrypted local history, Lost & Found screens, mobile Claim UI
   integration, Mail and Calendar, navigation, bilingual support, and dark mode.
 
+## Individual Contribution — Xuhan Zhang
+
+Xuhan Zhang's main contributions are:
+
+- The full-stack Facilities System, covering facility search, space booking and cancellation, booking conflict detection, maintenance request submission, booking/request status tracking, role-based status management, database integration, and backend authorization.
+
+- The Facilities Agent and MCP integration, including agent workflow implementation, conversation context and confirmation handling, date/time parsing, tool invocation, result mapping, and integration with the CampusLink Chat Core and Facilities backend.
+
+- The shared Android mobile application development, with major contributions to mobile feature integration and overall UI/UX optimization, including navigation, responsive layouts, visual consistency, and cross-screen interface improvements, as well as the Facilities web frontend and related API integration.
+
+- System integration and regression testing, including Facilities integration with shared authentication and security configuration, Chat Core/MCP connectivity, branch synchronization, merge conflict resolution, API verification, permission testing, and regression checks to ensure new Facilities functionality did not break existing CampusLink modules.
+
 ## Individual Contribution — JIA QIANRUI
 
 JIA QIANRUI's main contributions are:
@@ -262,16 +274,6 @@ JIA QIANRUI's main contributions are:
   generation, and image-based "search by image" retrieval on the Browse page.
 - The Personal Center (`/lost-found/profile`) with profile and avatar updates, password change
   and JWT invalidation, and an aggregated view of the user's claims and reports.
-
-## Individual Contribution — Xuhan Zhang
-
-Xuhan Zhang's main contributions are:
-
-- The full-stack Facilities System, covering facility search, space booking and cancellation, booking conflict detection, maintenance request submission, booking/request status tracking, role-based status management, database integration, and backend authorization.
-
-- The Facilities Agent and MCP integration, including agent workflow implementation, conversation context and confirmation handling, date/time parsing, tool invocation, result mapping, and integration with the CampusLink Chat Core and Facilities backend.
-
-- The Facilities web frontend and shared Android mobile development, including Facilities user interfaces, frontend API integration, mobile feature integration, navigation, responsive layout improvements, and overall mobile UI/UX optimization.
 
 ## Individual Contribution — Wu Tianzhuo
 
