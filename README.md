@@ -16,15 +16,15 @@ Pretrained model boundaries and evaluation are documented in the [Chinese multim
 
 ## Tech Stack
 
-| Module | Technology |
-|---|---|
-| Orchestration (core) | Python 3.12, FastAPI, LangGraph, MCP SDK |
-| Backend | Java 21, Spring Boot 4.1, Spring Security, JWT |
-| Web | React 19, TypeScript, Vite, MUI, Axios |
-| Android | Kotlin, Jetpack Compose, Room/SQLCipher, OkHttp SSE |
-| Data | MySQL 8 |
-| Images | Private MinIO bucket with 15-minute presigned URLs |
-| Testing | JUnit 5, Mockito, H2, Vitest, Testing Library, pytest |
+| Module               | Technology                                            |
+| -------------------- | ----------------------------------------------------- |
+| Orchestration (core) | Python 3.12, FastAPI, LangGraph, MCP SDK              |
+| Backend              | Java 21, Spring Boot 4.1, Spring Security, JWT        |
+| Web                  | React 19, TypeScript, Vite, MUI, Axios                |
+| Android              | Kotlin, Jetpack Compose, Room/SQLCipher, OkHttp SSE   |
+| Data                 | MySQL 8                                               |
+| Images               | Private MinIO bucket with 15-minute presigned URLs    |
+| Testing              | JUnit 5, Mockito, H2, Vitest, Testing Library, pytest |
 
 ## Local Setup
 
@@ -42,6 +42,30 @@ cp .env backend/.env
 # Start infrastructure, Spring Boot, Chat Core, MCP services, and the Mail REST service
 docker compose up -d
 ```
+
+## Admin Facilities Dashboard
+
+The web admin area includes a Facilities module at `/admin/facilities` with:
+
+- Dashboard: a searchable and sortable table of all facilities, including status and recent reservation count.
+- Reservations: administrator access to reservations from all user accounts, with filtering and sorting by applicant, date, status, or ID.
+- Maintenance: administrator access to all maintenance requests, with status and priority filters and status updates.
+- Facility reservation details: select a facility to view its reservation calendar and open individual reservation details.
+
+The administrator overview also includes Lost & Found and Facilities KPI summaries. The Facilities summary shows total facilities, available facilities, today's reservations, and facilities under maintenance.
+
+Administrator-only endpoints:
+
+```text
+GET /api/admin/facilities/bookings
+GET /api/admin/facilities/bookings/{bookingId}
+GET /api/admin/facilities/maintenance
+GET /api/admin/facilities/maintenance/{ticketId}
+PATCH /api/facilities/maintenance/{ticketId}/status
+GET /api/admin/facilities/analytics
+```
+
+New bookings are currently confirmed automatically after availability and conflict checks. Administrator approval workflow is not enabled yet.
 
 The Mail module (Gmail REST + Calendar + ML classifier + LangChain agent) runs as
 the `mail-service` container on port 5000 (OAuth callback
@@ -163,24 +187,24 @@ POST /api/auth/login
 
 All Lost & Found endpoints require `Authorization: Bearer <token>`:
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/api/lost-found/reports` | Create a multipart report |
-| `GET` | `/api/lost-found/reports` | Filter and page reports |
-| `GET` | `/api/lost-found/reports/{reportId}` | Get report details |
-| `GET` | `/api/lost-found/metadata` | Get enum values |
-| `POST` | `/api/lost-found/reports/{reportId}/claims` | Submit ownership proof |
-| `GET` | `/api/lost-found/claims/mine` | List claims submitted by the user |
-| `GET` | `/api/lost-found/claims/received` | List claims received by the user |
-| `POST` | `/api/lost-found/claims/{claimId}/approve` | Approve a received claim |
-| `POST` | `/api/lost-found/claims/{claimId}/reject` | Reject a received claim |
+| Method   | Endpoint                                      | Purpose                           |
+| -------- | --------------------------------------------- | --------------------------------- |
+| `POST` | `/api/lost-found/reports`                   | Create a multipart report         |
+| `GET`  | `/api/lost-found/reports`                   | Filter and page reports           |
+| `GET`  | `/api/lost-found/reports/{reportId}`        | Get report details                |
+| `GET`  | `/api/lost-found/metadata`                  | Get enum values                   |
+| `POST` | `/api/lost-found/reports/{reportId}/claims` | Submit ownership proof            |
+| `GET`  | `/api/lost-found/claims/mine`               | List claims submitted by the user |
+| `GET`  | `/api/lost-found/claims/received`           | List claims received by the user  |
+| `POST` | `/api/lost-found/claims/{claimId}/approve`  | Approve a received claim          |
+| `POST` | `/api/lost-found/claims/{claimId}/reject`   | Reject a received claim           |
 
 Administrator-only Lost & Found endpoints:
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/admin/lost-found/overview` | Get report and pending-claim metrics |
-| `GET` | `/api/admin/lost-found/reports` | Filter and page all reports for operations review |
+| Method  | Endpoint                           | Purpose                                           |
+| ------- | ---------------------------------- | ------------------------------------------------- |
+| `GET` | `/api/admin/lost-found/overview` | Get report and pending-claim metrics              |
+| `GET` | `/api/admin/lost-found/reports`  | Filter and page all reports for operations review |
 
 Create a report:
 
@@ -291,3 +315,11 @@ Liu Zhuocheng main contributions are:
 - The Web Admin Dashboard foundation, including `ADMIN` and `SUPER_ADMIN` route protection, responsive administrative layouts, sidebar navigation, module entry points, and dedicated error pages.
 - The Lost & Found administration frontend, including real-time overview metrics, claim filtering and pagination, evidence and report details, approval and rejection workflows, conflict handling, and API integration.
 - The system-wide administration dashboard and reporting features, including cross-module KPIs, charts, operational monitoring tables, Facilities administration APIs, and the 30-day Administrative Usage Report.
+
+## Individual Contribution — Cai Hanbo
+
+Cai Hanbo's main contributions are:
+
+- The admin-side Facilities Dashboard, covering overview statistics, booking search and filtering, maintenance ticket management, paginated sorting, and the supporting Spring Boot admin facilities API with dynamic queries and pagination validation.
+- Frontend structure redeployment and UI/UX improvements, including workspace navigation and page layout refinements, unified page title styling, source-aware return buttons, full-height report forms, and a new CampusLink brand logo applied across the app.
+- Cross-module consistency improvements, including a bilingual Facilities FAQ section, chat and Facilities navigation refinements, shared pagination builder extraction, and client-side aggregation replaced with server-side filtered queries.
