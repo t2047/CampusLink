@@ -354,4 +354,3 @@ cd ../frontend_mobile
 
 CampusLink 使用 [MIT License](./LICENSE) 开源。
 
-Copyright © 2026 TAO Yuchen。
