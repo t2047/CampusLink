@@ -262,3 +262,13 @@ JIA QIANRUI's main contributions are:
   generation, and image-based "search by image" retrieval on the Browse page.
 - The Personal Center (`/lost-found/profile`) with profile and avatar updates, password change
   and JWT invalidation, and an aggregated view of the user's claims and reports.
+
+## Individual Contribution — Xuhan Zhang
+
+Xuhan Zhang's main contributions are:
+
+- The full-stack Facilities System, covering facility search, space booking and cancellation, booking conflict detection, maintenance request submission, booking/request status tracking, role-based status management, database integration, and backend authorization.
+
+- The Facilities Agent and MCP integration, including agent workflow implementation, conversation context and confirmation handling, date/time parsing, tool invocation, result mapping, and integration with the CampusLink Chat Core and Facilities backend.
+
+- The Facilities web frontend and shared Android mobile development, including Facilities user interfaces, frontend API integration, mobile feature integration, navigation, responsive layout improvements, and overall mobile UI/UX optimization.
